@@ -1,6 +1,6 @@
-# Ceedling Test Explorer for Visual Studio Code
+# Visual Studio Code Ceedling Extension
 
-Run your [Ceedling](https://github.com/ThrowTheSwitch/Ceedling) tests using the 
+Run your [Ceedling](https://github.com/ThrowTheSwitch/Ceedling) test suite using the 
 [Test Explorer UI](https://marketplace.visualstudio.com/items?itemName=hbenl.vscode-test-explorer).
 
 ![Screenshot](img/screenshot.png)
@@ -153,4 +153,4 @@ Example configuration with Native Debug (`webfreak.debug`):
 
 ## Troubleshooting
 
-If you think you've found a bug, please [file a bug report](https://github.com/numaru/vscode-ceedling-test-adapter/issues).
+If you think you've found a bug, please [file a bug report](https://github.com/throwtheswitch/vscode-ceedling/issues).
