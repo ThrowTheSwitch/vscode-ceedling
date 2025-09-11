@@ -1,27 +1,30 @@
 {
-  "name": "vscode-ceedling-test-adapter-multi",
-  "displayName": "Ceedling Test Explorer",
-  "description": "Run your Ceedling tests in the Sidebar of Visual Studio Code",
+  "name": "vscode-ceedling",
+  "displayName": "Ceedling",
+  "description": "Interact with your Ceedling test suite from Visual Studio Code",
   "icon": "img/icon.png",
   "author": {
-    "name": "Kin Numaru"
+    "name": "Throw The Switch",
+    "url": "https://throwtheswitch.org/"
   },
   "contributors": [
     {
-      "name": "Simeon Schmachtenberg",
-      "email": "simeon.schmachtenberg@futavis.de"
+      "name": "Michael Karlesky"
+    },
+    {
+      "name": "Mark VanderVoord"
     }
   ],
-  "publisher": "futavis",
-  "version": "2.0.0",
+  "publisher": "throw-the-switch",
+  "version": "1.0.0",
   "license": "MIT",
-  "homepage": "https://github.com/numaru/vscode-ceedling-test-adapter",
+  "homepage": "https://github.com/throwtheswitch/vscode-ceedling",
   "repository": {
     "type": "git",
-    "url": "https://github.com/numaru/vscode-ceedling-test-adapter.git"
+    "url": "https://github.com/throwtheswitch/vscode-ceedling.git"
   },
   "bugs": {
-    "url": "https://github.com/numaru/vscode-ceedling-test-adapter/issues"
+    "url": "https://github.com/throwtheswitch/vscode-ceedling/issues"
   },
   "categories": [
     "Other"
@@ -29,8 +32,15 @@
   "keywords": [
     "ceedling",
     "test",
-    "testing"
+    "testing",
+    "tdd",
+    "test-driven-development",
+    "C",
+    "embedded"
   ],
+  "sponsor": {
+    "url": "https://github.com/sponsors/ThrowTheSwitch"
+  },
   "main": "out/src/main.js",
   "scripts": {
     "clean": "rimraf out *.vsix",
@@ -54,6 +64,7 @@
     "strip-ansi": "^6.0.0",
     "tree-kill": "^1.2.2",
     "tslib": "^1.9.3",
+    "vsce": "^2.15.0",
     "vscode-test-adapter-api": "^1.2.0",
     "vscode-test-adapter-util": "^0.5.1",
     "xml2js": "^0.6.2"
@@ -63,7 +74,7 @@
     "@types/mocha": "^8.2.0",
     "@types/vscode": "^1.71.0",
     "@vscode/test-electron": "^2.3.8",
-    "@vscode/vsce": "^2.22.0",
+    "@vscode/vsce": "^2.32.0",
     "esbuild": "^0.19.11",
     "glob": "^7.1.6",
     "mocha": "^10.0.0",
@@ -81,7 +92,7 @@
   "contributes": {
     "configuration": {
       "type": "object",
-      "title": "Ceedling Test Explorer configuration",
+      "title": "Ceedling project configuration",
       "properties": {
         "ceedlingExplorer.projects": {
           "description": "Path to the Ceedling project directories or yml files if not 'project.yml'",
