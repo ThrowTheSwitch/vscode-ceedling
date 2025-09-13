@@ -1,42 +1,51 @@
-# Visual Studio Code Ceedling Extension
+# 🌱 Ceedling Visual Studio Code Extension
 
-Run your [Ceedling](https://github.com/ThrowTheSwitch/Ceedling) test suite using the 
-[Test Explorer UI](https://marketplace.visualstudio.com/items?itemName=hbenl.vscode-test-explorer).
+[Ceedling] is a handy-dandy build system for C projects. This extension allows you to run your Ceedling 1.0.0+ test suite using the [Test Explorer UI][test-explorer-ui].
 
 ![Screenshot](img/screenshot.png)
 
+[Ceedling]: https://github.com/ThrowTheSwitch/Ceedling
+[test-explorer-ui]: https://marketplace.visualstudio.com/items?itemName=hbenl.vscode-test-explorer
 
-## Important changes for this release (ceedling 1.0.0 & multi project setup)
+## Supporting this work
 
-* The projectPath property in the settings was renamed to projects and is now a list of objects, including *path*, *debugLaunchConfig* and optionally *name*. This must be edited directly in the settings.json:
-  * "path": can point either to a directory containing a "project.yml" file or directly to another .yml file(with the respective project.yml in the same directory). This path should be relative to the workspace root directory.
-  * "debugLaunchConfig": must be the *name* property of the launch config (launch.json) that is used for this project. The ${command:ceedlingExplorer.debugTestExecutable} must still be used.
-  * "name" (optional): used as name for the folder containing the tests in the test explorer
+Ceedling and its complementary [ThrowTheSwitch] pieces and parts are and always will be freely available and open source.
 
+💼 **_[Ceedling Suite][ceedling-suite]_** is a growing collection of paid products and services built around Ceedling to help you do even more.
+**_[Ceedling Assist][ceedling-assist]_** for support contracts and training is now available.
 
-## Features
+🙏🏻 **[Please consider supporting Ceedling and this extension as a Github Sponsor][tts-sponsor]**
 
-* Shows a Test Explorer in the Test view in VS Code's sidebar with all detected tests and suites and their state
-* Adds CodeLenses to your test files for starting and debugging tests
-* Adds Gutter decorations to your test files showing the tests' state
-* Adds line decorations to the source line where a test failed
-* Shows a failed test's log when the test is selected in the explorer
-* Lets you choose test suites that should be run automatically after each file change
+[ThrowTheSwitch]: https://github.com/ThrowTheSwitch
+[ceedling-suite]: https://www.thingamabyte.com/ceedling
+[ceedling-assist]: https://www.thingamabyte.com/ceedlingassist
+[tts-sponsor]: https://github.com/sponsors/ThrowTheSwitch
+
+# Features
+
+* Shows a Test Explorer in the Test view in VS Code's sidebar with all detected tests and suites and their state.
+* Adds CodeLenses to your test files for starting and debugging tests.
+* Adds Gutter decorations to your test files showing the tests' state.
+* Adds line decorations to the source line where a test failed.
+* Shows a failed test's log when the test is selected in the explorer.
+* Lets you choose test suites that should be run automatically after each file change.
 * Can be set up to report compiler and linker problems inline in the editor and in the Problems panel.
 
-## Getting started
+# Getting started
 
-* Install the extension and restart VS Code
-* Open the workspace or folder containing your Ceedling project
-* Configure your `project.yml` path in the VS Code's settings if required [see below](#options)
-* Configure the shell path where Ceedling is installed in the VS Code's settings if required (It might be required on Windows) [see below](#options)
-* Enable the `xml_tests_report` Ceedling plugin (v0.31.1) or `report_tests_log_factory` Ceedling plugin and `cppunit` option (v1.0.0) in your `project.yml` [see the Ceedling doc](https://github.com/ThrowTheSwitch/Ceedling/blob/master/docs/CeedlingPacket.md#tool-element-runtime-substitution-notational-substitution)
-* Open the Test view
-* Run your tests using the ![Run](img/run.png) icons in the Test Explorer or the CodeLenses in your test file
+* Install the extension and restart VS Code.
+* Open the workspace or folder containing your Ceedling 1.0.0+ project.
+* Configure your Ceedling project configuration filepath in the VS Code's settings if required [see below](#options).
+* Configure the shell path where Ceedling is installed in the VS Code's settings if required (Windows) [see below](#options)
+* [Enable and configure][cppunit-plugin] the `report_tests_log_factory` Ceedling plugin with the `cppunit` option in your Ceedling project configuration. This generates an XML test report.
+* Open the Test view.
+* Run your tests using the ![Run](img/run.png) icons in the Test Explorer or the CodeLenses in your test file.
 
-## Configuration
+[cppunit-plugin]: https://github.com/ThrowTheSwitch/Ceedling/blob/master/plugins/report_tests_log_factory/README.md
 
-### Options
+# Configuration
+
+## Options
 
 Property                                | Description
 ----------------------------------------|---------------------------------------------------------------
@@ -52,7 +61,7 @@ Property                                | Description
 `ceedlingExplorer.ansiEscapeSequencesRemoved`| Should the ansi escape sequences be removed from ceedling stdout and stderr. By default it is `true`
 <br>
 
-### Problem matching
+## Problem matching
 
 Problem matching is the mechanism that scans Ceedling output text for known error/warning/info strings and reports these inline in the editor and in the Problems panel. Tries to resemble VSCode Tasks problemMatchers mechanism.
 
@@ -101,7 +110,7 @@ Example pattern object (GCC compiler warnings):
 }
 ```
 
-## Commands
+# Commands
 
 The following commands are available in VS Code's command palette, use the ID to add them to your keyboard shortcuts:
 
@@ -115,7 +124,7 @@ ID                                 | Command
 `test-explorer.run-test-at-cursor` | Run the test at the current cursor position
 `test-explorer.cancel`             | Cancel running tests
 
-## Debugging
+# Debugging
 
 To set up debugging, create a new Debug Configuration. `${command:ceedlingExplorer.debugTestExecutable}` 
 can be used access the .out test executable filename being ran. Depending on your Ceedling configuration these can be found in `projectPath/build/test/out/`.
@@ -147,10 +156,18 @@ Example configuration with Native Debug (`webfreak.debug`):
 }
 ```
 
-## Known issues
-
-* Cannot use both the junit Ceedling plugin and the xml plugin required by this extension because they are using the same ouput filename by default. If the version of the Ceedling you are using is greather than 0.28.3, you should be able to configure the output filename. [#20](https://github.com/numaru/vscode-ceedling-test-adapter/issues/20)
-
-## Troubleshooting
+# Troubleshooting
 
 If you think you've found a bug, please [file a bug report](https://github.com/throwtheswitch/vscode-ceedling/issues).
+
+# Acknowledgments
+
+This VS Code extension is a fork of the orphaned _Ceedling Test Explorer_ extension [[Github][ceedling-test-explorer-github], [Marketplace][ceedling-test-explorer-marketplace]] originally authored by [Kin Numaru](https://github.com/numaru) and taken over by the [ThrowTheSwitch](https://throwtheswitch.org) community, the authors and maintainers of Ceedling itself.
+
+Ceedling 1.0.0 compatibility was added to the original extension project by merging a [PR][1.0.0-pr] authored by [@simeon-s1](https://github.com/simeon-s1).
+
+Thank you to Kin, @simeon-s1, and all those who contributed to the original repository.
+
+[ceedling-test-explorer-github]: https://github.com/numaru/vscode-ceedling-test-adapter.git
+[ceedling-test-explorer-marketplace]: https://marketplace.visualstudio.com/items?itemName=numaru.vscode-ceedling-test-adapter
+[1.0.0-pr]: https://github.com/numaru/vscode-ceedling-test-adapter/pull/139
