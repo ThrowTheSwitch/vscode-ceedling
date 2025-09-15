@@ -24,6 +24,8 @@ import { Logger } from './logger';
 import { ProblemMatcher, ProblemMatchingPattern } from './problemMatcher';
 import deepmerge from 'deepmerge';
 
+const MINIMUM_CEEDLING_VERSION = '1.0.0';
+
 type ProjectData = {
     projectPath: string,
     ymlFileName: any,
@@ -55,7 +57,6 @@ interface ExtendedTestInfo extends TestInfo {
 export class CeedlingAdapter implements TestAdapter {
 
     private ceedlingVersionChecked = false;
-    private isOldCeedlingVersion = true;
     private disposables: { dispose(): void }[] = [];
 
     private readonly testsEmitter = new vscode.EventEmitter<TestLoadStartedEvent | TestLoadFinishedEvent>();
@@ -149,15 +150,19 @@ export class CeedlingAdapter implements TestAdapter {
         try {
             const version = await this.getCeedlingVersion();
             this.logger.debug(`checkCeedlingVersion()=${version}`);
+            this.logger.debug(`MINIMUM_CEEDLING_VERSION=${MINIMUM_CEEDLING_VERSION}`);
+            this.logger.debug(`semver.lt result=${semver.lt(version, MINIMUM_CEEDLING_VERSION)}`);
             this.ceedlingVersionChecked = true;
-            if (semver.satisfies(version, "<0.31.2")) {
-                this.isOldCeedlingVersion = true;
-                return
-            }
-            this.isOldCeedlingVersion = false;
+            
+            if (semver.lt(version, MINIMUM_CEEDLING_VERSION)) {
+                const errorMessage = `Ceedling version ${version} is not supported. This extension requires Ceedling version ${MINIMUM_CEEDLING_VERSION} or higher. Please upgrade your Ceedling installation.`;
+                this.logger.error(errorMessage);
+                throw new Error(errorMessage);
+            }            
         }
         catch (e) {
             this.logger.error(`Ceedling Version Check failed: ${util.format(e)}`);
+            throw e; // Re-throw to propagate the error
         }
     }
 
@@ -165,10 +170,18 @@ export class CeedlingAdapter implements TestAdapter {
         this.ceedlingVersionChecked = false;
         this.logger.trace(`load()`);
         this.testsEmitter.fire({ type: 'started' } as TestLoadStartedEvent);
-        await this.checkCeedlingVersion();
-        if (!this.ceedlingVersionChecked) {
+
+        try {
+            await this.checkCeedlingVersion();
+        } catch (e) {
+            const errorMessage = e instanceof Error ? e.message : `Ceedling version check failed: ${util.format(e)}`;
+            this.testsEmitter.fire({
+                type: 'finished',
+                errorMessage: errorMessage
+            } as TestLoadFinishedEvent);
             return;
         }
+
         for (const projectKey of this.getProjectKeys()) {
             const ymlProjectData = await this.getYmlProjectData(projectKey);
             this.logger.debug(`load(projectKey=${projectKey}, ymlProjectData=${util.format(ymlProjectData)})`);
@@ -192,11 +205,7 @@ export class CeedlingAdapter implements TestAdapter {
             return;
         }
         this.watchFilesForReload(ymlPaths);
-        let filetypes = ['test']
-        if (!this.isOldCeedlingVersion) {
-            filetypes = ['assembly', 'header', 'source', 'test']
-
-        }
+        let filetypes = ['assembly', 'header', 'source', 'test']
         for (const fileType of filetypes as (keyof ProjectData["files"])[]) {
             this.logger.debug(`loadFileLists(fileType=${fileType})`);
             await this.loadFileLists(fileType);
@@ -284,10 +293,8 @@ export class CeedlingAdapter implements TestAdapter {
             // Get test executable file name without extension
             const testFileName = `${/([^/]*).c$/.exec(testToExec)![1]}`;
             // Set current test executable
-            if (this.detectTestSpecificDefines(ymlProjectData, testFileName) || !this.isOldCeedlingVersion) {
+            if (this.detectTestSpecificDefines(ymlProjectData, testFileName)) {
                 this.setDebugTestExecutable(`${testFileName}/${testFileName}${ext}`);
-            } else {
-                this.setDebugTestExecutable(`${testFileName}${ext}`);
             }
 
             // trigger testsuite start event
@@ -474,17 +481,14 @@ export class CeedlingAdapter implements TestAdapter {
             return `Failed to find or load the project.yml file for ${projectKey}. ` +
                 `Please check the ceedlingExplorer.projectPath option.`;
         }
-        if (!this.isOldCeedlingVersion) {
-            try {
-                if (!ymlProjectData[':plugins'][':enabled'].includes('report_tests_log_factory')) {
-                    throw 'Report tests log factory plugin not enabled';
-                }
-            } catch (e) {
-                return `The required Ceedling plugin 'report_tests_log_factory' is not enabled. ` +
-                    `You have to edit ${this.getYmlProjectPath(projectKey)} file to enable the plugin.\n` +
-                    `see https://github.com/ThrowTheSwitch/Ceedling/blob/master/docs/CeedlingPacket.md` +
-                    `#tool-element-runtime-substitution-notational-substitution`;
+        try {
+            if (!ymlProjectData[':plugins'][':enabled'].includes('report_tests_log_factory')) {
+                throw 'Report tests log factory plugin not enabled';
             }
+        } catch (e) {
+            return `The required Ceedling plugin 'report_tests_log_factory' is not enabled. ` +
+                `You have to edit ${this.getYmlProjectPath(projectKey)} file to enable the plugin.\n` +
+                `see https://github.com/ThrowTheSwitch/Ceedling/blob/master/plugins/report_tests_log_factory/README.md`;
         }
     }
 
@@ -647,7 +651,7 @@ export class CeedlingAdapter implements TestAdapter {
             this.logger.error(`fail to get the ceedling version: ${util.format(result)}`);
             return '0.0.0';
         }
-        return match[1];
+        return match[1].trim();
     }
 
     private execCeedlingAllProjects(args: ReadonlyArray<string>): Promise<any>[] {
@@ -661,17 +665,11 @@ export class CeedlingAdapter implements TestAdapter {
     private execCeedling(args: ReadonlyArray<string>, projectKey = Object.keys(this.projectData)[0]): Promise<any> {
         let cwd = ".";
         if (this.ceedlingVersionChecked && projectKey in this.projectData) {
-            if (!this.isOldCeedlingVersion) {
-                let projectParam = ` --project project.yml`;
-                if (this.projectData[projectKey].ymlFileName != 'project.yml') {
-                    projectParam += ` --mixin ${this.projectData[projectKey].ymlFileName}`;
-                }
-                args = [...args, projectParam];
-            } else {
-                const project = this.projectData[projectKey].ymlFileName.substr(0, this.projectData[projectKey].ymlFileName.lastIndexOf('.'));
-                let projectParam = ` project:${project} `;
-                args = [...args, projectParam];
+            let projectParam = ` --project project.yml`;
+            if (this.projectData[projectKey].ymlFileName != 'project.yml') {
+                projectParam += ` --mixin ${this.projectData[projectKey].ymlFileName}`;
             }
+            args = [...args, projectParam];
             cwd = this.projectData[projectKey].absPath;
         }
         let command = this.getCeedlingCommand(args);
@@ -754,26 +752,15 @@ export class CeedlingAdapter implements TestAdapter {
 
     private setXmlReportPath(projectKey: string, ymlProjectData: any = undefined) {
         let reportFilename = 'report.xml';
-        if (this.isOldCeedlingVersion) {
-            if (ymlProjectData) {
-                try {
-                    const ymlProjectReportFilename = ymlProjectData[':xml_tests_report'][':artifact_filename'];
-                    if (ymlProjectReportFilename != undefined) {
-                        reportFilename = ymlProjectReportFilename;
-                    }
-                } catch (e) { }
-            }
-        } else {
-            reportFilename = 'cppunit_tests_report.xml';
+        reportFilename = 'cppunit_tests_report.xml';
 
-            if (ymlProjectData) {
-                try {
-                    const ymlProjectReportFilename = ymlProjectData[':report_tests_log_factory'][':cppunit'][':filename'];
-                    if (ymlProjectReportFilename != undefined) {
-                        reportFilename = ymlProjectReportFilename;
-                    }
-                } catch (e) { }
-            }
+        if (ymlProjectData) {
+            try {
+                const ymlProjectReportFilename = ymlProjectData[':report_tests_log_factory'][':cppunit'][':filename'];
+                if (ymlProjectReportFilename != undefined) {
+                    reportFilename = ymlProjectReportFilename;
+                }
+            } catch (e) { }
         }
         this.reportFilenames[projectKey] = reportFilename;
     }
