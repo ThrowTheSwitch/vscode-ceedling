@@ -23,21 +23,21 @@ Ceedling and its complementary [ThrowTheSwitch] pieces and parts are and always 
 
 # Features
 
-* Shows a Test Explorer in the Test view in VS Code's sidebar with all detected tests and suites and their state.
+* Displays a Test Explorer in the Test view of VS Code’s sidebar with all detected tests and suites with their state.
 * Adds CodeLenses to your test files for starting and debugging tests.
-* Adds Gutter decorations to your test files showing the tests' state.
+* Adds Gutter decorations to your test files showing the tests’ state.
 * Adds line decorations to the source line where a test failed.
-* Shows a failed test's log when the test is selected in the explorer.
+* Shows a failed test’s log when the test is selected in the explorer.
 * Lets you choose test suites that should be run automatically after each file change.
-* Can be set up to report compiler and linker problems inline in the editor and in the Problems panel.
+* Can be configured to report compiler and linker problems inline in the editor and in the Problems panel.
 
 # Getting started
 
 * Install the extension and restart VS Code.
 * Open the workspace or folder containing your Ceedling 1.0.0+ project.
-* Configure your Ceedling project configuration filepath in the VS Code's settings if required [see below](#options).
-* Configure the shell path where Ceedling is installed in the VS Code's settings if required (Windows) [see below](#options)
-* [Enable and configure][cppunit-plugin] the `report_tests_log_factory` Ceedling plugin with the `cppunit` option in your Ceedling project configuration. This generates an XML test report.
+* Configure your Ceedling project configuration filepath in VS Code’s settings if required [see below](#options).
+* Configure the shell path where Ceedling is installed in the VS Code’s settings if required (Windows) [see below](#options)
+* [Enable and configure][cppunit-plugin] the `report_tests_log_factory` Ceedling plugin with the `cppunit` option in your Ceedling project configuration. This generates an XML test report on which this extension depends.
 * Open the Test view.
 * Run your tests using the ![Run](img/run.png) icons in the Test Explorer or the CodeLenses in your test file.
 
@@ -87,14 +87,14 @@ Property&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 `scanStdout`       | Scan stdout output for problems. Default is false.
 `scanStderr`       | Scan stderr output for problems. Default is true.
 `severity`         | Severity of messages found by this pattern. Correct values are "error", "warning" and "info". Default is "info".
-`filePrefix`       | Used to determine file's absolute path if file location is relative. ${projectPath} replaced with project path. Empty string means that file location in message is absolute. Default is empty string.
+`filePrefix`       | Used to determine file’s absolute path if file location is relative. ${projectPath} replaced with project path. Empty string means that file location in message is absolute. Default is empty string.
 `regexp`           | The regular expression which is used to find an error, warning or info in the output line. ECMAScript (JavaScript) flavor, with global flag. Tip: you may find [regex101](https://regex101.com/) useful while experimenting with patterns. This property is required.
-`message`          | Index of the problem's message in the regular expression. This property is required.
-`file`             | Index of the problem's filename in the regular expression. This property is required.
-`line`             | Index of the problem's (first) line in the regular expression. Not used if null or not defined.
-`lastLine`         | Index of the problem's last line in the regular expression. Not used if null or not defined."
-`column`           | Index of the problem's (first) column in the regular expression. Not used if null or not defined.
-`lastColumn`       | Index of the problem's last column in the regular expression. Not used if null or not defined.
+`message`          | Index of the problem’s message in the regular expression. This property is required.
+`file`             | Index of the problem’s filename in the regular expression. This property is required.
+`line`             | Index of the problem’s (first) line in the regular expression. Not used if null or not defined.
+`lastLine`         | Index of the problem’s last line in the regular expression. Not used if null or not defined."
+`column`           | Index of the problem’s (first) column in the regular expression. Not used if null or not defined.
+`lastColumn`       | Index of the problem’s last column in the regular expression. Not used if null or not defined.
 <br>
 
 Example pattern object (GCC compiler warnings):
@@ -112,7 +112,7 @@ Example pattern object (GCC compiler warnings):
 
 # Commands
 
-The following commands are available in VS Code's command palette, use the ID to add them to your keyboard shortcuts:
+The following commands are available in VS Code’s command palette, use the ID to add them to your keyboard shortcuts:
 
 ID                                 | Command
 -----------------------------------|--------------------------------------------
@@ -158,7 +158,7 @@ Example configuration with Native Debug (`webfreak.debug`):
 
 # Troubleshooting
 
-If you think you've found a bug, please [file a bug report](https://github.com/throwtheswitch/vscode-ceedling/issues).
+If you think you’ve found a bug, please [file a bug report](https://github.com/throwtheswitch/vscode-ceedling/issues).
 
 # Acknowledgments
 
