@@ -720,16 +720,30 @@ export class CeedlingAdapter implements TestAdapter {
         }
     }
 
-    private setFunctionRegex(projectKey: string, ymlProjectData: any = undefined) {
+    private getTestPrefix(ymlProjectData: any = undefined): string {
         let testPrefix = 'test|spec|should';
         if (ymlProjectData) {
             try {
-                const ymlProjectTestPrefix = ymlProjectData[':unity'][':test_prefix'];
-                if (ymlProjectTestPrefix != undefined) {
-                    testPrefix = ymlProjectTestPrefix;
+                const ymlProjectUnityDefines = ymlProjectData[':unity'][':defines'];
+                if (ymlProjectUnityDefines != undefined && (ymlProjectUnityDefines.includes('-UNITY_SKIP_DEFAULT_RUNNER') ||  ymlProjectUnityDefines.includes('-RUN_TEST'))) {
+                    const ymlProjectTestRunnerTestPrefix = ymlProjectData[':test_runner'][':test_prefix'];
+                    if (ymlProjectTestRunnerTestPrefix != undefined){
+                        testPrefix = ymlProjectTestRunnerTestPrefix;
+                    }
+                }
+                else {
+                    const ymlProjectTestPrefix = ymlProjectData[':unity'][':test_prefix'];
+                    if (ymlProjectTestPrefix != undefined) {
+                        testPrefix = ymlProjectTestPrefix;
+                    }
                 }
             } catch (e) { }
         }
+        return testPrefix;
+    }
+
+    private setFunctionRegex(projectKey: string, ymlProjectData: any = undefined) {
+        let testPrefix = this.getTestPrefix(ymlProjectData);
         const macroAliases = [...this.getTestCaseMacroAliases(), ...this.getTestRangeMacroAliases()].join('|');
         this.functionRegexps[projectKey] = new RegExp(
             `^((?:\\s*(?:${macroAliases})\\s*\\(.*?\\)\\s*)*)\\s*void\\s+((?:${testPrefix})(?:.*\\\\\\s+)*.*)\\s*\\(\\s*(.*)\\s*\\)`,
@@ -793,15 +807,7 @@ export class CeedlingAdapter implements TestAdapter {
     }
 
     private setTestLabelRegex(projectKey: string, ymlProjectData: any = undefined) {
-        let testPrefix = 'test|spec|should';
-        if (ymlProjectData) {
-            try {
-                const ymlProjectTestPrefix = ymlProjectData[':unity'][':test_prefix'];
-                if (ymlProjectTestPrefix != undefined) {
-                    testPrefix = ymlProjectTestPrefix;
-                }
-            } catch (e) { }
-        }
+        let testPrefix = this.getTestPrefix(ymlProjectData);
         this.testLabelRegexps[projectKey] = new RegExp(`(?:${testPrefix})_*(.*)`);
     }
 
