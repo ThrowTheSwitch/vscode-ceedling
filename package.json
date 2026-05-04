@@ -280,14 +280,30 @@
       }
     },
     "commands": [
-      {
-        "command": "ceedlingExplorer.clean",
-        "title": "Ceedling: Clean"
-      },
-      {
-        "command": "ceedlingExplorer.clobber",
-        "title": "Ceedling: Clobber"
-      }
-    ]
+        {
+          "command": "ceedlingExplorer.clean",
+          "title": "Ceedling: Clean",
+          "icon": "$(trash)"
+        },
+        {
+          "command": "ceedlingExplorer.clobber",
+          "title": "Ceedling: Clobber",
+          "icon": "$(flame)"
+        }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "ceedlingExplorer.clean",
+          "when": "view == workbench.view.testing",
+          "group": "navigation"
+        },
+        {
+          "command": "ceedlingExplorer.clobber",
+          "when": "view == workbench.view.testing",
+          "group": "navigation"
+        }
+      ]
+    }
   }
 }
