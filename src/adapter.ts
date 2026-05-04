@@ -293,9 +293,8 @@ export class CeedlingAdapter implements TestAdapter {
             // Get test executable file name without extension
             const testFileName = `${/([^/]*).c$/.exec(testToExec)![1]}`;
             // Set current test executable
-            if (this.detectTestSpecificDefines(ymlProjectData, testFileName)) {
-                this.setDebugTestExecutable(`${testFileName}/${testFileName}${ext}`);
-            }
+            this.setDebugTestExecutable(`${testFileName}/${testFileName}${ext}`);
+            this.logger.debug(`Debug Executable: ${this.getDebugTestExecutable()}`);
 
             // trigger testsuite start event
             this.testStatesEmitter.fire({
