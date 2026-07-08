@@ -10,3 +10,6 @@ test.tsconfig.json
 .github/**
 .gitignore
 node_modules
+sidecar/**
+Justfile
+.claude/**
