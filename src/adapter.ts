@@ -585,7 +585,7 @@ export class CeedlingAdapter implements TestAdapter {
                 return [];
             } else {
                 return result.stdout.split('\n').filter((value: string) => {
-                    return value.startsWith(" - ");
+                    return value.startsWith(" - ") || value.startsWith(" • ");
                 }).map((value: string) => {
                     return value.substr(3).trim();
                 })
