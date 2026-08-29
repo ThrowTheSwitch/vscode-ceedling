@@ -1,15 +1,16 @@
 name: Continuous Delivery
 
 # Release flow:
-#   1. Bump "version" in package.json (and add/rename the matching CHANGELOG.md section)
-#      in a normal commit to master.
-#   2. git tag v<version> (e.g. v2.0.0), or v<version>-pre.<N> (e.g. v2.0.0-pre.1) to iterate on
-#      a prerelease first - both share the same Changelog section and package.json version.
-#   3. git push --tags
-# This workflow validates the tag against package.json, runs the full test suite, packages the
-# extension, and creates a GitHub release/pre-release with the .vsix attached and the matching
-# Changelog section as the release body. It does NOT publish to the VS Code Marketplace - that
-# stays a manual `just publish` (or `npm run publish`) step for now; see the Justfile.
+#   1. Bump "version" in package.json. Add or rename the matching CHANGELOG.md section.
+#      Commit to master.
+#   2. Tag the commit v<version> for a release, or v<version>-pre.<N> for a prerelease.
+#   3. Push the tag.
+#
+# This workflow validates the tag against package.json's version. It runs the test suite. It
+# packages the extension. It publishes a GitHub release with the .vsix attached and the matching
+# Changelog section as the body.
+#
+# Marketplace publishing stays manual for now. Run `just publish` locally.
 
 on:
   push:
@@ -32,18 +33,21 @@ jobs:
       with:
         node-version: 22
 
+    # Prevents publishing a release under the wrong version.
     - name: Validate the tag matches package.json's version
       run: .github/workflows/validate_tag_version.sh "${{ github.ref_name }}" package.json
 
     - name: Install the package
       run: npm install
 
+    # VS Code's integration tests need a display. Xvfb provides one on Linux.
     - name: Run the tests
       run: xvfb-run -a npm test
 
     - name: Package the extension
       run: npm run package
 
+    # Strips the leading v and any prerelease suffix from the tag.
     - name: Compute the changelog semver core
       id: semver
       run: |
@@ -52,6 +56,7 @@ jobs:
         CORE="${CORE%%-*}"
         echo "core=${CORE}" >> "$GITHUB_OUTPUT"
 
+    # Reads the matching section from CHANGELOG.md for the release body.
     - name: Extract the changelog section for this release
       id: changelog
       run: |
@@ -67,6 +72,7 @@ jobs:
           echo "found=false" >> "$GITHUB_OUTPUT"
         fi
 
+    # Uses the Changelog section as the release body when one was found.
     - name: Create the release (changelog body)
       if: steps.changelog.outputs.found == 'true'
       uses: softprops/action-gh-release@v3
@@ -75,6 +81,7 @@ jobs:
         body: ${{ steps.changelog.outputs.body }}
         files: '*.vsix'
 
+    # Falls back to GitHub's auto-generated notes when no Changelog section was found.
     - name: Create the release (auto-generated notes)
       if: steps.changelog.outputs.found != 'true'
       uses: softprops/action-gh-release@v3
@@ -83,8 +90,8 @@ jobs:
         generate_release_notes: true
         files: '*.vsix'
 
-    # Publishing to the VS Code Marketplace is intentionally not automated yet - no VSCE_PAT
-    # repository secret is configured. Once ready, add that secret and uncomment:
+    # Marketplace publishing is disabled. No VSCE_PAT secret is configured yet.
+    # Add the secret and uncomment this step to enable it.
     # - name: Publish to the VS Code Marketplace
     #   run: npm run publish
     #   env:
