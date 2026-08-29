@@ -7,8 +7,13 @@
 // "*" bullet. "•" is kept defensively - never actually observed by us, but an earlier version of
 // this code assumed Ceedling's loginator.rb used it, so we keep accepting it in case some other
 // release does.
+// Normalizes CRLF/CR to LF before splitting - confirmed via a real Windows GitHub Actions runner
+// that without this, every line here ends up with a trailing "\r" that "." (which excludes line
+// terminators) can never consume, so "(.*)$" can never match and every line is silently dropped.
+// This isn't just a checkout-line-ending artifact: Ceedling running natively on Windows plausibly
+// emits CRLF in its own stdout too.
 export function parseFileListBullets(stdout: string): string[] {
-    return stdout.split('\n')
+    return stdout.replace(/\r\n?/g, '\n').split('\n')
         .map((value: string) => /^\s*[-•*]\s+(.*)$/.exec(value))
         .filter((match: RegExpExecArray | null): match is RegExpExecArray => match !== null)
         .map((match: RegExpExecArray) => match[1].trim());

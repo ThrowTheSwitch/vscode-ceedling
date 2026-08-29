@@ -1,0 +1,7 @@
+# Force LF line endings for text files regardless of the checkout platform's core.autocrlf -
+# a Windows CI runner checking these out as CRLF is exactly what caused a real, confirmed test
+# failure (tests/fixtures/**/*.txt parsed as empty on Windows because of trailing \r).
+* text=auto eol=lf
+
+*.png binary
+*.vsix binary
