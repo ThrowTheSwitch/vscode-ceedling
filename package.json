@@ -49,8 +49,8 @@
     "build": "npm run -S esbuild-base -- --sourcemap",
     "watch": "npm run -S esbuild-base -- --sourcemap --watch",
     "rebuild": "npm run clean && npm run build",
-    "package": "vsce package",
-    "publish": "vsce publish",
+    "package": "vsce package --changelog-path docs/Changelog.md",
+    "publish": "vsce publish --changelog-path docs/Changelog.md",
     "test:unit": "tsc -p test.tsconfig.json && mocha --ui tdd \"out/tests/unit/**/*.test.js\"",
     "test:integration": "tsc -p test.tsconfig.json && node ./out/tests/integration/main.js",
     "test": "npm run test:unit && npm run test:integration"

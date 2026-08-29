@@ -148,7 +148,14 @@ Example configuration with Native Debug (`webfreak.debug`):
 
 # Troubleshooting
 
-If you think you’ve found a bug, please [file a bug report](https://github.com/throwtheswitch/vscode-ceedling/issues).
+If you think you’ve found a bug, please check [Known Issues](docs/KnownIssues.md) and, if it's not there, [file a bug report](https://github.com/throwtheswitch/vscode-ceedling/issues).
+
+# Documentation
+
+* [Changelog](docs/Changelog.md) — a terse, itemized record of what changed in each release.
+* [Release Notes](docs/ReleaseNotes.md) — the narrative version, highlights worth reading before upgrading.
+* [Known Issues](docs/KnownIssues.md) — currently open issues, by version.
+* [Breaking Changes](docs/BreakingChanges.md) — what to expect when upgrading across a compatibility boundary.
 
 # Acknowledgments
 

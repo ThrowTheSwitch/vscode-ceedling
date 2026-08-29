@@ -1,21 +1,39 @@
 name: Continuous Delivery
 
+# Release flow:
+#   1. Bump "version" in package.json (and add/rename the matching docs/Changelog.md section)
+#      in a normal commit to master.
+#   2. git tag v<version> (e.g. v2.0.0), or v<version>-pre.<N> (e.g. v2.0.0-pre.1) to iterate on
+#      a prerelease first - both share the same Changelog section and package.json version.
+#   3. git push --tags
+# This workflow validates the tag against package.json, runs the full test suite, packages the
+# extension, and creates a GitHub release/pre-release with the .vsix attached and the matching
+# Changelog section as the release body. It does NOT publish to the VS Code Marketplace - that
+# stays a manual `just publish` (or `npm run publish`) step for now; see the Justfile.
+
 on:
   push:
     tags:
-      - v*
+      - 'v*.*.*'
+      - 'v*.*.*-pre.*'
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
-      uses: actions/checkout@v2
+      uses: actions/checkout@v7
 
     - name: Install Node.js
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v7
       with:
         node-version: 22
+
+    - name: Validate the tag matches package.json's version
+      run: .github/workflows/validate_tag_version.sh "${{ github.ref_name }}" package.json
 
     - name: Install the package
       run: npm install
@@ -24,50 +42,50 @@ jobs:
       run: xvfb-run -a npm test
 
     - name: Package the extension
-      if: success()
       run: npm run package
 
-    - name: Get the version from the tag
-      id: tag_name
-      run: echo ::set-output name=current_version::${GITHUB_REF#refs/tags/v}
-      shell: bash
+    - name: Compute the changelog semver core
+      id: semver
+      run: |
+        CORE="${{ github.ref_name }}"
+        CORE="${CORE#v}"
+        CORE="${CORE%%-*}"
+        echo "core=${CORE}" >> "$GITHUB_OUTPUT"
 
-    - name: Get the changelog entry
-      id: changelog_reader
-      if: success()
-      uses: mindsers/changelog-reader-action@v2
+    - name: Extract the changelog section for this release
+      id: changelog
+      run: |
+        if BODY="$(.github/workflows/extract_changelog.sh "${{ steps.semver.outputs.core }}" docs/Changelog.md)"; then
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          DELIM="CHANGELOG_EOF_$(date +%s)"
+          {
+            echo "body<<${DELIM}"
+            echo "${BODY}"
+            echo "${DELIM}"
+          } >> "$GITHUB_OUTPUT"
+        else
+          echo "found=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Create the release (changelog body)
+      if: steps.changelog.outputs.found == 'true'
+      uses: softprops/action-gh-release@v3
       with:
-        validation_depth: 1
-        version: ${{ steps.tag_name.outputs.current_version }}
-        path: ./CHANGELOG.md
+        prerelease: ${{ contains(github.ref_name, '-') }}
+        body: ${{ steps.changelog.outputs.body }}
+        files: '*.vsix'
 
-    - name: Create a release
-      id: create_release
-      if: success()
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Create the release (auto-generated notes)
+      if: steps.changelog.outputs.found != 'true'
+      uses: softprops/action-gh-release@v3
       with:
-        tag_name: v${{ steps.changelog_reader.outputs.version }}
-        release_name: Release ${{ steps.changelog_reader.outputs.version }}
-        body: ${{ steps.changelog_reader.outputs.changes }}
-        prerelease: ${{ steps.changelog_reader.outputs.status == 'prereleased' }}
-        draft: ${{ steps.changelog_reader.outputs.status == 'unreleased' }}
+        prerelease: ${{ contains(github.ref_name, '-') }}
+        generate_release_notes: true
+        files: '*.vsix'
 
-    - name: Upload the release asset
-      id: upload_release_asset 
-      if: success()
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./vscode-ceedling-test-adapter-${{ steps.tag_name.outputs.current_version }}.vsix
-        asset_name: vscode-ceedling-test-adapter-${{ steps.tag_name.outputs.current_version }}.vsix
-        asset_content_type: application/octet-stream
-
-    - name: Publish to the marketplace
-      if: success()
-      run: npm run publish
-      env:
-        VSCE_PAT: ${{ secrets.VSCE_PAT }}
+    # Publishing to the VS Code Marketplace is intentionally not automated yet - no VSCE_PAT
+    # repository secret is configured. Once ready, add that secret and uncomment:
+    # - name: Publish to the VS Code Marketplace
+    #   run: npm run publish
+    #   env:
+    #     VSCE_PAT: ${{ secrets.VSCE_PAT }}
