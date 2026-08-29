@@ -507,7 +507,13 @@ export class CeedlingEngine {
                     // varies across versions (see CEEDLING_DECORATORS in Ceedling's own docs);
                     // force plain ASCII output so our parsing has a stable, version-independent
                     // surface to work against.
-                    env: { ...process.env, CEEDLING_DECORATORS: 'false' },
+                    //
+                    // Ceedling 1.0.0 crashes (a Ruby encoding exception) parsing non-ASCII source
+                    // under a non-UTF-8 locale - confirmed empirically, and confirmed this forced
+                    // override fixes it without needing any specific locale installed on the host.
+                    // Ceedling 1.1.0 already handles this correctly regardless, so this is purely
+                    // defensive for 1.0.0 users and has no effect on newer versions.
+                    env: { ...process.env, CEEDLING_DECORATORS: 'false', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
                 },
                 (error, stdout, stderr) => {
                     const ansiEscapeSequencesRemoved = this.getConfiguration().get<boolean>('ansiEscapeSequencesRemoved', true);

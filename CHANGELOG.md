@@ -16,7 +16,7 @@ Debugging a test no longer relies on the `ceedlingExplorer.debugTestExecutable` 
 
 * Multi-root workspaces no longer log a noisy error and fail the whole folder's test discovery when one folder simply isn't a Ceedling project (#4).
 * Fixed a crash (`a.join is not a function`) when parsing a `TEST_CASE`/`TEST_RANGE` test containing only a single range clause (#3).
-* When Ceedling fails to produce its XML test report (for example, a Ruby/Ceedling encoding exception on non-ASCII source), the captured stdout/stderr is now always shown in the Test Results output instead of a bare "file not found" (#7).
+* Ceedling is now invoked with a forced UTF-8 locale (`LANG`/`LC_ALL=C.UTF-8`), fixing a Ruby encoding crash Ceedling 1.0.0 hit parsing non-ASCII source (even in comments) under a non-UTF-8 host locale; Ceedling 1.1.0 already handles this correctly on its own. When Ceedling still fails to produce its XML test report for any other reason, the captured stdout/stderr is always shown in the Test Results output instead of a bare "file not found" (#7).
 * Projects using `:test_runner: :test_prefix:` alongside Unity's default test prefix are now recognized correctly, contributed by [@Edoardo-en](https://github.com/ThrowTheSwitch/vscode-ceedling/pull/1) (PR #1).
 * Added Clean/Clobber toolbar buttons to the Testing view, contributed by [@JannisRln](https://github.com/ThrowTheSwitch/vscode-ceedling/pull/8) (PR #8).
 
