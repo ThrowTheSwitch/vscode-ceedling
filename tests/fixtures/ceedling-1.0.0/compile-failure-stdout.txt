@@ -1,0 +1,37 @@
+Loaded project configuration from working directory.
+ > Using: /home/dev/probe/project.yml
+ > Working directory: /home/dev/probe
+
+Ceedling set up completed in 71 milliseconds
+
+Preparing Build Paths...
+
+Collecting Test Context
+-----------------------
+Parsing test_broken.c for build directive macros, #includes, and test case names...
+
+Ingesting Test Configurations
+-----------------------------
+Collecting search paths, flags, and defines test_broken.c...
+
+Determining Files to be Generated...
+
+Mocking
+-------
+
+Test Runners
+------------
+Generating runner for test_broken.c...
+
+Determining Artifacts to Be Built...
+EXCEPTION: 'Default Test Compiler' (gcc) terminated with exit code [1] and output >>
+test/test_broken.c: In function ‘test_add_should_ReturnSum’:
+test/test_broken.c:9:1: error: expected ‘;’ before ‘}’ token
+    9 | }
+      | ^
+Ceedling could not complete operations because of errors
+
+Building Objects
+----------------
+Compiling test_broken.c...
+EXIT_CODE=1

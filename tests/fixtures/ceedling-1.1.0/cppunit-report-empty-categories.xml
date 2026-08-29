@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<TestRun name="Example Project">
+  <FailedTests/>
+  <SuccessfulTests>
+    <Test id="1">
+      <Name>test/test_calculator.c::test_add_should_ReturnSum</Name>
+    </Test>
+  </SuccessfulTests>
+  <IgnoredTests/>
+  <Statistics>
+    <Tests>1</Tests>
+    <Ignores>0</Ignores>
+    <FailuresTotal>0</FailuresTotal>
+    <Errors>0</Errors>
+    <Failures>0</Failures>
+  </Statistics>
+</TestRun>

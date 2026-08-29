@@ -1,56 +1,48 @@
 import vscode from 'vscode';
-import { TestHub, testExplorerExtensionId } from 'vscode-test-adapter-api';
-import { TestAdapterRegistrar } from 'vscode-test-adapter-util';
-import { CeedlingAdapter } from './adapter';
+import { CeedlingTestController } from './testController';
 import { Logger } from './logger';
 
 const logger = new Logger();
-let adapters: CeedlingAdapter[] = [];
+const controllers = new Map<vscode.WorkspaceFolder, CeedlingTestController>();
+let isDevelopmentMode = false;
 
-function debugTestExecutable(): string | null {
-    if (!adapters) return null;
-    for (let adapter of adapters) {
-        let debugTestExecutable = adapter.getDebugTestExecutable();
-        if (debugTestExecutable) {
-            return debugTestExecutable;
-        }
-    }
-    logger.showError("No debug test executable found");
-    logger.showInfo(
-        "A debug configuration with a path containing `${command:ceedlingExplorer.debugTestExecutable}` " +
-        "cannot be started from F5 or the Run pannel. It should be started from a bug icon in the Test pannel."
-    );
-    return null;
+function addWorkspaceFolder(workspaceFolder: vscode.WorkspaceFolder): void {
+    logger.debug(`addWorkspaceFolder(${workspaceFolder.uri.toString()})`);
+    controllers.set(workspaceFolder, new CeedlingTestController(workspaceFolder, logger, isDevelopmentMode));
 }
 
-function ceedlingClean(): void {
-    if (!adapters) return;
-    for (let adapter of adapters) {
-        adapter.clean();
-    }
+function removeWorkspaceFolder(workspaceFolder: vscode.WorkspaceFolder): void {
+    logger.debug(`removeWorkspaceFolder(${workspaceFolder.uri.toString()})`);
+    controllers.get(workspaceFolder)?.dispose();
+    controllers.delete(workspaceFolder);
 }
 
-function ceedlingClobber(): void {
-    if (!adapters) return;
-    for (let adapter of adapters) {
-        adapter.clobber();
-    }
+async function ceedlingClean(): Promise<void> {
+    await Promise.all([...controllers.values()].map((controller) => controller.clean()));
+}
+
+async function ceedlingClobber(): Promise<void> {
+    await Promise.all([...controllers.values()].map((controller) => controller.clobber()));
 }
 
 export async function activate(context: vscode.ExtensionContext) {
-    const testExplorerExtension = vscode.extensions.getExtension<TestHub>(testExplorerExtensionId);
-    if (testExplorerExtension) {
-        context.subscriptions.push(vscode.commands.registerCommand("ceedlingExplorer.debugTestExecutable", debugTestExecutable));
-        context.subscriptions.push(vscode.commands.registerCommand("ceedlingExplorer.clean", ceedlingClean));
-        context.subscriptions.push(vscode.commands.registerCommand("ceedlingExplorer.clobber", ceedlingClobber));
-        context.subscriptions.push(logger);
-        context.subscriptions.push(new TestAdapterRegistrar(
-            testExplorerExtension.exports,
-            workspaceFolder => {
-                let adapter = new CeedlingAdapter(workspaceFolder, logger);
-                adapters.push(adapter);
-                return adapter;
-            }
-        ));
+    isDevelopmentMode = context.extensionMode === vscode.ExtensionMode.Development;
+    const workspaceFolderCount = vscode.workspace.workspaceFolders?.length ?? 0;
+    logger.debug(`activate(): isDevelopmentMode=${isDevelopmentMode}, workspaceFolders=${workspaceFolderCount}`);
+    context.subscriptions.push(logger);
+    context.subscriptions.push(vscode.commands.registerCommand("ceedlingExplorer.clean", ceedlingClean));
+    context.subscriptions.push(vscode.commands.registerCommand("ceedlingExplorer.clobber", ceedlingClobber));
+
+    for (const workspaceFolder of vscode.workspace.workspaceFolders ?? []) {
+        addWorkspaceFolder(workspaceFolder);
     }
+    context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders((event) => {
+        for (const workspaceFolder of event.added) {
+            addWorkspaceFolder(workspaceFolder);
+        }
+        for (const workspaceFolder of event.removed) {
+            removeWorkspaceFolder(workspaceFolder);
+        }
+    }));
+    context.subscriptions.push({ dispose: () => { for (const controller of controllers.values()) controller.dispose(); } });
 }

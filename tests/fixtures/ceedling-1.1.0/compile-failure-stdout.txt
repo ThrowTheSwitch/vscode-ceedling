@@ -1,0 +1,47 @@
+Loaded project configuration from working directory.
+ > Using: /home/dev/probe/project.yml
+ > Working directory: /home/dev/probe
+
+---------------
+EXAMPLE PROJECT
+---------------
+NOTICE: Enabled :test_runner >> :cmdline_args because :project >> :use_backtrace is enabled.
+
+Ceedling set up completed in 102 milliseconds
+
+Preparing Build Paths...
+
+Collecting Essential Test Context
+---------------------------------
+Parsing test_broken.c for user & system #includes...
+Parsing test_broken.c for build directive macros and test case names...
+
+Ingesting Test Configurations
+-----------------------------
+Collecting search paths, flags, and defines for test_broken.c...
+
+Determining Files to Be Generated...
+
+Mocking
+-------
+
+Test Runners
+------------
+Generating runner for test_broken.c...
+
+Determining Artifacts to Be Built...
+
+Building Objects
+----------------
+Compiling test_broken.c...
+Compiling test_broken::Calculator.c...
+Compiling test_broken::unity.c...
+Compiling test_broken::test_broken_runner.c...
+EXCEPTION: 'Default Test Compiler' (gcc) terminated with exit code [1] and output >>
+test/test_broken.c: In function ‘test_add_should_ReturnSum’:
+test/test_broken.c:9:1: error: expected ‘;’ before ‘}’ token
+    9 | }
+      | ^
+Executed Command: gcc -I"build/test/mocks/test_broken" -I"test/support" -I"src" -I"build/vendor/unity/src" -I"build/vendor/cmock/src" -D"TEST" -D"UNITY_EXCLUDE_FLOAT" -D"CMOCK_MOCK_PREFIX=mock_" -D"UNITY_USE_COMMAND_LINE_ARGS" -DGNU_COMPILER -g -c "test/test_broken.c" -o "build/test/out/test_broken/test_broken.o" -MMD -MF "build/test/dependencies/test_broken/test_broken.d"
+Ceedling could not complete operations because of errors
+EXIT_CODE=1

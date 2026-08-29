@@ -1,6 +1,8 @@
 import * as path from 'path';
-import * as Mocha from 'mocha';
-import * as glob from 'glob';
+// Default imports, not `import * as X`: TypeScript 6 (see package.json's `typescript`
+// devDependency) rejects calling/constructing a namespace import even with esModuleInterop on.
+import Mocha from 'mocha';
+import glob from 'glob';
 
 export function run(): Promise<void> {
     // Create the mocha test
@@ -9,7 +11,10 @@ export function run(): Promise<void> {
         color: true
     });
 
-    const testsRoot = path.resolve(__dirname, '..');
+    // Scoped to this directory only (not '..' -> out/tests), so the tests/unit/*.test.js files
+    // aren't also picked up and re-run inside this slower Electron-hosted suite - they have their
+    // own fast, VS-Code-host-free runner (see the "test:unit" npm script).
+    const testsRoot = path.resolve(__dirname);
 
     return new Promise((c, e) => {
         glob('**/**.test.js', { cwd: testsRoot }, (err, files) => {

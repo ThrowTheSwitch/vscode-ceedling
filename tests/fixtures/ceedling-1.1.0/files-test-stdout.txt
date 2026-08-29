@@ -1,0 +1,14 @@
+Loaded project configuration from working directory.
+ > Using: /home/dev/probe/project.yml
+ > Working directory: /home/dev/probe
+
+---------------
+EXAMPLE PROJECT
+---------------
+
+Test files:
+ * test/test_calculator.c
+File count: 1
+
+This list sourced only from your project file, not from any build directive macros in test files.
+

@@ -1,11 +1,10 @@
 # 🌱 Ceedling Visual Studio Code Extension
 
-[Ceedling] is a handy-dandy build system for C projects. This extension allows you to run your Ceedling 1.0.0+ test suite using the [Test Explorer UI][test-explorer-ui].
+[Ceedling] is a handy-dandy build system for C projects. This extension allows you to run your Ceedling 1.0.0+ test suite using Visual Studio Code's built-in Testing view.
 
 ![Screenshot](img/screenshot.png)
 
 [Ceedling]: https://github.com/ThrowTheSwitch/Ceedling
-[test-explorer-ui]: https://marketplace.visualstudio.com/items?itemName=hbenl.vscode-test-explorer
 
 ## Supporting this work
 
@@ -23,12 +22,9 @@ Ceedling and its complementary [ThrowTheSwitch] pieces and parts are and always 
 
 # Features
 
-* Displays a Test Explorer in the Test view of VS Code’s sidebar with all detected tests and suites with their state.
-* Adds CodeLenses to your test files for starting and debugging tests.
-* Adds Gutter decorations to your test files showing the tests’ state.
-* Adds line decorations to the source line where a test failed.
-* Shows a failed test’s log when the test is selected in the explorer.
-* Lets you choose test suites that should be run automatically after each file change.
+* Displays all detected tests and suites with their state in VS Code’s built-in Test Explorer (the Testing view).
+* Adds gutter run/debug icons and CodeLens-style affordances to your test files, generated automatically from each test’s location.
+* Shows a failed test’s message and failing line directly in the Test Explorer and the editor.
 * Can be configured to report compiler and linker problems inline in the editor and in the Problems panel.
 
 # Getting started
@@ -38,8 +34,8 @@ Ceedling and its complementary [ThrowTheSwitch] pieces and parts are and always 
 * Configure your Ceedling project configuration filepath in VS Code’s settings if required [see below](#options).
 * Configure the shell path where Ceedling is installed in the VS Code’s settings if required (Windows) [see below](#options)
 * [Enable and configure][cppunit-plugin] the `report_tests_log_factory` Ceedling plugin with the `cppunit` option in your Ceedling project configuration. This generates an XML test report on which this extension depends.
-* Open the Test view.
-* Run your tests using the ![Run](img/run.png) icons in the Test Explorer or the CodeLenses in your test file.
+* Open the Testing view.
+* Run your tests using the run/debug icons in the Testing view or in your test file’s gutter.
 
 [cppunit-plugin]: https://github.com/ThrowTheSwitch/Ceedling/blob/master/plugins/report_tests_log_factory/README.md
 
@@ -51,7 +47,6 @@ Property                                | Description
 ----------------------------------------|---------------------------------------------------------------
 `ceedlingExplorer.projects`             | An array of objects with the path to the Ceedling project (or yml-file) to use (relative to the workspace folder):<br> - "path": can point either to a directory containing a "project.yml" file or directly to another .yml file(with the respective project.yml in the same directory). This path should be relative to the workspace root directory.<br> - "debugLaunchConfig": must be the *name* property of the launch config (launch.json) that is used for this project. The ${command:ceedlingExplorer.debugTestExecutable} must still be used.<br> - "name" (optional): used as name for the folder containing the tests in the test explorer
 `ceedlingExplorer.shellPath`            | The path to the shell where Ceedling is installed. By default (or if this option is set to `null`) it use the OS default shell.
-`ceedlingExplorer.debugConfiguration`   | The Debug configuration to run during debugging. See Debugging for more info.  
 `ceedlingExplorer.prettyTestLabel`      | The test label is prettier in the test explorer, that mean the label is shorter and without begin prefix. E.g. inactive `test_BlinkTaskShouldToggleLed`, active `BlinkTaskShouldToggleLed` <br> Inactive: <br> ![prettyTestLabelInactive](img/prettyTestLabelInactive.png) <br> Active: <br> ![prettyTestLabelActive](img/prettyTestLabelActive.png)
 `ceedlingExplorer.prettyTestFileLabel`  | The test file label is prettier in the test explorer, that mean the label is shorter, without begin prefix, path and file type. E.g. inactive `test/LEDs/test_BlinkTask.c`, active `BlinkTask` <br> Inactive: <br> ![prettyTestFileLabelInactive](img/prettyTestFileLabelInactive.png) <br> Active: <br> ![prettyTestFileLabelActive](img/prettyTestFileLabelActive.png)
 `ceedlingExplorer.testCommandArgs`      | The command line arguments used to run Ceedling tests. The first argument have to litteraly contain the `${TEST_ID}` tag. The value `["test:${TEST_ID}"]` is used by default. For example, the arguments `"test:${TEST_ID}", "gcov:${TEST_ID}", "utils:gcov"` can be used to run tests and generate a gcov report.
@@ -112,25 +107,20 @@ Example pattern object (GCC compiler warnings):
 
 # Commands
 
-The following commands are available in VS Code’s command palette, use the ID to add them to your keyboard shortcuts:
+The following commands are available in VS Code’s command palette, use the ID to add them to your keyboard shortcuts. Running, debugging, and reloading tests are done from VS Code’s built-in Testing view (or its toolbar/gutter icons) rather than extension-specific commands.
 
 ID                                 | Command
 -----------------------------------|--------------------------------------------
 `ceedlingExplorer.clean`           | Run `ceedling clean`
 `ceedlingExplorer.clobber`         | Run `ceedling clobber`
-`test-explorer.reload`             | Reload tests
-`test-explorer.run-all`            | Run all tests
-`test-explorer.run-file`           | Run tests in current file
-`test-explorer.run-test-at-cursor` | Run the test at the current cursor position
-`test-explorer.cancel`             | Cancel running tests
 
 # Debugging
 
-To set up debugging, create a new Debug Configuration. `${command:ceedlingExplorer.debugTestExecutable}` 
-can be used access the .out test executable filename being ran. Depending on your Ceedling configuration these can be found in `projectPath/build/test/out/`.
-Then, edit the `ceedlingExplorer.debugConfiguration` settings with the name of the Debug Configuration to run during debug.
+To set up debugging, create a Debug Configuration in `launch.json` and reference its *name* as the `debugLaunchConfig` property of the corresponding entry in `ceedlingExplorer.projects` (see [Options](#options)). If `ceedlingExplorer.projects` isn’t configured at all, the extension falls back to a single default project expecting a launch configuration literally named `ceedling`.
 
-Note: Individual test debugging is not supported. Instead the entire test file will be ran, so skip or remove breakpoints accordingly.
+`${command:ceedlingExplorer.debugTestExecutable}` can be used in the `program` property to reference the test executable being debugged. Depending on your Ceedling configuration these are found under `projectPath/build/test/out/`.
+
+Note: Individual test debugging is not supported — clicking “debug” on a single parametrized test case still runs and debugs its entire containing test file, since Ceedling always compiles and runs a whole test file’s executable at a time. Set or skip breakpoints accordingly.
 
 Example configuration with Native Debug (`webfreak.debug`):
 ```json

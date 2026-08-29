@@ -8,6 +8,7 @@ import {
     languages
 } from 'vscode';
 import path from 'path';
+import { Logger } from './logger';
 
 export interface ProblemMatchingPattern {
     scanStdout: boolean;
@@ -32,7 +33,7 @@ export class ProblemMatcher {
     private suitsDiagnostics: Map<string, Array<FileDiagnostic>>;
     private readonly diagnosticCollection: DiagnosticCollection;
 
-    constructor() {
+    constructor(private readonly logger: Logger) {
         this.suitsDiagnostics = new Map<string, Array<FileDiagnostic>>();
         this.diagnosticCollection = languages.createDiagnosticCollection('Ceedling');
     }
@@ -75,6 +76,8 @@ export class ProblemMatcher {
                 };
 
                 result.push(resultPattern);
+            } else {
+                this.logger.debug(`normalizePatterns: dropping malformed pattern (missing/wrong-typed regexp, message, or file): ${JSON.stringify(pattern)}`);
             }
         }
 
@@ -139,6 +142,8 @@ export class ProblemMatcher {
             ((lastLine !== null) && (lastLine >= matches.length)) ||
             ((column !== null) && (column >= matches.length)) ||
             ((lastColumn !== null) && (lastColumn >= matches.length))) {
+            this.logger.trace(`getFileDiagnosticsFromRegexExec: rejecting match, a configured group index is out of bounds ` +
+                `(matches.length=${matches.length}, file=${file}, message=${message}, line=${line}, lastLine=${lastLine}, column=${column}, lastColumn=${lastColumn})`);
             return null;
         }
 
@@ -155,6 +160,8 @@ export class ProblemMatcher {
             ((lastLineValue !== undefined) && Number.isNaN(lastLineValue)) ||
             ((columnValue !== undefined) && Number.isNaN(columnValue)) ||
             ((lastColumnValue !== undefined) && Number.isNaN(lastColumnValue))) {
+            this.logger.trace(`getFileDiagnosticsFromRegexExec: rejecting match, a captured line/column value is missing or not a number ` +
+                `(line=${lineValue}, lastLine=${lastLineValue}, column=${columnValue}, lastColumn=${lastColumnValue})`);
             return null;
         }
 
@@ -194,8 +201,8 @@ export class ProblemMatcher {
                     }
                 }
             }
-        } catch {
-            //ignore
+        } catch (e) {
+            this.logger.warn(`getPatternDiagnostics: pattern threw, likely an invalid regexp (${pattern.regexp}): ${e}`);
         }
 
         return result;
@@ -243,6 +250,7 @@ export class ProblemMatcher {
             const patternDiagnostics = this.getPatternDiagnostics(stdout, stderr, projectPath, pattern);
             allPatternsDiagnostics = allPatternsDiagnostics.concat(patternDiagnostics);
         }
+        this.logger.debug(`scan(id=${id}): mode=${mode}, patterns=${patterns.length}, diagnostics=${allPatternsDiagnostics.length}`);
         this.suitsDiagnostics.set(id, allPatternsDiagnostics);
         this.updateDiagnosticsCollection();
     }

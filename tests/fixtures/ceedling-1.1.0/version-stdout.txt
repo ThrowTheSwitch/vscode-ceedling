@@ -1,0 +1,11 @@
+Welcome to Ceedling!
+
+  Ceedling => 1.1.0-5bbbc8f
+  ----------------------
+  /var/lib/gems/3.3.0/gems/ceedling-1.1.0/
+  
+  Build Frameworks
+  ----------------------
+       CMock => 2.7.0
+       Unity => 2.7.0
+  CException => 1.3.4

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<TestRun name="Example Project">
+  <FailedTests>
+    <Test id="1">
+      <Name>test/test_calculator.c::test_add_should_ButIsDeliberatelyWrong</Name>
+      <FailureType>Assertion</FailureType>
+      <Location>
+        <File>test/test_calculator.c</File>
+        <Line>16</Line>
+      </Location>
+      <Message>Expected 1 Was 5</Message>
+    </Test>
+  </FailedTests>
+  <SuccessfulTests>
+    <Test id="2">
+      <Name>test/test_calculator.c::test_add_should_ReturnSum</Name>
+    </Test>
+    <Test id="3">
+      <Name>test/test_calculator.c::test_add_should_HandleNegatives</Name>
+    </Test>
+  </SuccessfulTests>
+  <IgnoredTests>
+    <Test id="4">
+      <Name>test/test_calculator.c::test_should_BeIgnored</Name>
+    </Test>
+  </IgnoredTests>
+  <Statistics>
+    <Tests>4</Tests>
+    <Ignores>1</Ignores>
+    <FailuresTotal>1</FailuresTotal>
+    <Errors>0</Errors>
+    <Failures>1</Failures>
+  </Statistics>
+</TestRun>
