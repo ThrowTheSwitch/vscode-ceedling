@@ -68,7 +68,7 @@ The sidecar is Docker for everything except F5. It never touches the debug loop.
 
 ### Why it exists
 
-This repo used to run development inside a devcontainer. That setup fought the debugger. A devcontainer has no display server. It has no built-in support for the second GUI window a debug launch needs.
+Development inside a devcontainer can conflict with the debugger. A devcontainer has no display server. It has no built-in support for the second GUI window a debug launch needs.
 
 The sidecar removes Docker from that loop entirely. F5 and VS Code always run on the host.
 
