@@ -1,6 +1,6 @@
 # VSCode-Ceedling Release Notes
 
-Complemented by three other documents: [Changelog.md](Changelog.md), [KnownIssues.md](KnownIssues.md), and [BreakingChanges.md](BreakingChanges.md). Where the Changelog is a terse, itemized record of what changed, this document is the narrative version — the highlights worth reading before upgrading.
+Complemented by three other documents: [../CHANGELOG.md](../CHANGELOG.md), [KnownIssues.md](KnownIssues.md), and [BreakingChanges.md](BreakingChanges.md). Where the Changelog is a terse, itemized record of what changed, this document is the narrative version — the highlights worth reading before upgrading.
 
 ---
 

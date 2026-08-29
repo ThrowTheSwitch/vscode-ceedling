@@ -1,7 +1,7 @@
 name: Continuous Delivery
 
 # Release flow:
-#   1. Bump "version" in package.json (and add/rename the matching docs/Changelog.md section)
+#   1. Bump "version" in package.json (and add/rename the matching CHANGELOG.md section)
 #      in a normal commit to master.
 #   2. git tag v<version> (e.g. v2.0.0), or v<version>-pre.<N> (e.g. v2.0.0-pre.1) to iterate on
 #      a prerelease first - both share the same Changelog section and package.json version.
@@ -55,7 +55,7 @@ jobs:
     - name: Extract the changelog section for this release
       id: changelog
       run: |
-        if BODY="$(.github/workflows/extract_changelog.sh "${{ steps.semver.outputs.core }}" docs/Changelog.md)"; then
+        if BODY="$(.github/workflows/extract_changelog.sh "${{ steps.semver.outputs.core }}" CHANGELOG.md)"; then
           echo "found=true" >> "$GITHUB_OUTPUT"
           DELIM="CHANGELOG_EOF_$(date +%s)"
           {

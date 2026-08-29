@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Extracts one version's section out of a Keep-a-Changelog-style "# [VERSION] ..." changelog
-# (this project's docs/Changelog.md uses H1, not H2, version headings) for use as a GitHub
+# (this project's CHANGELOG.md uses H1, not H2, version headings) for use as a GitHub
 # Release body. Adapted directly from Ceedling's own .github/workflows/extract_changelog.sh.
 # Standalone and parameter-driven (no GitHub Actions context read internally), so it's
 # runnable/testable directly from a terminal:
 #
-#   .github/workflows/extract_changelog.sh 2.0.0 docs/Changelog.md
+#   .github/workflows/extract_changelog.sh 2.0.0 CHANGELOG.md
 #
 # A prerelease tag and its eventual final-release tag share one changelog section - pass the
 # caller-stripped semver core (e.g. "2.0.0" for both "v2.0.0" and "v2.0.0-pre.1") either way.

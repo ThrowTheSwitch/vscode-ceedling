@@ -1,6 +1,6 @@
 # VSCode-Ceedling Known Issues
 
-Complemented by three other documents: [Changelog.md](Changelog.md), [ReleaseNotes.md](ReleaseNotes.md), and [BreakingChanges.md](BreakingChanges.md).
+Complemented by three other documents: [../CHANGELOG.md](../CHANGELOG.md), [ReleaseNotes.md](ReleaseNotes.md), and [BreakingChanges.md](BreakingChanges.md).
 
 ---
 
