@@ -220,8 +220,13 @@ export class CeedlingEngine {
     ): Promise<void> {
         const functionName = extractTestFunctionName(fn.id);
         const ids = [fn.id, ...fn.cases.map((c) => c.id)];
+        // file.id, not fn.id - a compile diagnostic belongs to the file being compiled, the same
+        // file runFile itself uses as this id. Two different ids for the same file would let a
+        // diagnostic found during a single-function run go stale: nothing ever prunes an id once
+        // it stops being used, so a since-fixed error would linger under fn.id after a later
+        // whole-file run replaced only file.id's own entry.
         const collided = await this.runInternal(
-            projectKey, fn.id, this.getTestCommandArgs(file.id, functionName), ids, reporter, token, functionName
+            projectKey, file.id, this.getTestCommandArgs(file.id, functionName), ids, reporter, token, functionName
         );
         if (collided) {
             this.logger.warn(

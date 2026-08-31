@@ -142,7 +142,19 @@ export class CeedlingTestController {
             this.projects = [];
         }
         this.rebuildTree();
+        // Prunes any Problems-panel diagnostic left over under an id (a file, or a whole
+        // project) that no longer exists after this refresh - e.g. a deleted or renamed test
+        // file, or a changed ceedlingExplorer.projects setting. Nothing else ever prunes these;
+        // a run only ever adds or replaces its own id's entry.
+        this.engine.problemMatcher.setActualIds(this.currentDiagnosticsIds());
         this.watchFilesForReload(this.engine.getYmlProjectPaths());
+    }
+
+    // Every id CeedlingEngine.runInternal ever uses as a diagnosticsId: a project key (a
+    // whole-project run) or a file id (a file or single-function run - both key their
+    // diagnostics under the file, see CeedlingEngine.runFunction).
+    private currentDiagnosticsIds(): string[] {
+        return this.projects.flatMap((project) => [project.projectKey, ...project.files.map((file) => file.id)]);
     }
 
     private rebuildTree(): void {

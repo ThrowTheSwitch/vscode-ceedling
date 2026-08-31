@@ -25,6 +25,8 @@ This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 * Added Clean/Clobber toolbar buttons to the _Testing_ view, contributed by [@JannisRln](https://github.com/JannisRln) ([PR #8](https://github.com/ThrowTheSwitch/vscode-ceedling/pull/8)).
 * Compiler/linker problems reported via `ceedlingExplorer.problemMatching` now show as inline editor squiggles, not just entries in the Problems panel. The path passed to VS Code was relative rather than absolute, so it never matched the actually open document.
 * A build failure that leaves no XML test report no longer shows as a bare `stdout:` label in the editor view with no text. The _Testing_ view’s own message for the erroring test now leads with the compiler’s actual diagnostic when `ceedlingExplorer.problemMatching` is enabled and links to its exact line.
+* The `gcc` problem-matching preset now recognizes a real linker "undefined reference" error. It went unmatched on a newer `ld` toolchain, which adds a section/offset the preset's pattern did not expect.
+* A Problems-panel entry found while running a single test function in isolation no longer lingers after the error is fixed and the whole file is run instead. It was stored under the function's own id, separately from the file's, and nothing ever cleared it.
 
 # [1.0.0] — 2025-09-14
 

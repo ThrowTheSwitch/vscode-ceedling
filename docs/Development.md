@@ -138,6 +138,7 @@ All steps run against [`tests/manual/`](../tests/manual/), opened as its own fol
 - [ ] **Parametrized test.** All cases in `test_calculator_parametrized.c` pass, on both Ceedling 1.0.0 and 1.1.0.
 - [ ] **Crash handling.** `test_should_crash` in `test_calculator_crash.c` shows as a failed test, at the exact crashing line, on both Ceedling 1.0.0 and 1.1.0.
 - [ ] **Crash log link.** With Ceedling 1.1.0 running on a platform that supports `gdb`, set `:use_backtrace:` ⇒ `:gdb` in `project.yml` and re-run `test_should_crash`. Its failure message ends with a clickable link to the gdb log file. Revert the setting after.
+- [ ] **Diagnostics don’t go stale.** Introduce a syntax error, run just `test_add_should_ReturnSum` alone from its gutter icon. Confirm the error appears in the Problems panel. Fix the error, then run the whole file (not that same test again). Confirm the Problems panel entry is gone.
 
 ## 5. The Sidecar
 

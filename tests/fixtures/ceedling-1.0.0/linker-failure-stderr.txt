@@ -1,0 +1,5 @@
+EXCEPTION: 'Default Test Linker' (gcc) terminated with exit code [1] and output >>
+/usr/bin/ld: build/test/out/test_calculator/test_calculator.o: in function `test_should_have_linker_error':
+/home/dev/linker_probe10/test/test_calculator.c:21: undefined reference to `undefined_symbol_for_probe'
+collect2: error: ld returned 1 exit status
+Ceedling could not complete operations because of errors
