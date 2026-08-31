@@ -216,7 +216,11 @@ export class CeedlingEngine {
             const message = `stdout:\n${result.stdout}` + ((result.stderr.length != 0) ? `\nstderr:\n${result.stderr}` : ``);
             reporter.appendOutput(message.replace(/\n/g, '\r\n'));
 
-            this.problemMatcher.scan(diagnosticsId, result.stdout, result.stderr, this.projectData[projectKey].projectPath,
+            // absPath, not projectPath - compiler diagnostics report a path relative to the
+            // project directory, and Uri.file() needs an absolute path to match the actually
+            // open document. A relative prefix here left diagnostics visible in the Problems
+            // panel but never as inline editor squiggles.
+            this.problemMatcher.scan(diagnosticsId, result.stdout, result.stderr, this.projectData[projectKey].absPath,
                 this.getConfiguration().get<string>('problemMatching.mode', ""),
                 this.getConfiguration().get<ProblemMatchingPattern[]>('problemMatching.patterns', []));
 

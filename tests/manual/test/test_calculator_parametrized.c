@@ -1,11 +1,8 @@
-// Requires Ceedling 1.1.0 or later. Ceedling 1.0.0 has no TEST_CASE support at all, so this file
-// is kept separate from test_calculator.c - a build failure here should not take down the tests
-// that do work on 1.0.0.
-//
-// Even on 1.1.0, this can still fail to build with GCC 14 or later. Ceedling's generated runner
-// assigns a typed function pointer without a cast, which older GCC only warns about but GCC 14
-// treats as an error. This is a real Ceedling code-generation bug, not something fixable here.
-// See tests/manual/README.md.
+// TEST_CASE needs :unity: :use_param_tests: true in project.yml (already set). Ceedling 1.0.0
+// also needs :project: :use_test_preprocessor: :none (already the default) - Ceedling 1.0.0
+// cannot preserve TEST_CASE/TEST_RANGE macros through its own test-file preprocessing. Ceedling
+// 1.1.0 supports parameterized tests with or without preprocessing. See tests/manual/README.md.
+// Kept in its own file for clarity, not because it needs isolating from a build failure.
 #include "unity.h"
 #include "Calculator.h"
 

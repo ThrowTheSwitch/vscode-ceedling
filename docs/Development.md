@@ -117,7 +117,7 @@ Try the Clean and Clobber buttons, in the Testing view's own toolbar.
 
 Introduce a syntax error in `test_calculator.c`. Save. Run the test again. The error lands in the Problems panel. `tests/manual/.vscode/settings.json` already enables problem matching for this. Revert the edit after.
 
-See [tests/manual/README.md](../tests/manual/README.md) for the parametrized test's Ceedling-version caveats.
+See [tests/manual/README.md](../tests/manual/README.md) for the `project.yml` settings the parametrized test needs.
 
 ## 4. Manual Testing Plan
 
@@ -133,7 +133,7 @@ All steps run against [`tests/manual/`](../tests/manual/), opened as its own fol
 - [ ] **Clobber.** The Clobber button does a harder reset. It also succeeds.
 - [ ] **Problem matching.** A deliberate syntax error in `test_calculator.c` surfaces in the Problems panel. Revert the edit after.
 - [ ] **Settings change.** Toggle `ceedlingExplorer.prettyTestLabel` to `true` in `tests/manual/.vscode/settings.json`. Refresh. Labels shorten. No full window reload was needed.
-- [ ] **Parametrized test.** `test_calculator_parametrized.c`'s behavior matches what [tests/manual/README.md](../tests/manual/README.md) says for the installed Ceedling version.
+- [ ] **Parametrized test.** All cases in `test_calculator_parametrized.c` pass, on both Ceedling 1.0.0 and 1.1.0.
 
 ## 5. The Sidecar
 

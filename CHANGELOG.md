@@ -19,6 +19,7 @@ Debugging a test no longer relies on the `ceedlingExplorer.debugTestExecutable` 
 * Ceedling is now invoked with a forced UTF-8 locale (`LANG`/`LC_ALL=C.UTF-8`), fixing a Ruby encoding crash Ceedling 1.0.0 hit parsing non-ASCII source (even in comments) under a non-UTF-8 host locale; Ceedling 1.1.0 already handles this correctly on its own. When Ceedling still fails to produce its XML test report for any other reason, the captured stdout/stderr is always shown in the Test Results output instead of a bare "file not found" (#7).
 * Projects using `:test_runner: :test_prefix:` alongside Unity's default test prefix are now recognized correctly, contributed by [@Edoardo-en](https://github.com/ThrowTheSwitch/vscode-ceedling/pull/1) (PR #1).
 * Added Clean/Clobber toolbar buttons to the Testing view, contributed by [@JannisRln](https://github.com/ThrowTheSwitch/vscode-ceedling/pull/8) (PR #8).
+* Compiler/linker problems reported via `ceedlingExplorer.problemMatching` now show as inline editor squiggles, not just entries in the Problems panel. The path passed to VS Code was relative rather than absolute, so it never matched the actually open document.
 
 # [1.0.0] - 2025-09-14
 

@@ -1,5 +1,7 @@
 {
   "ceedlingExplorer.problemMatching": {
     "mode": "gcc"
-  }
+  },
+  "ceedlingExplorer.prettyTestFileLabel": true,
+  "ceedlingExplorer.prettyTestLabel": true
 }
