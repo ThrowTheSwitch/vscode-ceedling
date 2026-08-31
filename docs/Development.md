@@ -80,7 +80,7 @@ Command Palette command. For rendering-level issues. Rarely needed here.
 
 Command Palette command. Shows activation time and CPU per extension.
 
-This extension activates on every window. Its `activationEvents` is `["*"]`. Use this command to check that cost.
+This extension activates on every window. Its `activationEvents` is `["onStartupFinished"]`. Use this command to check that cost.
 
 ### The Testing View
 

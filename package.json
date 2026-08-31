@@ -86,7 +86,7 @@
     "node": ">=22"
   },
   "activationEvents": [
-    "*"
+    "onStartupFinished"
   ],
   "contributes": {
     "configuration": {

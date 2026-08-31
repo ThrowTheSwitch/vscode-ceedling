@@ -10,6 +10,7 @@ This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 * Migrated from the third-party [Test Explorer UI](https://marketplace.visualstudio.com/items?itemName=hbenl.vscode-test-explorer) extension and `vscode-test-adapter-api` to Visual Studio Code’s native Testing API. The Testing view, gutter run/debug icons, and inline failure messages are now provided natively by VS Code — the `hbenl.vscode-test-explorer` extension is no longer a dependency and may be uninstalled if you do not use it elsewhere.
 * Debugging a test no longer relies on the `ceedlingExplorer.debugTestExecutable` command being resolved by VS Code at an unpredictable time; the extension now resolves and substitutes the test executable path directly before starting the debug session. Existing `launch.json` configurations that use `${command:ceedlingExplorer.debugTestExecutable}` in their `program` property continue to work unchanged. This also fixes the “wrong executable path”/“No debug test executable found” class of bugs ([#2](https://github.com/ThrowTheSwitch/vscode-ceedling/issues/2)). Individual-test debugging is still not supported — Ceedling always builds and runs a whole test file’s executable.
+* Activation now waits for VS Code’s own startup to finish, instead of blocking it. `activationEvents` was `["*"]`, which `vsce` and VS Code both flag as a performance risk. Still activates for every window, same as before.
 
 ## 🌟 Added
 
