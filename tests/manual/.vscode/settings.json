@@ -1,0 +1,5 @@
+{
+  "ceedlingExplorer.problemMatching": {
+    "mode": "gcc"
+  }
+}
