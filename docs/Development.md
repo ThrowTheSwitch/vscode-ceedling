@@ -1,6 +1,6 @@
 # Development
 
-This document is for contributors changing this extension's own code. It covers: the daily workflow, running and debugging locally, key VS Code features, and the sidecar.
+This document is for contributors changing this extension's own code. It covers: the daily workflow, running and debugging locally, key VS Code features, manual testing, and the sidecar.
 
 ---
 
@@ -12,7 +12,7 @@ The loop is: edit, build, F5, iterate, test, commit.
 
 Source edits happen directly on the host. They happen in your real VS Code window. Docker never touches that window.
 
-The sidecar handles install, build, test, package, and publish. It runs in Docker. See [Section 4](#4-the-sidecar).
+The sidecar handles install, build, test, package, and publish. It runs in Docker. See [Section 5](#5-the-sidecar).
 
 First time: run `just install`. Then press F5.
 
@@ -38,31 +38,104 @@ Behavior looks stale: rebuild, then Reload Window.
 
 Nothing loads: same fix.
 
-For runtime errors and logs, check the Output channel. It is named "Ceedling Explorer". Find it in the second window.
+For runtime errors and logs, check the Output channel. It is named "Ceedling Explorer". Find it in the second window. See [Viewing Extension Logs](#viewing-extension-logs) for how to control its detail.
 
 F5 runs in development mode. Development mode adds `--verbosity debug` to test runs and debug compiles. It logs their raw stdout and stderr to that channel. A packaged install never does this.
-
-The Output channel's log level is adjustable. Use its own gear icon. No code change is needed to see more or less detail.
 
 ## 3. Key VS Code Features for This Work
 
 A small, fixed set of VS Code features covers nearly all of this repo's dev and debug needs.
 
-**Extension Development Host.** The second window F5 opens. This extension runs under test inside it.
+### Extension Development Host
 
-**Breakpoints and the Debug Console.** Set breakpoints in `src/*.ts`. They hit in the Development Host.
+The second window F5 opens. This extension runs under test inside it.
 
-**The "Ceedling Explorer" Output channel.** This extension's own runtime log. See [Section 2](#troubleshooting).
+### Breakpoints and the Debug Console
 
-**Developer: Reload Window.** Command Palette command. The fastest way to pick up a rebuild.
+Set breakpoints in `src/*.ts`. They hit in the Development Host.
 
-**Developer: Toggle Developer Tools.** Command Palette command. For rendering-level issues. Rarely needed here.
+### Viewing Extension Logs
 
-**The Testing view, inside the Development Host.** This is the extension's own UI under test. Open it to see your changes.
+The "Ceedling Explorer" Output channel holds this extension's own runtime log.
 
-**The Problems panel.** Shows this repo's own TypeScript build errors. The extension has a separate problem-matching feature for Ceedling's users. Do not confuse the two.
+Open it from the Output panel, in the second window.
 
-## 4. The Sidecar
+The Output panel has its own level filter. It controls what you see for the channel you're viewing.
+
+For a choice that persists, use the Command Palette instead. Run "Developer: Set Log Level...". Pick "Ceedling Explorer". Pick a level: Trace, Debug, Info, Warning, Error, or Off.
+
+Trace shows the most detail. It includes every raw Ceedling invocation this extension makes.
+
+Development mode adds detail of its own, on top of this. See [Section 2](#troubleshooting).
+
+### Reload Window
+
+Command Palette command. The fastest way to pick up a rebuild.
+
+### Toggle Developer Tools
+
+Command Palette command. For rendering-level issues. Rarely needed here.
+
+### Show Running Extensions
+
+Command Palette command. Shows activation time and CPU per extension.
+
+This extension activates on every window. Its `activationEvents` is `["*"]`. Use this command to check that cost.
+
+### The Testing View
+
+This is the extension's own UI under test. Open it, inside the Development Host, to see your changes.
+
+### The Problems Panel
+
+Shows this repo's own TypeScript build errors. The extension has a separate problem-matching feature for Ceedling's users. Do not confuse the two.
+
+### Driving the Extension's Features
+
+Exercising the extension needs a real Ceedling project, open as its own workspace.
+
+This repo ships one, at [`tests/manual/`](../tests/manual/).
+
+In the Development Host: File, Open Folder, pick `tests/manual/`.
+
+This is a separate workspace from this repo's own root. This repo's own `.vscode/launch.json` launches the Development Host itself, one level up. `tests/manual/`'s own `.vscode/launch.json` is what the extension uses inside that second window.
+
+Open the Testing view. It discovers the tests in `test_calculator.c` and `test_calculator_parametrized.c`.
+
+Click the refresh icon to re-discover after an edit.
+
+Run all test cases. Each shows its state.
+
+* `test_calculator.c`: One passes. One fails. One is ignored.
+* `test_calculator_parametrized.c`: All parameterized test cases pass.
+
+Click a single test's gutter icon to run just that test.
+
+Click a test's debug icon to debug it. A breakpoint in `src/Calculator.c` hits through gdb.
+
+Try the Clean and Clobber buttons, in the Testing view's own toolbar.
+
+Introduce a syntax error in `test_calculator.c`. Save. Run the test again. The error lands in the Problems panel. `tests/manual/.vscode/settings.json` already enables problem matching for this. Revert the edit after.
+
+See [tests/manual/README.md](../tests/manual/README.md) for the parametrized test's Ceedling-version caveats.
+
+## 4. Manual Testing Plan
+
+This is a repeatable checklist. Run it after a change that could affect the extension's runtime behavior.
+
+All steps run against [`tests/manual/`](../tests/manual/), opened as its own folder in the Development Host.
+
+- [ ] **Discovery.** The Testing view lists both test files. Confirms parsing and discovery both work.
+- [ ] **Run all.** One test passes, one fails, one is ignored. Each shows the correct message.
+- [ ] **Run one.** A single test runs in isolation, from its gutter icon.
+- [ ] **Debug.** A breakpoint in `src/Calculator.c` is hit, from a test's debug icon.
+- [ ] **Clean.** The Testing view's Clean button clears `build/`.
+- [ ] **Clobber.** The Clobber button does a harder reset. It also succeeds.
+- [ ] **Problem matching.** A deliberate syntax error in `test_calculator.c` surfaces in the Problems panel. Revert the edit after.
+- [ ] **Settings change.** Toggle `ceedlingExplorer.prettyTestLabel` to `true` in `tests/manual/.vscode/settings.json`. Refresh. Labels shorten. No full window reload was needed.
+- [ ] **Parametrized test.** `test_calculator_parametrized.c`'s behavior matches what [tests/manual/README.md](../tests/manual/README.md) says for the installed Ceedling version.
+
+## 5. The Sidecar
 
 The sidecar is Docker for everything except F5. It never touches the debug loop.
 
@@ -113,5 +186,6 @@ There are two modes.
 
 - [README.md](../README.md) — end-user features and configuration.
 - [CHANGELOG.md](../CHANGELOG.md), [ReleaseNotes.md](ReleaseNotes.md), [KnownIssues.md](KnownIssues.md), [BreakingChanges.md](BreakingChanges.md) — release-facing docs.
+- [tests/manual/README.md](../tests/manual/README.md) — the manual test project itself.
 - [sidecar/README.md](../sidecar/README.md) — the sidecar's own fuller explanation.
 - [.github/workflows/cd.yml](../.github/workflows/cd.yml) — the release process itself.
