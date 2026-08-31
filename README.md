@@ -151,9 +151,13 @@ The following commands are available in VS Code’s command palette. Use the ID 
 
 To set up debugging, create a Debug Configuration in `launch.json` and reference its *name* as the `debugLaunchConfig` property of the corresponding entry in `ceedlingExplorer.projects` (see [Options](#options)). If `ceedlingExplorer.projects` isn’t configured at all, the extension falls back to a single default project expecting a launch configuration literally named `ceedling`.
 
+Migrating from the original _Ceedling Test Explorer_ extension? Its flat `ceedlingExplorer.debugConfiguration` string setting no longer exists. Use `ceedlingExplorer.projects[].debugLaunchConfig` instead, as above.
+
 `${command:ceedlingExplorer.debugTestExecutable}` can be used in the `program` property to reference the test executable being debugged. Depending on your Ceedling configuration, it is found under `projectPath/build/test/out/`.
 
-This looks like a VS Code command variable. It isn't one. No command by that name is registered. The extension substitutes it directly with the resolved executable path before starting the debug session.
+This looks like a VS Code command variable. The extension substitutes it directly with the resolved executable path before starting the debug session. That substitution only happens when debugging starts from a test’s own debug icon in the Testing view.
+
+Starting the same launch configuration from F5 or the Run and Debug panel skips that substitution entirely. A guard shows a clear error in that case, instead of a confusing “path does not exist” failure. Always start debugging from a test’s debug icon, not F5 or the Run and Debug panel.
 
 Note: Individual test debugging is not supported — clicking “debug” on a single parametrized test case still runs and debugs its entire containing test file, since Ceedling always compiles and runs a whole test file’s executable at a time. Set or skip breakpoints accordingly.
 

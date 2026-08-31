@@ -19,6 +19,7 @@ This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 ## 💪 Fixed
 
 * Multi-root workspaces no longer log a noisy error and fail the whole folder’s test discovery when one folder simply isn't a Ceedling project ([#4](https://github.com/ThrowTheSwitch/vscode-ceedling/issues/4)).
+* Ceedling 1.1.0 projects no longer show zero tests in the _Testing_ view. Test discovery only recognized an older test-file listing format ([#10](https://github.com/ThrowTheSwitch/vscode-ceedling/issues/10)).
 * Fixed a crash (`a.join is not a function`) when parsing a Unity parameterized `TEST_CASE()`/`TEST_RANGE()` test containing only a single range clause ([#3](https://github.com/ThrowTheSwitch/vscode-ceedling/issues/3)).
 * Ceedling is now invoked with a forced UTF-8 locale (`LANG`/`LC_ALL=C.UTF-8`), fixing a Ruby encoding crash Ceedling 1.0.0 hit parsing non-ASCII source (even in comments) under a non-UTF-8 host locale; Ceedling 1.1.0 already handles this correctly on its own. When Ceedling still fails to produce its XML test report for any other reason, the captured `$stdout`/`$stderr` is always shown in the _Test Results_ output instead of a bare "file not found" ([#7](https://github.com/ThrowTheSwitch/vscode-ceedling/issues/7)).
 * Projects using `:test_runner` ↳ `:test_prefix` alongside Unity’s default test prefix are now recognized correctly, contributed by [@Edoardo-en](https://github.com/Edoardo-en) ([PR #1](https://github.com/ThrowTheSwitch/vscode-ceedling/pull/1)).
@@ -27,6 +28,7 @@ This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 * A build failure that leaves no XML test report no longer shows as a bare `stdout:` label in the editor view with no text. The _Testing_ view’s own message for the erroring test now leads with the compiler’s actual diagnostic when `ceedlingExplorer.problemMatching` is enabled and links to its exact line.
 * The `gcc` problem-matching preset now recognizes a real linker "undefined reference" error. It went unmatched on a newer `ld` toolchain, which adds a section/offset the preset's pattern did not expect.
 * A Problems-panel entry found while running a single test function in isolation no longer lingers after the error is fixed and the whole file is run instead. It was stored under the function's own id, separately from the file's, and nothing ever cleared it.
+* Starting a debug session from F5 or the Run and Debug panel, instead of a test's own debug icon in the Testing view, now shows a clear error explaining what to do instead of a confusing "path does not exist" failure ([#5](https://github.com/ThrowTheSwitch/vscode-ceedling/issues/5)).
 
 # [1.0.0] — 2025-09-14
 
