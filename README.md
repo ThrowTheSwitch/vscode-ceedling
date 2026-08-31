@@ -93,7 +93,7 @@ The Testing view’s toolbar also has Clean and Clobber buttons. They run `ceedl
 
 Problem matching is the mechanism that scans Ceedling output text for known error/warning/info strings and reports these inline in the editor and in the Problems panel. It mimics VS Code’s _Tasks_ `problemMatchers` mechanism.
 
-![problems](img/problems.png)
+<img src="img/problems.png" alt="Problems" width="540">
 
 ### Problem matching configuration options
 
