@@ -88,3 +88,37 @@ export function buildFileLabelRegex(filePrefix: string): RegExp {
 export function buildTestLabelRegex(testPrefix: string): RegExp {
     return new RegExp(`(?:${testPrefix})_*(.*)`);
 }
+
+// Extracts the bare function name from an XML report's Test Name field, e.g.
+// "test/foo.c::test_add_should_ReturnSum" -> "test_add_should_ReturnSum", and
+// "test/foo.c::test_add_ParameterizedCases(2, 3, 5)" -> "test_add_ParameterizedCases".
+export function extractTestFunctionName(reportedName: string): string {
+    const afterFile = reportedName.includes('::') ? reportedName.split('::').pop()! : reportedName;
+    const parenIndex = afterFile.indexOf('(');
+    return parenIndex === -1 ? afterFile : afterFile.slice(0, parenIndex);
+}
+
+// Ceedling's --test-case filter is a substring match, not an exact one. A short function name
+// can accidentally also match a longer, unrelated function name that contains it as a prefix.
+// Given the function name that was requested and every test name Ceedling actually reported,
+// returns true only when every reported test genuinely belongs to the requested function.
+// Multiple reported tests are expected and fine when the requested function is parametrized -
+// this checks the function name each belongs to, not how many there are.
+export function testCaseFilterMatchedExactly(requestedFunctionName: string, reportedNames: string[]): boolean {
+    return reportedNames.every((name) => extractTestFunctionName(name) === requestedFunctionName);
+}
+
+// Ceedling 1.1.0+'s :use_backtrace: :gdb writes a per-test-case gdb transcript to a log file and
+// references its path, relative to the project directory, in parentheses at the end of a crashed
+// test's failure message. Splits the message into the text before that reference and the
+// referenced path, so a caller with the project's absolute path can turn it into a clickable
+// link. Returns the whole message unchanged with no logPath when there's no such reference -
+// including all Ceedling 1.0.0 output, which never emits this pattern (1.0.0's backtrace
+// generator embeds the filtered gdb text directly in the message, with no separate log file).
+export function extractGdbLogReference(message: string): { text: string, logPath: string | undefined } {
+    const match = message.match(/\n?\(([^()\n]+\.gdb\.log)\)\s*$/);
+    if (!match || match.index === undefined) {
+        return { text: message, logPath: undefined };
+    }
+    return { text: message.slice(0, match.index), logPath: match[1] };
+}

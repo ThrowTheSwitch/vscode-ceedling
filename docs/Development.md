@@ -1,6 +1,6 @@
 # Development
 
-This document is for contributors changing this extension's own code. It covers: the daily workflow, running and debugging locally, key VS Code features, manual testing, and the sidecar.
+This document is for contributors changing this extension’s own code. It covers: the daily workflow, running and debugging locally, key VS Code features, manual testing, and the sidecar.
 
 ---
 
@@ -44,7 +44,7 @@ F5 runs in development mode. Development mode adds `--verbosity debug` to test r
 
 ## 3. Key VS Code Features for This Work
 
-A small, fixed set of VS Code features covers nearly all of this repo's dev and debug needs.
+A small, fixed set of VS Code features covers nearly all of this repo’s dev and debug needs.
 
 ### Extension Development Host
 
@@ -56,7 +56,7 @@ Set breakpoints in `src/*.ts`. They hit in the Development Host.
 
 ### Viewing Extension Logs
 
-The "Ceedling Explorer" Output channel holds this extension's own runtime log.
+The "Ceedling Explorer" Output channel holds this extension’s own runtime log.
 
 Open it from the Output panel, in the second window.
 
@@ -84,13 +84,13 @@ This extension activates on every window. Its `activationEvents` is `["*"]`. Use
 
 ### The Testing View
 
-This is the extension's own UI under test. Open it, inside the Development Host, to see your changes.
+This is the extension’s own UI under test. Open it, inside the Development Host, to see your changes.
 
 ### The Problems Panel
 
-Shows this repo's own TypeScript build errors. The extension has a separate problem-matching feature for Ceedling's users. Do not confuse the two.
+Shows this repo’s own TypeScript build errors. The extension has a separate problem-matching feature for Ceedling’s users. Do not confuse the two.
 
-### Driving the Extension's Features
+### Driving the Extension’s Features
 
 Exercising the extension needs a real Ceedling project, open as its own workspace.
 
@@ -98,7 +98,7 @@ This repo ships one, at [`tests/manual/`](../tests/manual/).
 
 In the Development Host: File, Open Folder, pick `tests/manual/`.
 
-This is a separate workspace from this repo's own root. This repo's own `.vscode/launch.json` launches the Development Host itself, one level up. `tests/manual/`'s own `.vscode/launch.json` is what the extension uses inside that second window.
+This is a separate workspace from this repo’s own root. This repo’s own `.vscode/launch.json` launches the Development Host itself, one level up. `tests/manual/`’s own `.vscode/launch.json` is what the extension uses inside that second window.
 
 Open the Testing view. It discovers the tests in `test_calculator.c` and `test_calculator_parametrized.c`.
 
@@ -109,31 +109,35 @@ Run all test cases. Each shows its state.
 * `test_calculator.c`: One passes. One fails. One is ignored.
 * `test_calculator_parametrized.c`: All parameterized test cases pass.
 
-Click a single test's gutter icon to run just that test.
+Click a single test’s gutter icon to run just that test. Ceedling still recompiles the whole file — `--test-case` narrows what runs and gets reported, not what gets built. A parametrized function’s cases always run together; Ceedling’s filter can isolate one function, not one case within it.
 
-Click a test's debug icon to debug it. A breakpoint in `src/Calculator.c` hits through gdb.
+Click a test’s debug icon to debug it. A breakpoint in `src/Calculator.c` hits through the VS Code debugger.
 
-Try the Clean and Clobber buttons, in the Testing view's own toolbar.
+Try the Clean and Clobber buttons, in the Testing view’s own toolbar.
 
 Introduce a syntax error in `test_calculator.c`. Save. Run the test again. The error lands in the Problems panel. `tests/manual/.vscode/settings.json` already enables problem matching for this. Revert the edit after.
 
-See [tests/manual/README.md](../tests/manual/README.md) for the `project.yml` settings the parametrized test needs.
+Run `test_calculator_crash.c`. `test_should_crash` dereferences a null pointer. `project.yml`’s `:use_backtrace` ⇒ `:simple` setting catches the crash and reports it as a normal failed test at the exact crashing line instead of a bare timeout or a silently stopped run.
+
+See [tests/manual/README.md](../tests/manual/README.md) for the `project.yml` settings the parametrized and crash tests need.
 
 ## 4. Manual Testing Plan
 
-This is a repeatable checklist. Run it after a change that could affect the extension's runtime behavior.
+This is a repeatable checklist. Run it after a change that could affect the extension’s runtime behavior.
 
 All steps run against [`tests/manual/`](../tests/manual/), opened as its own folder in the Development Host.
 
-- [ ] **Discovery.** The Testing view lists both test files. Confirms parsing and discovery both work.
+- [ ] **Discovery.** The Testing view lists all test files. Confirms parsing and discovery both work.
 - [ ] **Run all.** One test passes, one fails, one is ignored. Each shows the correct message.
-- [ ] **Run one.** A single test runs in isolation, from its gutter icon.
-- [ ] **Debug.** A breakpoint in `src/Calculator.c` is hit, from a test's debug icon.
-- [ ] **Clean.** The Testing view's Clean button clears `build/`.
+- [ ] **Run one.** A single test runs in isolation, from its gutter icon. The Ceedling Explorer log (Trace level) shows `--test-case=` in the invocation.
+- [ ] **Debug.** A breakpoint in `src/Calculator.c` is hit, from a test’s debug icon.
+- [ ] **Clean.** The Testing view’s Clean button clears `build/`.
 - [ ] **Clobber.** The Clobber button does a harder reset. It also succeeds.
 - [ ] **Problem matching.** A deliberate syntax error in `test_calculator.c` surfaces in the Problems panel. Revert the edit after.
 - [ ] **Settings change.** Toggle `ceedlingExplorer.prettyTestLabel` to `true` in `tests/manual/.vscode/settings.json`. Refresh. Labels shorten. No full window reload was needed.
 - [ ] **Parametrized test.** All cases in `test_calculator_parametrized.c` pass, on both Ceedling 1.0.0 and 1.1.0.
+- [ ] **Crash handling.** `test_should_crash` in `test_calculator_crash.c` shows as a failed test, at the exact crashing line, on both Ceedling 1.0.0 and 1.1.0.
+- [ ] **Crash log link.** With Ceedling 1.1.0 running on a platform that supports `gdb`, set `:use_backtrace:` ⇒ `:gdb` in `project.yml` and re-run `test_should_crash`. Its failure message ends with a clickable link to the gdb log file. Revert the setting after.
 
 ## 5. The Sidecar
 
@@ -145,7 +149,7 @@ Development inside a devcontainer can conflict with the debugger. A devcontainer
 
 The sidecar removes Docker from that loop entirely. F5 and VS Code always run on the host.
 
-### What's in the image
+### What’s in the image
 
 The image is `vscode-ceedling-sidecar`. It builds from `sidecar/Dockerfile`. It contains:
 
@@ -165,7 +169,7 @@ There are two modes.
 
 **Interactive.** `just shell` opens a live session in the same image. The same recipe names work directly inside it. `just` detects it is already in the container.
 
-`node_modules` and the downloaded test-VS Code binary persist in named Docker volumes. They do not live in the container. They do not live in the host's own `node_modules`.
+`node_modules` and the downloaded test-VS Code binary persist in named Docker volumes. They do not live in the container. They do not live in the host’s own `node_modules`.
 
 ### Most needed recipes
 
@@ -187,5 +191,5 @@ There are two modes.
 - [README.md](../README.md) — end-user features and configuration.
 - [CHANGELOG.md](../CHANGELOG.md), [ReleaseNotes.md](ReleaseNotes.md), [KnownIssues.md](KnownIssues.md), [BreakingChanges.md](BreakingChanges.md) — release-facing docs.
 - [tests/manual/README.md](../tests/manual/README.md) — the manual test project itself.
-- [sidecar/README.md](../sidecar/README.md) — the sidecar's own fuller explanation.
+- [sidecar/README.md](../sidecar/README.md) — the sidecar’s own fuller explanation.
 - [.github/workflows/cd.yml](../.github/workflows/cd.yml) — the release process itself.

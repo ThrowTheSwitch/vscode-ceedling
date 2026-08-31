@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<TestRun name="VSCode-Ceedling Manual Test Project">
+  <FailedTests>
+    <Test id="1">
+      <Name>test/test_calculator.c::test_should_crash</Name>
+      <FailureType>Assertion</FailureType>
+      <Location>
+        <File>test/test_calculator.c</File>
+        <Line>13</Line>
+      </Location>
+      <Message>Test case crashed >> [SIGSEGV] Segmentation fault
+`*p = 42;`
+(build/logs/test/test_calculator/test_should_crash.gdb.log)</Message>
+    </Test>
+  </FailedTests>
+  <SuccessfulTests>
+    <Test id="2">
+      <Name>test/test_calculator.c::test_add_should_ReturnSum</Name>
+    </Test>
+  </SuccessfulTests>
+  <IgnoredTests/>
+  <Statistics>
+    <Tests>2</Tests>
+    <Ignores>0</Ignores>
+    <FailuresTotal>1</FailuresTotal>
+    <Errors>0</Errors>
+    <Failures>1</Failures>
+  </Statistics>
+</TestRun>

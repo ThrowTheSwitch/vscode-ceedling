@@ -1,4 +1,5 @@
 import fs from 'fs';
+import path from 'path';
 import util from 'util';
 import vscode from 'vscode';
 import {
@@ -9,6 +10,7 @@ import {
     CeedlingTestFunction,
     RunReporter,
 } from './ceedlingEngine';
+import { extractGdbLogReference } from './ceedlingOutputParsing';
 import { Logger } from './logger';
 
 type ItemMeta =
@@ -17,7 +19,8 @@ type ItemMeta =
 
 type RunPlanEntry =
     | { kind: 'project', projectKey: string, files: CeedlingFileNode[] }
-    | { kind: 'file', projectKey: string, file: CeedlingFileNode };
+    | { kind: 'file', projectKey: string, file: CeedlingFileNode }
+    | { kind: 'function', projectKey: string, file: CeedlingFileNode, fn: CeedlingTestFunction };
 
 // Owns one native vscode.TestController for a workspace folder, mirroring the CeedlingEngine's
 // discovery/run output onto TestItem/TestRun. One controller may show multiple Ceedling projects
@@ -199,18 +202,37 @@ export class CeedlingTestController {
         }
     }
 
-    // Ceedling only ever runs/compiles a whole test file at a time, so every requested item
-    // (project, file, parametrized-function, or individual case) resolves up to its file here.
+    // Ceedling always compiles a whole test file at a time, but can run and report just one
+    // function within it via --test-case (see CeedlingEngine.runFunction). A single function or
+    // case click narrows to that function; a whole file, project, or "run everything" runs the
+    // full file. A case never isolates further than its own function - Ceedling's --test-case
+    // filter has function-level granularity only, so all of a parametrized function's cases run
+    // (and get reported) together.
     private buildRunPlan(include: readonly vscode.TestItem[] | undefined): RunPlanEntry[] {
         const plan: RunPlanEntry[] = [];
         const seenFiles = new Set<string>();
+        const seenFunctions = new Set<string>();
         const seenProjects = new Set<string>();
 
         const addFile = (projectKey: string, file: CeedlingFileNode) => {
             const key = `${projectKey}::${file.id}`;
             if (seenFiles.has(key)) return;
             seenFiles.add(key);
+            // A whole-file run already covers any function of this file added narrower, earlier
+            // in the same request - drop those so the file doesn't run twice.
+            for (let i = plan.length - 1; i >= 0; i--) {
+                const entry = plan[i];
+                if (entry.kind === 'function' && entry.projectKey === projectKey && entry.file.id === file.id) {
+                    plan.splice(i, 1);
+                }
+            }
             plan.push({ kind: 'file', projectKey, file });
+        };
+        const addFunction = (projectKey: string, file: CeedlingFileNode, fn: CeedlingTestFunction) => {
+            const key = `${projectKey}::${fn.id}`;
+            if (seenFiles.has(`${projectKey}::${file.id}`) || seenFunctions.has(key)) return;
+            seenFunctions.add(key);
+            plan.push({ kind: 'function', projectKey, file, fn });
         };
         const addProject = (projectKey: string, files: CeedlingFileNode[]) => {
             if (seenProjects.has(projectKey)) return;
@@ -238,8 +260,15 @@ export class CeedlingTestController {
             if (meta.kind === 'project') {
                 const project = this.projects.find((p) => p.projectKey === meta.projectKey);
                 if (project) addProject(meta.projectKey, project.files);
-            } else {
+            } else if (meta.kind === 'file') {
                 addFile(meta.projectKey, meta.file);
+            } else if (meta.kind === 'function') {
+                const fn = meta.file.functions.find((f) => f.id === item.id);
+                if (fn) addFunction(meta.projectKey, meta.file, fn); else addFile(meta.projectKey, meta.file);
+            } else {
+                // 'case': narrows to its containing function, not to just this one case.
+                const fn = meta.file.functions.find((f) => f.cases.some((c) => c.id === item.id));
+                if (fn) addFunction(meta.projectKey, meta.file, fn); else addFile(meta.projectKey, meta.file);
             }
         }
         return plan;
@@ -261,7 +290,18 @@ export class CeedlingTestController {
             failed: (id, message, line) => {
                 const item = this.idToItem.get(id);
                 if (!item) { warnUnmapped('failed', id); return; }
-                const testMessage = new vscode.TestMessage(message);
+                const meta = this.itemMeta.get(item);
+                const { text, logPath } = extractGdbLogReference(message);
+                // Ceedling 1.1.0+'s :use_backtrace: :gdb references a per-test-case gdb log file
+                // at the end of a crash message. Turn that reference into an actual clickable
+                // link, resolved against the project's absolute path (the reference itself is
+                // relative to the project directory). Ceedling 1.0.0 output never matches this
+                // pattern, so this is always a plain message there.
+                const testMessage = (logPath !== undefined && meta)
+                    ? new vscode.TestMessage(new vscode.MarkdownString(
+                        `${text}\n\n[${logPath}](${vscode.Uri.file(path.resolve(this.engine.getProjectAbsPath(meta.projectKey), logPath)).toString()})`
+                    ))
+                    : new vscode.TestMessage(message);
                 if (line !== undefined && item.uri) {
                     testMessage.location = new vscode.Location(item.uri, new vscode.Position(line, 0));
                 }
@@ -290,6 +330,8 @@ export class CeedlingTestController {
                 if (token.isCancellationRequested) break;
                 if (entry.kind === 'project') {
                     await this.engine.runProjectAll(entry.projectKey, entry.files, reporter, token);
+                } else if (entry.kind === 'function') {
+                    await this.engine.runFunction(entry.projectKey, entry.file, entry.fn, reporter, token);
                 } else {
                     await this.engine.runFile(entry.projectKey, entry.file, reporter, token);
                 }

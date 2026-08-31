@@ -2,15 +2,21 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as semver from 'semver';
+// Namespace import, not a default import: test.tsconfig.json has no esModuleInterop, and
+// @types/xml2js has no default export.
+import * as xml2js from 'xml2js';
 import {
     buildFileLabelRegex,
     buildTestFunctionRegex,
     buildTestLabelRegex,
     expandParametrizedTestCases,
+    extractGdbLogReference,
+    extractTestFunctionName,
     joinMacroAliases,
     normalizeMultilineFunctionName,
     parseCeedlingVersionString,
     parseFileListBullets,
+    testCaseFilterMatchedExactly,
 } from '../../src/ceedlingOutputParsing';
 
 // __dirname at runtime is out/tests/unit (tsc mirrors the source tree under outDir); fixtures are
@@ -135,5 +141,84 @@ suite('buildFileLabelRegex / buildTestLabelRegex', () => {
         const match = regex.exec('test_add_should_ReturnSum');
         assert.ok(match);
         assert.strictEqual(match![1], 'add_should_ReturnSum');
+    });
+});
+
+suite('extractTestFunctionName', () => {
+    test('strips the file prefix and any parametrized-case arguments', () => {
+        assert.strictEqual(
+            extractTestFunctionName('test/test_calculator.c::test_add_should_ReturnSum'),
+            'test_add_should_ReturnSum'
+        );
+        assert.strictEqual(
+            extractTestFunctionName('test/test_calculator.c::test_add_ParameterizedCases(2, 3, 5)'),
+            'test_add_ParameterizedCases'
+        );
+    });
+
+    test('handles a bare function name with no file prefix', () => {
+        assert.strictEqual(extractTestFunctionName('test_add_should_ReturnSum'), 'test_add_should_ReturnSum');
+    });
+});
+
+suite('testCaseFilterMatchedExactly', () => {
+    // Real names from tests/manual/test/test_calculator.c. Confirmed empirically: Ceedling's
+    // --test-case=test_add_should_ReturnSum also matched test_add_should_ReturnSumButIsDeliberatelyWrong,
+    // since the filter is a substring match and the former is a prefix of the latter.
+    test('detects the real substring-collision case', () => {
+        const reported = [
+            'test/test_calculator.c::test_add_should_ReturnSum',
+            'test/test_calculator.c::test_add_should_ReturnSumButIsDeliberatelyWrong',
+        ];
+        assert.strictEqual(testCaseFilterMatchedExactly('test_add_should_ReturnSum', reported), false);
+    });
+
+    test('allows multiple results for the same parametrized function', () => {
+        const reported = [
+            'test/test_param.c::test_add_ParameterizedCases(2, 3, 5)',
+            'test/test_param.c::test_add_ParameterizedCases(10, -4, 6)',
+        ];
+        assert.strictEqual(testCaseFilterMatchedExactly('test_add_ParameterizedCases', reported), true);
+    });
+
+    test('allows a single, exactly-matching result', () => {
+        assert.strictEqual(
+            testCaseFilterMatchedExactly('test_add_should_ReturnSum', ['test/test_calculator.c::test_add_should_ReturnSum']),
+            true
+        );
+    });
+});
+
+suite('extractGdbLogReference', () => {
+    function parseXml(xmlText: string): Promise<any> {
+        const parser = new xml2js.Parser({ explicitArray: false });
+        return new Promise((resolve, reject) => {
+            parser.parseString(xmlText, (error: any, result: any) => error ? reject(error) : resolve(result));
+        });
+    }
+
+    // Real crash captured via a real Ceedling 1.1.0 run with :use_backtrace: :gdb and a test that
+    // dereferences a null pointer.
+    test('splits a real Ceedling 1.1.0 :use_backtrace: :gdb crash message', async () => {
+        const xmlText = readFixture('ceedling-1.1.0', 'cppunit-report-crash.xml');
+        const parsed = await parseXml(xmlText);
+        const message = parsed.TestRun.FailedTests.Test.Message;
+
+        const { text, logPath } = extractGdbLogReference(message);
+        assert.strictEqual(logPath, 'build/logs/test/test_calculator/test_should_crash.gdb.log');
+        assert.strictEqual(text, 'Test case crashed >> [SIGSEGV] Segmentation fault\n`*p = 42;`');
+    });
+
+    test('returns the message unchanged when there is no gdb log reference', () => {
+        const message = 'Expected 1 Was 5';
+        assert.deepStrictEqual(extractGdbLogReference(message), { text: message, logPath: undefined });
+    });
+
+    // Ceedling 1.0.0's :use_backtrace: :gdb embeds the filtered gdb transcript directly in the
+    // message, with no separate log file - confirmed by reading its generator source. This
+    // pattern must not match that shape.
+    test('does not match a Ceedling 1.0.0-style embedded gdb transcript', () => {
+        const message = 'Test case crashed >> Program received signal SIGSEGV, Segmentation fault.\n0x0 in testCrash () at test/test_calculator.c:13';
+        assert.deepStrictEqual(extractGdbLogReference(message), { text: message, logPath: undefined });
     });
 });

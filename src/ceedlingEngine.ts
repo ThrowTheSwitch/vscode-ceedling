@@ -15,9 +15,11 @@ import {
     buildTestFunctionRegex,
     buildTestLabelRegex,
     expandParametrizedTestCases,
+    extractTestFunctionName,
     normalizeMultilineFunctionName,
     parseCeedlingVersionString,
     parseFileListBullets,
+    testCaseFilterMatchedExactly,
 } from './ceedlingOutputParsing';
 import { getTestListFromXmlReport } from './ceedlingXmlReport';
 import { Logger } from './logger';
@@ -139,6 +141,12 @@ export class CeedlingEngine {
         return this.projectData[projectKey].debugLaunchConfig;
     }
 
+    // A gdb log file reference in a crash message is relative to the project directory. A
+    // caller turning that reference into a clickable link needs this to resolve it.
+    getProjectAbsPath(projectKey: string): string {
+        return this.projectData[projectKey].absPath;
+    }
+
     // Discover every configured project and its test files/functions.
     // Throws CeedlingLoadError if Ceedling itself can't be used at all (bad version, no
     // project.yml can be read for any configured project, missing cppunit report plugin).
@@ -200,16 +208,42 @@ export class CeedlingEngine {
         await this.runInternal(projectKey, projectKey, this.getTestCommandArgs('all'), allIds, reporter, token);
     }
 
-    private async runInternal(
-        projectKey: string, diagnosticsId: string, args: string[], allIds: string[], reporter: RunReporter, token: vscode.CancellationToken
+    // Runs a single test function (and, if parametrized, all its cases together - Ceedling's
+    // --test-case filter has function-level granularity only, it cannot isolate one case from
+    // its siblings) instead of every test in the file. Ceedling still recompiles the whole file
+    // regardless - --test-case narrows what runs and gets reported, not what gets built.
+    async runFunction(
+        projectKey: string, file: CeedlingFileNode, fn: CeedlingTestFunction, reporter: RunReporter, token: vscode.CancellationToken
     ): Promise<void> {
+        const functionName = extractTestFunctionName(fn.id);
+        const ids = [fn.id, ...fn.cases.map((c) => c.id)];
+        const collided = await this.runInternal(
+            projectKey, fn.id, this.getTestCommandArgs(file.id, functionName), ids, reporter, token, functionName
+        );
+        if (collided) {
+            this.logger.warn(
+                `runFunction: --test-case=${functionName} also matched an unrelated test in '${file.id}' - ` +
+                `Ceedling's filter is a substring match, not exact. Falling back to a full-file run.`
+            );
+            await this.runFile(projectKey, file, reporter, token);
+        }
+    }
+
+    // Returns true when a `testCaseFilter` run's results include a test that doesn't actually
+    // belong to the requested function - Ceedling's --test-case filter matches by substring, so
+    // a short function name can accidentally also match a longer, unrelated one. The caller
+    // decides what to do about it; this makes no reporter calls in that case.
+    private async runInternal(
+        projectKey: string, diagnosticsId: string, args: string[], allIds: string[], reporter: RunReporter, token: vscode.CancellationToken,
+        testCaseFilter?: string
+    ): Promise<boolean> {
         for (const id of allIds) {
             reporter.started(id);
         }
         const release = await this.ceedlingMutex.acquire();
         try {
             if (token.isCancellationRequested) {
-                return;
+                return false;
             }
             await this.deleteXmlReport(projectKey);
             const result = await this.execCeedling(args, projectKey, TEST_VERBOSITY_FLAG);
@@ -232,21 +266,34 @@ export class CeedlingEngine {
                 for (const id of allIds) {
                     reporter.errored(id, message);
                 }
-            } else {
-                for (const ignoredTest of this.getTestListDataFromXmlReport(xmlReportData, "IgnoredTests")) {
-                    reporter.skipped(ignoredTest["Name"], message);
-                }
-                for (const successfulTest of this.getTestListDataFromXmlReport(xmlReportData, "SuccessfulTests")) {
-                    reporter.passed(successfulTest["Name"], message);
-                }
-                for (const failedTest of this.getTestListDataFromXmlReport(xmlReportData, "FailedTests")) {
-                    reporter.failed(
-                        failedTest["Name"],
-                        `${failedTest["Message"]}\n\n${message}`,
-                        parseInt(failedTest["Location"]["Line"]) - 1,
-                    );
+                return false;
+            }
+
+            const ignoredTests = this.getTestListDataFromXmlReport(xmlReportData, "IgnoredTests");
+            const successfulTests = this.getTestListDataFromXmlReport(xmlReportData, "SuccessfulTests");
+            const failedTests = this.getTestListDataFromXmlReport(xmlReportData, "FailedTests");
+
+            if (testCaseFilter !== undefined) {
+                const reportedNames = [...ignoredTests, ...successfulTests, ...failedTests].map((t) => t["Name"]);
+                if (!testCaseFilterMatchedExactly(testCaseFilter, reportedNames)) {
+                    return true;
                 }
             }
+
+            for (const ignoredTest of ignoredTests) {
+                reporter.skipped(ignoredTest["Name"], message);
+            }
+            for (const successfulTest of successfulTests) {
+                reporter.passed(successfulTest["Name"], message);
+            }
+            for (const failedTest of failedTests) {
+                reporter.failed(
+                    failedTest["Name"],
+                    `${failedTest["Message"]}\n\n${message}`,
+                    parseInt(failedTest["Location"]["Line"]) - 1,
+                );
+            }
+            return false;
         } finally {
             release();
         }
@@ -436,13 +483,17 @@ export class CeedlingEngine {
         return `ceedling ${args.join(" ")}`;
     }
 
-    private getTestCommandArgs(testToExec: string): Array<string> {
+    // `testCaseFilter`, when given, appends Ceedling's --test-case flag to narrow the run to one
+    // function (and, if parametrized, all its cases - see runFunction). Ceedling auto-enables
+    // :test_runner: :cmdline_args itself when this flag is present; nothing here needs to.
+    private getTestCommandArgs(testToExec: string, testCaseFilter?: string): Array<string> {
         // Keep only the filename of the test 'test/test_foo.c' -> 'test_foo.c'
         const testSuiteFilename = testToExec.replace(/^.*[\\/]/, "");
         const defaultTestCommandArgs = ["test:${TEST_ID}"];
-        return this.getConfiguration()
+        const args = this.getConfiguration()
             .get<Array<string>>('testCommandArgs', defaultTestCommandArgs)
             .map(x => x.replace("${TEST_ID}", testSuiteFilename));
+        return testCaseFilter === undefined ? args : [...args, `--test-case=${testCaseFilter}`];
     }
 
     private getTestCaseMacroAliases(): Array<string> {
