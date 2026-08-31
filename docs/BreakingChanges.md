@@ -4,7 +4,7 @@ Complemented by three other documents: [../CHANGELOG.md](../CHANGELOG.md), [Rele
 
 ---
 
-# [2.0.0] — Prerelease
+# [2.0.0] — 2026-08-31
 
 ## Native Testing API replaces the Test Explorer UI extension dependency
 
