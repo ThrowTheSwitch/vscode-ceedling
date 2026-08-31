@@ -24,6 +24,7 @@ This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 * Projects using `:test_runner` ↳ `:test_prefix` alongside Unity’s default test prefix are now recognized correctly, contributed by [@Edoardo-en](https://github.com/Edoardo-en) ([PR #1](https://github.com/ThrowTheSwitch/vscode-ceedling/pull/1)).
 * Added Clean/Clobber toolbar buttons to the _Testing_ view, contributed by [@JannisRln](https://github.com/JannisRln) ([PR #8](https://github.com/ThrowTheSwitch/vscode-ceedling/pull/8)).
 * Compiler/linker problems reported via `ceedlingExplorer.problemMatching` now show as inline editor squiggles, not just entries in the Problems panel. The path passed to VS Code was relative rather than absolute, so it never matched the actually open document.
+* A build failure that leaves no XML test report no longer shows as a bare `stdout:` label in the editor view with no text. The _Testing_ view’s own message for the erroring test now leads with the compiler’s actual diagnostic when `ceedlingExplorer.problemMatching` is enabled and links to its exact line.
 
 # [1.0.0] — 2025-09-14
 

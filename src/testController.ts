@@ -311,9 +311,16 @@ export class CeedlingTestController {
                 const item = this.idToItem.get(id);
                 if (item) run.skipped(item); else warnUnmapped('skipped', id);
             },
-            errored: (id, message) => {
+            errored: (id, message, location) => {
                 const item = this.idToItem.get(id);
-                if (item) run.errored(item, new vscode.TestMessage(message)); else warnUnmapped('errored', id);
+                if (!item) { warnUnmapped('errored', id); return; }
+                const testMessage = new vscode.TestMessage(message);
+                if (location) {
+                    // The diagnostic's own file, not item.uri. The failing line can be in an
+                    // included header, not necessarily the test file itself.
+                    testMessage.location = new vscode.Location(vscode.Uri.file(location.file), new vscode.Position(location.line, 0));
+                }
+                run.errored(item, testMessage);
             },
             appendOutput: (text) => run.appendOutput(text),
         };

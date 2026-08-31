@@ -133,7 +133,7 @@ All steps run against [`tests/manual/`](../tests/manual/), opened as its own fol
 - [ ] **Debug.** A breakpoint in `src/Calculator.c` is hit, from a test’s debug icon.
 - [ ] **Clean.** The Testing view’s Clean button clears `build/`.
 - [ ] **Clobber.** The Clobber button does a harder reset. It also succeeds.
-- [ ] **Problem matching.** A deliberate syntax error in `test_calculator.c` surfaces in the Problems panel. Revert the edit after.
+- [ ] **Problem matching.** A deliberate syntax error in `test_calculator.c` surfaces in the Problems panel. It squiggles at the error line. The Testing view’s own message for the erroring test shows the same compiler message, not a bare `stdout:` label. Revert the edit after.
 - [ ] **Settings change.** Toggle `ceedlingExplorer.prettyTestLabel` to `true` in `tests/manual/.vscode/settings.json`. Refresh. Labels shorten. No full window reload was needed.
 - [ ] **Parametrized test.** All cases in `test_calculator_parametrized.c` pass, on both Ceedling 1.0.0 and 1.1.0.
 - [ ] **Crash handling.** `test_should_crash` in `test_calculator_crash.c` shows as a failed test, at the exact crashing line, on both Ceedling 1.0.0 and 1.1.0.

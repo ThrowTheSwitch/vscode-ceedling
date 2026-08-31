@@ -23,7 +23,7 @@ import {
 } from './ceedlingOutputParsing';
 import { getTestListFromXmlReport } from './ceedlingXmlReport';
 import { Logger } from './logger';
-import { ProblemMatcher, ProblemMatchingPattern } from './problemMatcher';
+import { FileDiagnostic, ProblemMatcher, ProblemMatchingPattern } from './problemMatcher';
 
 const MINIMUM_CEEDLING_VERSION = '1.0.0';
 const TEST_VERBOSITY_FLAG = '--verbosity debug';
@@ -83,7 +83,10 @@ export interface RunReporter {
     passed(id: string, message?: string): void;
     failed(id: string, message: string, line?: number): void;
     skipped(id: string, message?: string): void;
-    errored(id: string, message: string): void;
+    // `location`, when given, is the compiler diagnostic that best explains why no XML report
+    // was produced. It names its own file, not necessarily the file being tested (e.g. a bad
+    // header).
+    errored(id: string, message: string, location?: { file: string, line: number }): void;
     appendOutput(text: string): void;
 }
 
@@ -247,24 +250,40 @@ export class CeedlingEngine {
             }
             await this.deleteXmlReport(projectKey);
             const result = await this.execCeedling(args, projectKey, TEST_VERBOSITY_FLAG);
-            const message = `stdout:\n${result.stdout}` + ((result.stderr.length != 0) ? `\nstderr:\n${result.stderr}` : ``);
+            // Each section only appears when it has content. An empty stdout (e.g. a compile
+            // failure that only wrote to stderr) otherwise left a bare, empty "stdout:" line
+            // leading every message. That empty line showed as an empty label wherever this
+            // message was previewed, not as a real error.
+            const message = [
+                result.stdout.length != 0 ? `stdout:\n${result.stdout}` : undefined,
+                result.stderr.length != 0 ? `stderr:\n${result.stderr}` : undefined,
+            ].filter((section): section is string => section !== undefined).join('\n');
             reporter.appendOutput(message.replace(/\n/g, '\r\n'));
 
             // absPath, not projectPath - compiler diagnostics report a path relative to the
             // project directory, and Uri.file() needs an absolute path to match the actually
             // open document. A relative prefix here left diagnostics visible in the Problems
             // panel but never as inline editor squiggles.
-            this.problemMatcher.scan(diagnosticsId, result.stdout, result.stderr, this.projectData[projectKey].absPath,
+            const diagnostics = this.problemMatcher.scan(diagnosticsId, result.stdout, result.stderr, this.projectData[projectKey].absPath,
                 this.getConfiguration().get<string>('problemMatching.mode', ""),
                 this.getConfiguration().get<ProblemMatchingPattern[]>('problemMatching.patterns', []));
 
             const xmlReportData = await this.getXmlReportData(projectKey);
             this.logger.debug(`xmlReportData=${util.format(xmlReportData)}`);
             if (xmlReportData === undefined) {
-                // The report was never produced - surface the real stdout/stderr (e.g. a Ruby/Ceedling
-                // encoding exception on non-ASCII source) instead of a bare "file not found".
+                // The report was never produced. Lead with the compiler's own diagnostic, when
+                // problem matching found one. reporter.failed already gives a real test failure
+                // this same treatment, below. The full stdout/stderr transcript still follows
+                // either way. Problem matching's patterns are compiler-oriented. They find no
+                // diagnostic for a Ruby/Ceedling encoding exception. That case falls back to the
+                // raw transcript alone.
+                const leadDiagnostic = this.mostSevereDiagnostic(diagnostics);
+                const erroredMessage = leadDiagnostic ? `${leadDiagnostic.diagnostic.message}\n\n${message}` : message;
+                const location = leadDiagnostic
+                    ? { file: leadDiagnostic.file, line: leadDiagnostic.diagnostic.range.start.line }
+                    : undefined;
                 for (const id of allIds) {
-                    reporter.errored(id, message);
+                    reporter.errored(id, erroredMessage, location);
                 }
                 return false;
             }
@@ -494,6 +513,13 @@ export class CeedlingEngine {
             .get<Array<string>>('testCommandArgs', defaultTestCommandArgs)
             .map(x => x.replace("${TEST_ID}", testSuiteFilename));
         return testCaseFilter === undefined ? args : [...args, `--test-case=${testCaseFilter}`];
+    }
+
+    // Picks the diagnostic that best explains a compile failure. Patterns are evaluated
+    // warning-then-error-then-catchall. The first entry in `diagnostics` is not reliably the
+    // most severe one. An early warning can otherwise outrank the actual fatal error.
+    private mostSevereDiagnostic(diagnostics: FileDiagnostic[]): FileDiagnostic | undefined {
+        return diagnostics.slice().sort((a, b) => a.diagnostic.severity - b.diagnostic.severity)[0];
     }
 
     private getTestCaseMacroAliases(): Array<string> {

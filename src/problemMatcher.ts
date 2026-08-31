@@ -24,7 +24,7 @@ export interface ProblemMatchingPattern {
     lastColumn: number | null;
 }
 
-interface FileDiagnostic {
+export interface FileDiagnostic {
     file: string;
     diagnostic: Diagnostic;
 }
@@ -243,7 +243,10 @@ export class ProblemMatcher {
         });
     }
 
-    scan(id: string, stdout: string, stderr: string, projectPath: string, mode: string, patterns: ProblemMatchingPattern[]) {
+    // Also returns everything it found, alongside its usual side effect of updating the Problems
+    // panel. A caller with a specific failure to explain (e.g. a compile failure with no XML test
+    // report) can reuse this same parse instead of re-deriving it.
+    scan(id: string, stdout: string, stderr: string, projectPath: string, mode: string, patterns: ProblemMatchingPattern[]): FileDiagnostic[] {
         patterns = (mode === "patterns") ? this.normalizePatterns(patterns) : this.getPatternsPreset(mode);
         let allPatternsDiagnostics: FileDiagnostic[] = [];
         for (const pattern of patterns) {
@@ -253,6 +256,7 @@ export class ProblemMatcher {
         this.logger.debug(`scan(id=${id}): mode=${mode}, patterns=${patterns.length}, diagnostics=${allPatternsDiagnostics.length}`);
         this.suitsDiagnostics.set(id, allPatternsDiagnostics);
         this.updateDiagnosticsCollection();
+        return allPatternsDiagnostics;
     }
 
     setActualIds(actualIds: string[]) {
