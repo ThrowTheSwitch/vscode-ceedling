@@ -31,9 +31,21 @@ Ceedling and its complementary [ThrowTheSwitch] pieces and parts are and always 
 
 # Requirements
 
-Requires Ceedling 1.0.0 or later. Requires VS Code 1.71.0 or later.
+## VS Code
 
-Ceedling 1.0.0 and 1.1.0 are both supported. Parametrized tests using Unity’s `TEST_CASE()`/`TEST_RANGE()` need `:unity` ↳ `:use_param_tests:` ⇒ `true` in your `project.yml`. Ceedling 1.0.0 also needs test-file preprocessing disabled (`:project` ↳ `:use_test_preprocessor` ⇒ `:none` (default) or `:mocks`). It cannot preserve these macros through preprocessing. Ceedling 1.1.0 supports parametrized tests with or without preprocessing.
+Requires VS Code 1.71.0 or later.
+
+## Ceedling
+
+Requires Ceedling 1.0.0 or later. Ceedling 1.0.0 and 1.1.0 are both supported.
+
+_[Ceedling documentation](https://throwtheswitch.github.io/Ceedling/latest/)_
+
+## Parameterized Unity test cases
+
+Parametrized tests using Unity’s `TEST_CASE()` / `TEST_RANGE()` require `:unity` ↳ `:use_param_tests:` ⇒ `true` in your project configuration.
+
+Ceedling 1.0.0 also requires test-file preprocessing disabled (`:project` ↳ `:use_test_preprocessor` ⇒ `:none` (default) or `:mocks`). Ceedling 1.0.0 cannot preserve these macros through preprocessing, but Ceedling 1.1.0 supports parametrized tests with or without preprocessing.
 
 # Getting started
 
@@ -47,11 +59,11 @@ Ceedling 1.0.0 and 1.1.0 are both supported. Parametrized tests using Unity’s 
 
 [cppunit-plugin]: https://github.com/ThrowTheSwitch/Ceedling/blob/master/plugins/report_tests_log_factory/README.md
 
-# Running and Debugging Tests
+# Running and debugging tests
 
 Run and debug tests from the Testing view, or from the gutter next to a test in the editor.
 
-![Running tests](img/run.png)
+<img src="img/run.png" alt="Running tests" width="276">
 
 The Testing view’s toolbar also has Clean and Clobber buttons. They run `ceedling clean` and `ceedling clobber` against the current project.
 
@@ -61,7 +73,7 @@ The Testing view’s toolbar also has Clean and Clobber buttons. They run `ceedl
 
 | Property | Description |
 |---|---|
-| `ceedlingExplorer.projects` | An array of objects with the path to the Ceedling project (or yml-file) to use (relative to the workspace folder):<br> - "path": can point either to a directory containing a "project.yml" file or directly to another .yml file (with the respective project.yml in the same directory). This path should be relative to the workspace root directory.<br> - "debugLaunchConfig": must be the *name* property of the launch config (launch.json) that is used for this project. The ${command:ceedlingExplorer.debugTestExecutable} must still be used.<br> - "name" (optional): used as the name for the folder containing the tests in the test explorer. |
+| `ceedlingExplorer.projects` | An array of objects with the path to the Ceedling project (or yml-file) to use (relative to the workspace folder). See below for its `path`, `debugLaunchConfig`, and `name` properties. |
 | `ceedlingExplorer.shellPath` | The path to the shell where Ceedling is installed. By default (or if this option is set to `null`), it uses the OS default shell. |
 | `ceedlingExplorer.prettyTestLabel` | Shortens the test label in the test explorer by dropping its leading prefix. E.g. inactive `test_BlinkTaskShouldToggleLed`, active `BlinkTaskShouldToggleLed` <br> Inactive: <br> ![prettyTestLabelInactive](img/prettyTestLabelInactive.png) <br> Active: <br> ![prettyTestLabelActive](img/prettyTestLabelActive.png)|
 | `ceedlingExplorer.prettyTestFileLabel` | Shortens the test file label in the test explorer by dropping its path, leading prefix, and file type. E.g. inactive `test/LEDs/test_BlinkTask.c`, active `BlinkTask` <br> Inactive: <br> ![prettyTestFileLabelInactive](img/prettyTestFileLabelInactive.png) <br> Active: <br> ![prettyTestFileLabelActive](img/prettyTestFileLabelActive.png) |
@@ -70,6 +82,12 @@ The Testing view’s toolbar also has Clean and Clobber buttons. They run `ceedl
 | `ceedlingExplorer.testCaseMacroAliases` | An array of aliases for Unity’s parameterized test `TEST_CASE` macro. By default it is `["TEST_CASE"]`. |
 | `ceedlingExplorer.testRangeMacroAliases` | An array of aliases for Unity’s parameterized test `TEST_RANGE` macro. By default it is `["TEST_RANGE"]`. |
 | `ceedlingExplorer.ansiEscapeSequencesRemoved` | Whether ANSI escape sequences are removed from Ceedling `$stdout` and `$stderr`. By default it is `true`. |
+
+### `ceedlingExplorer.projects` properties
+
+- `path`: can point either to a directory containing a "project.yml" file or directly to another .yml file (with the respective project.yml in the same directory). This path should be relative to the workspace root directory.
+- `debugLaunchConfig`: must be the *name* property of the launch config (launch.json) that is used for this project. The `${command:ceedlingExplorer.debugTestExecutable}` must still be used.
+- `name` (optional): used as the name for the folder containing the tests in the test explorer.
 
 ## Problem matching
 
