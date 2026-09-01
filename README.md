@@ -57,7 +57,7 @@ Ceedling 1.0.0 also requires test-file preprocessing disabled (`:project` ↳ `:
 * Open the Testing view.
 * Run your tests using the run/debug icons in VS Code’s _Testing_ view or in your test file’s gutter.
 
-[cppunit-plugin]: https://github.com/ThrowTheSwitch/Ceedling/blob/master/plugins/report_tests_log_factory/README.md
+[cppunit-plugin]: https://throwtheswitch.github.io/Ceedling/1.1.0/plugins/report-tests-log-factory/#configuration
 
 # Running and debugging tests
 
