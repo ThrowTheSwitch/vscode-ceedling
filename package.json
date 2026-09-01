@@ -16,7 +16,7 @@
     }
   ],
   "publisher": "throw-the-switch",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "license": "MIT",
   "homepage": "https://github.com/throwtheswitch/vscode-ceedling",
   "repository": {
