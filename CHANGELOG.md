@@ -4,6 +4,14 @@ This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ---
 
+# [2.0.1] — 2026-08-31
+
+## ⚠️ Changed
+
+Documentation improvements.
+
+---
+
 # [2.0.0] — 2026-08-31
 
 ## ⚠️ Changed
@@ -43,6 +51,8 @@ This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 * A Problems-panel entry found while running a single test function in isolation no longer lingers after the error is fixed and the whole file is run instead. It was stored under the function's own id, separately from the file's, and nothing ever cleared it.
 
 * Starting a debug session from F5 or the Run and Debug panel, instead of a test's own debug icon in the Testing view, now shows a clear error explaining what to do instead of a confusing "path does not exist" failure ([#5](https://github.com/ThrowTheSwitch/vscode-ceedling/issues/5)).
+
+---
 
 # [1.0.0] — 2025-09-14
 
