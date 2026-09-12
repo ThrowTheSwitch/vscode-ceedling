@@ -1,8 +1,8 @@
 import { Mutex } from 'async-mutex';
 import child_process from 'child_process';
-import deepmerge from 'deepmerge';
 import fs from 'fs';
 import yaml from 'js-yaml';
+import os from 'os';
 import path from 'path';
 import semver from 'semver';
 import stripAnsi from 'strip-ansi';
@@ -26,7 +26,7 @@ import {
     testCaseFilterMatchedExactly,
 } from './ceedlingOutputParsing';
 import { getTestListFromXmlReport } from './ceedlingXmlReport';
-import { buildProjectArgs } from './ceedlingMixinArgs';
+import { buildProjectArgs, quoteIfNeeded } from './ceedlingMixinArgs';
 // Type-only, same reasoning as the `vscode` import above: Logger and ProblemMatcher both have
 // real runtime vscode calls of their own (an output channel, a DiagnosticCollection). Importing
 // only their types keeps this file from pulling either module's code in at require-time. Callers
@@ -135,6 +135,8 @@ export class CeedlingEngine {
     private isPrettyTestFileLabelEnable: boolean = false;
 
     private projectData: Record<string, ProjectData> = {};
+    // Populated once per discover() cycle - see the comment in discover() itself.
+    private resolvedConfig: Record<string, any> = {};
 
     readonly problemMatcher: ProblemMatcher;
 
@@ -196,6 +198,12 @@ export class CeedlingEngine {
     // not an error - see loadProjectPaths().
     async discover(): Promise<CeedlingProjectNode[]> {
         this.ceedlingVersionChecked = false;
+        // Cleared here, not per-call: loadResolvedConfig spins up a real `ceedling dumpconfig`
+        // process, so each project's config is resolved once per discover() cycle and reused by
+        // every call within it (checkYmlProjectData below, and compileForDebug later). The
+        // existing project.yml file watch already forces a fresh discover() on any config change,
+        // which is all the invalidation this cache needs.
+        this.resolvedConfig = {};
         this.loadProjectPaths();
 
         const projectKeys = this.getExistingProjectKeys();
@@ -207,13 +215,14 @@ export class CeedlingEngine {
         await this.checkCeedlingVersion();
 
         for (const projectKey of projectKeys) {
-            const ymlProjectData = await this.getYmlProjectData(projectKey);
-            this.logger.debug(`discover(projectKey=${projectKey}, ymlProjectData=${util.format(ymlProjectData)})`);
-            this.setBuildDirectory(projectKey, ymlProjectData);
-            this.setXmlReportPath(projectKey, ymlProjectData);
-            this.setFunctionRegex(projectKey, ymlProjectData);
-            this.setFileLabelRegex(projectKey, ymlProjectData);
-            this.setTestLabelRegex(projectKey, ymlProjectData);
+            const resolvedConfig = await this.loadResolvedConfig(projectKey);
+            this.resolvedConfig[projectKey] = resolvedConfig;
+            this.logger.debug(`discover(projectKey=${projectKey}, resolvedConfig=${util.format(resolvedConfig)})`);
+            this.setBuildDirectory(projectKey, resolvedConfig);
+            this.setXmlReportPath(projectKey, resolvedConfig);
+            this.setFunctionRegex(projectKey, resolvedConfig);
+            this.setFileLabelRegex(projectKey, resolvedConfig);
+            this.setTestLabelRegex(projectKey, resolvedConfig);
         }
 
         const errorMessage = await this.sanityCheck(projectKeys);
@@ -381,8 +390,9 @@ export class CeedlingEngine {
             reporter.failed(file.id, `${result.stdout}\n${result.stderr}`);
             return undefined;
         }
-        const ymlProjectData = await this.getYmlProjectData(projectKey);
-        const ext = this.getExecutableExtension(ymlProjectData);
+        // Reads the same resolvedConfig cache discover() populated for this project - debugging
+        // is only reachable after a file has already been discovered, so it's already there.
+        const ext = this.getExecutableExtension(this.resolvedConfig[projectKey]);
         const testFileName = `${/([^/]*).c$/.exec(file.id)![1]}`;
         return `${testFileName}/${testFileName}${ext}`;
     }
@@ -441,20 +451,26 @@ export class CeedlingEngine {
         }
     }
 
+    // Reads the config discover() already resolved this cycle - see resolvedConfig's own comment.
+    // A missing entry here means loadResolvedConfig() itself failed (dumpconfig errored, or its
+    // output couldn't be read/parsed), not that a mixin didn't apply.
     private async checkYmlProjectData(projectKey: string): Promise<string | void> {
-        const ymlProjectData = await this.getYmlProjectData(projectKey)
-        if (!ymlProjectData) {
-            return `Failed to find or load the project.yml file for ${projectKey}. ` +
-                `Please check the ceedlingExplorer.projectPath option.`;
+        const resolvedConfig = this.resolvedConfig[projectKey];
+        if (!resolvedConfig) {
+            return `Failed to resolve Ceedling's configuration for ${projectKey} via 'ceedling dumpconfig'. ` +
+                `Please check the ceedlingExplorer.projects option.`;
         }
         try {
-            if (!ymlProjectData[':plugins'][':enabled'].includes('report_tests_log_factory')) {
+            if (!resolvedConfig[':plugins'][':enabled'].includes('report_tests_log_factory')) {
                 throw 'Report tests log factory plugin not enabled';
             }
         } catch (e) {
-            return `The required Ceedling plugin 'report_tests_log_factory' is not enabled. ` +
-                `You have to edit ${this.getYmlProjectPath(projectKey)} file to enable the plugin.\n` +
-                `see https://github.com/ThrowTheSwitch/Ceedling/blob/master/plugins/report_tests_log_factory/README.md`;
+            // The bundled mixin (assets/mixins/report-tests-log-factory.yml) always enables this
+            // plugin, so reaching here means that mixin itself didn't take effect - not that the
+            // user needs to edit anything by hand.
+            return `The required Ceedling plugin 'report_tests_log_factory' did not take effect for ${projectKey}, ` +
+                `even though this extension's own mixin always enables it. Check that 'ceedling dumpconfig' ` +
+                `ran successfully and that ceedlingExplorer.mixins/projects[].mixins don't reference an invalid mixin.`;
         }
     }
 
@@ -839,63 +855,34 @@ export class CeedlingEngine {
         );
     }
 
-    private getYmlProjectData(projectKey: string): Promise<any | undefined> {
-        try {
-            if (this.projectData[projectKey].ymlFileName != 'project.yml') {
-                return this.mergeYmlProjectData(projectKey);
-            }
-            return new Promise<any | undefined>((resolve) => {
-                const project_yml = this.getYmlProjectPath(projectKey);
-                this.readFile(project_yml, 'utf8', (error, data) => {
-                    if (error) {
-                        this.logger.error(`Failed to read YAML file '${project_yml}': ${util.format(error)}`);
-                        resolve(undefined);
-                        return;
-                    }
-                    try {
-                        resolve(yaml.safeLoad(data));
-                    } catch (e) {
-                        this.logger.error(`Failed to parse YAML file '${project_yml}': ${util.format(e)}`);
-                        resolve(undefined);
-                    }
-                });
-            });
+    // Resolves a project's fully-merged Ceedling configuration via `ceedling dumpconfig`, rather
+    // than parsing project.yml (and its mixin, if any) by hand. dumpconfig applies Ceedling's own
+    // multi-file overlay, plugin defaults, and mixin-merge rules - see buildProjectArgs - so this
+    // reflects exactly what a real build would see, not just what's literally typed in one file.
+    // dumpconfig only writes to a file, never stdout, so this drives it through a throwaway
+    // temp file and reads that back.
+    private async loadResolvedConfig(projectKey: string): Promise<any | undefined> {
+        const tmpPath = path.join(
+            os.tmpdir(),
+            `ceedling-dumpconfig-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.yml`,
+        );
+        const result = await this.execCeedling(['dumpconfig', quoteIfNeeded(tmpPath)], projectKey);
+        if (result.error) {
+            this.logger.error(`loadResolvedConfig(${projectKey}): 'ceedling dumpconfig' failed: ${util.format(result)}`);
+            return undefined;
         }
-        catch (e) {
-            this.logger.error(`getYmlProjectData()=${util.format(e)}`);
-        }
-        return Promise.resolve(undefined);
-    }
-
-    private mergeYmlProjectData(projectKey: string): Promise<any | undefined> {
         return new Promise<any | undefined>((resolve) => {
-            const project_data = this.getYmlProjectPath(projectKey);
-            this.readFile(project_data, 'utf8', (error, data) => {
+            this.readFile(tmpPath, 'utf8', (error, data) => {
                 if (error) {
-                    this.logger.error(`Failed to read YAML file: ${util.format(error)}`);
+                    this.logger.error(`loadResolvedConfig(${projectKey}): failed to read dumpconfig output '${tmpPath}': ${util.format(error)}`);
                     resolve(undefined);
                     return;
                 }
+                fs.unlink(tmpPath, () => { }); // best-effort cleanup; a leftover temp file is harmless
                 try {
-                    const result = yaml.safeLoad(data);
-                    const defaultYmlPath = path.resolve(this.projectData[projectKey].absPath, 'project.yml');
-                    this.readFile(defaultYmlPath, 'utf8', (error, data) => {
-                        if (error) {
-                            this.logger.error(`Failed to read default YAML file: ${util.format(error)}`);
-                            resolve(result);
-                            return;
-                        }
-                        try {
-                            const defaultResult = yaml.safeLoad(data) || {};
-                            const mergedResult = deepmerge(defaultResult as object, (result as object) || {});
-                            resolve(mergedResult);
-                        } catch (e) {
-                            this.logger.error(`Failed to parse default YAML file: ${util.format(e)}`);
-                            resolve(result);
-                        }
-                    });
+                    resolve(yaml.safeLoad(data));
                 } catch (e) {
-                    this.logger.error(`Failed to parse YAML file: ${util.format(e)}`);
+                    this.logger.error(`loadResolvedConfig(${projectKey}): failed to parse dumpconfig output: ${util.format(e)}`);
                     resolve(undefined);
                 }
             });

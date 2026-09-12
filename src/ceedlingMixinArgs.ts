@@ -1,8 +1,9 @@
 // Wraps a token in double quotes when it contains whitespace, so a path with spaces - routinely
 // true of a Windows install path or the OS temp directory - survives being joined into a single
 // shell command string by execCeedling. Every other value here is passed through unquoted, same
-// as the literal flags around it.
-function quoteIfNeeded(token: string): string {
+// as the literal flags around it. Exported: execCeedling's dumpconfig output path needs the same
+// treatment and isn't a --mixin flag itself.
+export function quoteIfNeeded(token: string): string {
     return /\s/.test(token) ? `"${token}"` : token;
 }
 

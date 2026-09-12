@@ -41,17 +41,6 @@ function fakeProblemMatcher(): ProblemMatcher {
     } as unknown as ProblemMatcher;
 }
 
-// Keyed by absolute path. A missing key simulates an ENOENT read failure.
-function fakeReadFile(files: Record<string, string>): typeof fs.readFile {
-    return ((filePath: string, _encoding: any, callback: any) => {
-        if (Object.prototype.hasOwnProperty.call(files, filePath)) {
-            callback(null, files[filePath]);
-        } else {
-            callback(Object.assign(new Error(`ENOENT: no such file, open '${filePath}'`), { code: 'ENOENT' }), undefined);
-        }
-    }) as unknown as typeof fs.readFile;
-}
-
 // Records every invocation instead of actually spawning anything; resolves each call
 // with an empty successful result unless a call-specific result is queued.
 function fakeExec(calls: { command: string, options: any }[]): typeof child_process.exec {
@@ -93,103 +82,92 @@ function withProject(engine: CeedlingEngine, key: string, data: { absPath: strin
     };
 }
 
-suite('getYmlProjectData (project.yml only, no mixin)', () => {
-    test('parses the file and resolves the plain object', async () => {
+// Matches readFile calls by pattern rather than exact path: loadResolvedConfig's dumpconfig
+// output path is generated fresh (pid/timestamp/random) on every call, not a fixed name.
+function fakeReadFileMatching(pattern: RegExp, content: string | undefined): typeof fs.readFile {
+    return ((filePath: string, _encoding: any, callback: any) => {
+        if (content !== undefined && pattern.test(filePath)) {
+            callback(null, content);
+        } else {
+            callback(Object.assign(new Error(`ENOENT: no such file, open '${filePath}'`), { code: 'ENOENT' }), undefined);
+        }
+    }) as unknown as typeof fs.readFile;
+}
+
+const DUMPCONFIG_OUTPUT_PATTERN = /ceedling-dumpconfig-.*\.yml$/;
+
+suite('loadResolvedConfig (backed by `ceedling dumpconfig`)', () => {
+    test('runs dumpconfig with a .yml output path and parses what it wrote', async () => {
+        const calls: { command: string, options: any }[] = [];
         const engine = makeEngine({
-            readFile: fakeReadFile({ '/ws/proj/project.yml': ':project:\n  :build_root: build\n' }),
+            exec: fakeExec(calls),
+            readFile: fakeReadFileMatching(DUMPCONFIG_OUTPUT_PATTERN, ':project:\n  :build_root: from_dumpconfig\n'),
         });
         withProject(engine, 'proj', { absPath: '/ws/proj', ymlFileName: 'project.yml' });
-        const result = await (engine as any).getYmlProjectData('proj');
-        assert.deepStrictEqual(result, { ':project': { ':build_root': 'build' } });
+        (engine as any).ceedlingVersionChecked = true;
+        const result = await (engine as any).loadResolvedConfig('proj');
+        assert.match(calls[0].command, /^ceedling dumpconfig \S*\.yml /);
+        assert.deepStrictEqual(result, { ':project': { ':build_root': 'from_dumpconfig' } });
     });
 
-    test('resolves undefined when the file cannot be read', async () => {
-        const engine = makeEngine({ readFile: fakeReadFile({}) });
+    test('resolves undefined when dumpconfig itself reports an error', async () => {
+        const engine = makeEngine({
+            exec: ((command: string, options: any, callback: any) => {
+                callback(new Error('ceedling: command not found'), '', 'ceedling: command not found');
+                return {} as child_process.ChildProcess;
+            }) as unknown as typeof child_process.exec,
+            readFile: fakeReadFileMatching(DUMPCONFIG_OUTPUT_PATTERN, ':project: {}\n'),
+        });
         withProject(engine, 'proj', { absPath: '/ws/proj', ymlFileName: 'project.yml' });
-        const result = await (engine as any).getYmlProjectData('proj');
+        (engine as any).ceedlingVersionChecked = true;
+        const result = await (engine as any).loadResolvedConfig('proj');
         assert.strictEqual(result, undefined);
     });
 
-    test('resolves undefined when the file fails to parse', async () => {
+    test('resolves undefined when the dumpconfig output file cannot be read', async () => {
         const engine = makeEngine({
-            readFile: fakeReadFile({ '/ws/proj/project.yml': ':project: [\n  broken' }),
+            exec: fakeExec([]),
+            readFile: fakeReadFileMatching(DUMPCONFIG_OUTPUT_PATTERN, undefined),
         });
         withProject(engine, 'proj', { absPath: '/ws/proj', ymlFileName: 'project.yml' });
-        const result = await (engine as any).getYmlProjectData('proj');
+        (engine as any).ceedlingVersionChecked = true;
+        const result = await (engine as any).loadResolvedConfig('proj');
         assert.strictEqual(result, undefined);
     });
 
-    // Current quirk, not a design choice: an empty project.yml parses to `undefined` (js-yaml's
-    // safeLoad on empty input), and nothing here guards it back to `{}` on this code path.
-    test('quirk: an empty project.yml resolves undefined, not {}', async () => {
-        const engine = makeEngine({ readFile: fakeReadFile({ '/ws/proj/project.yml': '' }) });
+    test('resolves undefined when the dumpconfig output fails to parse', async () => {
+        const engine = makeEngine({
+            exec: fakeExec([]),
+            readFile: fakeReadFileMatching(DUMPCONFIG_OUTPUT_PATTERN, ':project: [\n  broken'),
+        });
         withProject(engine, 'proj', { absPath: '/ws/proj', ymlFileName: 'project.yml' });
-        const result = await (engine as any).getYmlProjectData('proj');
-        assert.strictEqual(result, undefined);
-    });
-});
-
-suite('getYmlProjectData -> mergeYmlProjectData (project points at an alternate/mixin yml)', () => {
-    test('deep-merges the mixin over the base project.yml, mixin winning on scalar conflicts', async () => {
-        const engine = makeEngine({
-            readFile: fakeReadFile({
-                '/ws/proj/mixin.yml': ':project:\n  :build_root: mixin_build\n:plugins:\n  :enabled:\n    - mixin_plugin\n',
-                '/ws/proj/project.yml': ':project:\n  :build_root: base_build\n  :test_file_prefix: test_\n:plugins:\n  :enabled:\n    - base_plugin\n',
-            }),
-        });
-        withProject(engine, 'proj', { absPath: '/ws/proj', ymlFileName: 'mixin.yml' });
-        const result = await (engine as any).getYmlProjectData('proj');
-        // Scalar: mixin's value replaces the base's.
-        assert.strictEqual(result[':project'][':build_root'], 'mixin_build');
-        // Untouched base key survives the merge.
-        assert.strictEqual(result[':project'][':test_file_prefix'], 'test_');
-        // Lists concatenate base-then-mixin; deepmerge does not de-duplicate or reorder.
-        assert.deepStrictEqual(result[':plugins'][':enabled'], ['base_plugin', 'mixin_plugin']);
-    });
-
-    test('resolves the mixin alone when the base project.yml cannot be read', async () => {
-        const engine = makeEngine({
-            readFile: fakeReadFile({ '/ws/proj/mixin.yml': ':project:\n  :build_root: mixin_build\n' }),
-        });
-        withProject(engine, 'proj', { absPath: '/ws/proj', ymlFileName: 'mixin.yml' });
-        const result = await (engine as any).getYmlProjectData('proj');
-        assert.deepStrictEqual(result, { ':project': { ':build_root': 'mixin_build' } });
-    });
-
-    test('resolves undefined when the mixin itself cannot be read (base is never even attempted)', async () => {
-        const engine = makeEngine({
-            readFile: fakeReadFile({ '/ws/proj/project.yml': ':project:\n  :build_root: base_build\n' }),
-        });
-        withProject(engine, 'proj', { absPath: '/ws/proj', ymlFileName: 'mixin.yml' });
-        const result = await (engine as any).getYmlProjectData('proj');
+        (engine as any).ceedlingVersionChecked = true;
+        const result = await (engine as any).loadResolvedConfig('proj');
         assert.strictEqual(result, undefined);
     });
 });
 
-suite('checkYmlProjectData', () => {
-    test('reports a load failure, referencing the settings name as it stands today (a known-wrong name)', async () => {
-        const engine = makeEngine({ readFile: fakeReadFile({}) });
+suite('checkYmlProjectData (reads the resolvedConfig cache populated during discover())', () => {
+    test('reports a load failure, naming the real ceedlingExplorer.projects setting', async () => {
+        const engine = makeEngine();
         withProject(engine, 'proj', { absPath: '/ws/proj', ymlFileName: 'project.yml' });
+        (engine as any).resolvedConfig = { proj: undefined };
         const error = await (engine as any).checkYmlProjectData('proj');
-        // Characterizes the pre-existing bug: the real setting is `ceedlingExplorer.projects`,
-        // not `ceedlingExplorer.projectPath`. The upcoming rewrite corrects this message.
-        assert.match(error, /ceedlingExplorer\.projectPath/);
+        assert.match(error, /ceedlingExplorer\.projects/);
     });
 
-    test('reports the plugin-not-enabled error when report_tests_log_factory is missing', async () => {
-        const engine = makeEngine({
-            readFile: fakeReadFile({ '/ws/proj/project.yml': ':plugins:\n  :enabled:\n    - other_plugin\n' }),
-        });
+    test('reports the plugin-not-enabled error when report_tests_log_factory is missing from the resolved config', async () => {
+        const engine = makeEngine();
         withProject(engine, 'proj', { absPath: '/ws/proj', ymlFileName: 'project.yml' });
+        (engine as any).resolvedConfig = { proj: { ':plugins': { ':enabled': ['other_plugin'] } } };
         const error = await (engine as any).checkYmlProjectData('proj');
-        assert.match(error, /report_tests_log_factory.*is not enabled/);
+        assert.match(error, /report_tests_log_factory.*did not take effect/);
     });
 
-    test('reports nothing when report_tests_log_factory is enabled', async () => {
-        const engine = makeEngine({
-            readFile: fakeReadFile({ '/ws/proj/project.yml': ':plugins:\n  :enabled:\n    - report_tests_log_factory\n' }),
-        });
+    test('reports nothing when report_tests_log_factory is enabled in the resolved config', async () => {
+        const engine = makeEngine();
         withProject(engine, 'proj', { absPath: '/ws/proj', ymlFileName: 'project.yml' });
+        (engine as any).resolvedConfig = { proj: { ':plugins': { ':enabled': ['report_tests_log_factory'] } } };
         const error = await (engine as any).checkYmlProjectData('proj');
         assert.strictEqual(error, undefined);
     });
