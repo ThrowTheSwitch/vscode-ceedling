@@ -53,11 +53,12 @@ Ceedling 1.0.0 also requires test-file preprocessing disabled (`:project` ↳ `:
 * Open the workspace or folder containing your Ceedling project.
 * Configure your Ceedling project configuration filepath in VS Code’s settings if required [see below](#options).
 * Configure the shell path where Ceedling is installed in VS Code’s settings if required (Windows) [see below](#options).
-* [Enable and configure][cppunit-plugin] the `report_tests_log_factory` Ceedling plugin with the `cppunit` option in your Ceedling project configuration. This generates an XML test report on which this extension depends.
 * Open the Testing view.
 * Run your tests using the run/debug icons in VS Code’s _Testing_ view or in your test file’s gutter.
 
-[cppunit-plugin]: https://throwtheswitch.github.io/Ceedling/1.1.0/plugins/report-tests-log-factory/#configuration
+The extension resolves your project’s configuration with [`ceedling dumpconfig`][dumpconfig-docs] and always applies its own [mixin](#mixins) enabling the `report_tests_log_factory` plugin’s `cppunit` report — the XML report this extension depends on. No manual plugin setup is required.
+
+[dumpconfig-docs]: https://throwtheswitch.github.io/Ceedling/1.1.0/getting-started/command-line/#ceedling-dumpconfig-filepath-sections
 
 # Running and debugging tests
 
@@ -75,7 +76,8 @@ This table of options should be read as `ceedlingExplorer.<property>`.
 
 | `ceedlingExplorer` Property | Description |
 |---|---|
-| `.projects` | An array of objects with the path to the Ceedling project (or yml-file) to use (relative to the workspace folder). See below for its `path`, `debugLaunchConfig`, and `name` properties. |
+| `.projects` | An array of objects with the path to the Ceedling project (or yml-file) to use (relative to the workspace folder). See below for its `path`, `debugLaunchConfig`, `name`, and `mixins` properties. |
+| `.mixins` | An array of [Ceedling mixins](#mixins) — names, built-in toolchain targets (e.g. `gcc`, `clang`), or file paths — applied to every project that doesn’t define its own `mixins` (see `.projects` below), lowest to highest priority. By default it is `[]`. |
 | `.shellPath` | The path to the shell where Ceedling is installed. By default (or if this option is set to `null`), it uses the OS default shell. |
 | `.prettyTestLabel` | Shortens the test label in the _Testing_ explorer by dropping its leading prefix (e.g. inactive `test_BlinkTaskShouldToggleLed` vs. active `BlinkTaskShouldToggleLed`).<br><br>Inactive:<br><img src="img/prettyTestLabelInactive.png" alt="prettyTestLabelInactive" width="420"><br><br> Active:<br><img src="img/prettyTestLabelActive.png" alt="prettyTestLabelActive" width="420">|
 | `.prettyTestFileLabel` | Shortens the test file label in the _Testing_ explorer by dropping its path, leading prefix, and file type (e.g. inactive `test/LEDs/test_BlinkTask.c` vs. active `BlinkTask`).<br><br>Inactive:<br><img src="img/prettyTestFileLabelInactive.png" alt="prettyTestFileLabelInactive" width="320"><br><br> Active:<br><img src="img/prettyTestFileLabelActive.png" alt="prettyTestFileLabelActive" width="320"> |
@@ -90,6 +92,17 @@ This table of options should be read as `ceedlingExplorer.<property>`.
 - `path`: can point either to a directory containing a "project.yml" file or directly to another .yml file (with the respective project.yml in the same directory). This path should be relative to the workspace root directory.
 - `debugLaunchConfig`: must be the *name* property of the launch config (launch.json) that is used for this project. The `${command:ceedlingExplorer.debugTestExecutable}` must still be used.
 - `name` (optional): used as the name for the folder containing the tests in the test explorer.
+- `mixins` (optional): this project’s own [mixins](#mixins), lowest to highest priority. When omitted entirely, `ceedlingExplorer.mixins` is used instead; set to `[]` explicitly to opt this project out of that workspace-wide list rather than falling back to it.
+
+## Mixins
+
+A [Ceedling mixin][mixins-docs] is a YAML fragment merged into a project’s configuration at build time — useful for toolchain targets, CI-specific overrides, or any configuration you don’t want duplicated into every `project.yml`. Configure them with `ceedlingExplorer.mixins` and `ceedlingExplorer.projects[].mixins` (see [Options](#options)): later entries win on conflicts, matching Ceedling’s own `--mixin` precedence.
+
+The extension always applies one more mixin after any you configure: it enables the `report_tests_log_factory` plugin’s `cppunit` report, which the Testing view depends on to read results. This mixin is not configurable and always has the highest priority, so nothing you set here can disable test reporting — even if you also enable `report_tests_log_factory` yourself, applying it twice is harmless.
+
+If `project.yml` or one of your own mixins sets `:report_tests_log_factory` ↳ `:cppunit` ↳ `:filename` to something other than Ceedling’s default, the extension shows a one-time warning naming the project and the resolved filename — it still uses that filename correctly, the warning only calls out that the report lives somewhere non-default in case that wasn’t intentional.
+
+[mixins-docs]: https://throwtheswitch.github.io/Ceedling/1.1.0/configuration/mixins/
 
 ## Problem matching
 

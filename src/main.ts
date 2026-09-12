@@ -5,10 +5,11 @@ import { Logger } from './logger';
 const logger = new Logger();
 const controllers = new Map<vscode.WorkspaceFolder, CeedlingTestController>();
 let isDevelopmentMode = false;
+let extensionPath = '';
 
 function addWorkspaceFolder(workspaceFolder: vscode.WorkspaceFolder): void {
     logger.debug(`addWorkspaceFolder(${workspaceFolder.uri.toString()})`);
-    controllers.set(workspaceFolder, new CeedlingTestController(workspaceFolder, logger, isDevelopmentMode));
+    controllers.set(workspaceFolder, new CeedlingTestController(workspaceFolder, logger, isDevelopmentMode, extensionPath));
 }
 
 function removeWorkspaceFolder(workspaceFolder: vscode.WorkspaceFolder): void {
@@ -40,6 +41,7 @@ function debugTestExecutableGuard(): never {
 
 export async function activate(context: vscode.ExtensionContext) {
     isDevelopmentMode = context.extensionMode === vscode.ExtensionMode.Development;
+    extensionPath = context.extensionPath;
     const workspaceFolderCount = vscode.workspace.workspaceFolders?.length ?? 0;
     logger.debug(`activate(): isDevelopmentMode=${isDevelopmentMode}, workspaceFolders=${workspaceFolderCount}`);
     context.subscriptions.push(logger);

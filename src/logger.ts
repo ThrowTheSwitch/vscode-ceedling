@@ -45,6 +45,12 @@ export class Logger {
         vscode.window.showInformationMessage(message);
     }
 
+    public showWarning(...args: unknown[]) {
+        const message = this.format(...args);
+        this.warn(message);
+        vscode.window.showWarningMessage(message);
+    }
+
     public showError(...args: unknown[]) {
         const message = this.format(...args);
         this.error(message);

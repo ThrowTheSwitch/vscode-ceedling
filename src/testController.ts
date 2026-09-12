@@ -12,6 +12,7 @@ import {
 } from './ceedlingEngine';
 import { extractGdbLogReference } from './ceedlingOutputParsing';
 import { Logger } from './logger';
+import { ProblemMatcher } from './problemMatcher';
 
 type ItemMeta =
     | { kind: 'project', projectKey: string }
@@ -42,9 +43,14 @@ export class CeedlingTestController {
         public readonly workspaceFolder: vscode.WorkspaceFolder,
         private readonly logger: Logger,
         private readonly isDevelopmentMode: boolean,
+        extensionPath: string,
     ) {
         this.logger.debug(`CeedlingTestController created for ${workspaceFolder.uri.toString()}`);
-        this.engine = new CeedlingEngine(workspaceFolder, logger, isDevelopmentMode);
+        this.engine = new CeedlingEngine(workspaceFolder, logger, isDevelopmentMode, {
+            configProvider: (uri) => vscode.workspace.getConfiguration('ceedlingExplorer', uri),
+            problemMatcher: new ProblemMatcher(logger),
+            bundledMixinPath: path.join(extensionPath, 'assets', 'mixins', 'report-tests-log-factory.yml'),
+        });
         this.controller = vscode.tests.createTestController(
             `ceedlingExplorer:${workspaceFolder.uri.toString()}`,
             'Ceedling',

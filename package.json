@@ -60,7 +60,6 @@
     "@types/semver": "^7.5.4",
     "@types/xml2js": "^0.4.3",
     "async-mutex": "^0.1.3",
-    "deepmerge": "^4.3.1",
     "js-yaml": "^3.13.1",
     "semver": "^7.5.4",
     "strip-ansi": "^6.0.0",
@@ -110,6 +109,13 @@
               "name": {
                 "description": "Name for the project tests folder. If not defined, the yml or folder name is used",
                 "type": "string"
+              },
+              "mixins": {
+                "markdownDescription": "Ceedling mixins to merge into this project's configuration (mixin names resolved via `:mixins:`/`:load_paths:`, built-in toolchain targets like `gcc`/`clang`, or file paths), lowest to highest priority. When omitted entirely, `ceedlingExplorer.mixins` is used instead for this project; set to `[]` explicitly to opt this project out of that workspace-wide list.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               }
             },
             "required": [
@@ -125,6 +131,15 @@
             ],
             "scope": "resource"
           }
+        },
+        "ceedlingExplorer.mixins": {
+          "markdownDescription": "Default Ceedling mixins applied to every configured project that does not define its own `mixins` array (see `ceedlingExplorer.projects[].mixins`), lowest to highest priority. The extension's own mixin, which enables the CppUnit XML report this extension depends on, is always applied after these and cannot be overridden.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "resource"
         },
         "ceedlingExplorer.shellPath": {
           "description": "Path to the shell where Ceedling is installed",
