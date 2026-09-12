@@ -1,0 +1,16 @@
+# Bundled with the extension and always applied as the highest-priority --mixin (see
+# buildProjectArgs in src/ceedlingMixinArgs.ts). Guarantees the CppUnit XML report this extension
+# parses exists, without requiring a user to hand-edit their own project.yml.
+#
+# Enabling the plugin alone is not enough - report_tests_log_factory can emit several report
+# formats, and :reports: must explicitly select cppunit. See
+# https://throwtheswitch.github.io/Ceedling/1.1.0/plugins/report-tests-log-factory/#cppunit-xml-format
+#
+# :cppunit: :filename: is deliberately left unset. Mixin merge only touches keys a mixin actually
+# sets, so a user's own :cppunit: :filename: override (if any) survives untouched.
+:plugins:
+  :enabled:
+    - report_tests_log_factory
+:report_tests_log_factory:
+  :reports:
+    - cppunit

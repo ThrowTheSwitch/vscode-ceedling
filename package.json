@@ -110,6 +110,13 @@
               "name": {
                 "description": "Name for the project tests folder. If not defined, the yml or folder name is used",
                 "type": "string"
+              },
+              "mixins": {
+                "markdownDescription": "Ceedling mixins to merge into this project's configuration (mixin names resolved via `:mixins:`/`:load_paths:`, built-in toolchain targets like `gcc`/`clang`, or file paths), lowest to highest priority. When omitted entirely, `ceedlingExplorer.mixins` is used instead for this project; set to `[]` explicitly to opt this project out of that workspace-wide list.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               }
             },
             "required": [
@@ -125,6 +132,15 @@
             ],
             "scope": "resource"
           }
+        },
+        "ceedlingExplorer.mixins": {
+          "markdownDescription": "Default Ceedling mixins applied to every configured project that does not define its own `mixins` array (see `ceedlingExplorer.projects[].mixins`), lowest to highest priority. The extension's own mixin, which enables the CppUnit XML report this extension depends on, is always applied after these and cannot be overridden.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "resource"
         },
         "ceedlingExplorer.shellPath": {
           "description": "Path to the shell where Ceedling is installed",

@@ -62,11 +62,14 @@ function fakeExec(calls: { command: string, options: any }[]): typeof child_proc
     }) as unknown as typeof child_process.exec;
 }
 
+const FAKE_BUNDLED_MIXIN_PATH = '/ext/assets/mixins/report-tests-log-factory.yml';
+
 function makeEngine(opts: {
     exec?: typeof child_process.exec,
     readFile?: typeof fs.readFile,
     settings?: Record<string, any>,
     isDevelopmentMode?: boolean,
+    bundledMixinPath?: string,
 } = {}): CeedlingEngine {
     return new CeedlingEngine(
         fakeWorkspaceFolder('/ws'),
@@ -75,6 +78,7 @@ function makeEngine(opts: {
         {
             configProvider: () => fakeConfig(opts.settings ?? {}),
             problemMatcher: fakeProblemMatcher(),
+            bundledMixinPath: opts.bundledMixinPath ?? FAKE_BUNDLED_MIXIN_PATH,
             exec: opts.exec,
             readFile: opts.readFile,
         },
@@ -83,9 +87,9 @@ function makeEngine(opts: {
 
 // Installs one project directly on the engine's private project map, bypassing
 // loadProjectPaths() (which needs real fs.existsSync/lstatSync this seam doesn't cover).
-function withProject(engine: CeedlingEngine, key: string, data: { absPath: string, ymlFileName: string }) {
+function withProject(engine: CeedlingEngine, key: string, data: { absPath: string, ymlFileName: string, mixins?: string[] }) {
     (engine as any).projectData = {
-        [key]: { debugLaunchConfig: 'ceedling', projectPath: '.', files: {}, ...data },
+        [key]: { debugLaunchConfig: 'ceedling', projectPath: '.', files: {}, mixins: [], ...data },
     };
 }
 
@@ -201,23 +205,38 @@ suite('execCeedling: --project/--mixin flag construction', () => {
         assert.strictEqual(calls[0].options.cwd, '.');
     });
 
-    test('once version-checked, a default project.yml gets --project (and cwd set) - note the doubled space, a pre-existing quirk of building the flags as one pre-spaced string', async () => {
+    test('once version-checked, a default project.yml gets --project and the bundled report-plugin mixin, cwd set to the project', async () => {
         const calls: { command: string, options: any }[] = [];
         const engine = makeEngine({ exec: fakeExec(calls) });
         withProject(engine, 'proj', { absPath: '/ws/proj', ymlFileName: 'project.yml' });
         (engine as any).ceedlingVersionChecked = true;
         await (engine as any).execCeedling(['test:all'], 'proj');
-        assert.strictEqual(calls[0].command, 'ceedling test:all  --project project.yml');
+        assert.strictEqual(calls[0].command, `ceedling test:all --project project.yml --mixin ${FAKE_BUNDLED_MIXIN_PATH}`);
         assert.strictEqual(calls[0].options.cwd, '/ws/proj');
     });
 
-    test('an alternate/mixin yml file name adds a single --mixin flag after --project', async () => {
+    test('an alternate/mixin yml file name adds its own --mixin flag, lowest priority (right after --project)', async () => {
         const calls: { command: string, options: any }[] = [];
         const engine = makeEngine({ exec: fakeExec(calls) });
         withProject(engine, 'proj', { absPath: '/ws/proj', ymlFileName: 'ci.yml' });
         (engine as any).ceedlingVersionChecked = true;
         await (engine as any).execCeedling(['test:all'], 'proj');
-        assert.strictEqual(calls[0].command, 'ceedling test:all  --project project.yml --mixin ci.yml');
+        assert.strictEqual(
+            calls[0].command,
+            `ceedling test:all --project project.yml --mixin ci.yml --mixin ${FAKE_BUNDLED_MIXIN_PATH}`,
+        );
+    });
+
+    test("the project's configured mixins land between the alternate yml and the bundled mixin, in order", async () => {
+        const calls: { command: string, options: any }[] = [];
+        const engine = makeEngine({ exec: fakeExec(calls) });
+        withProject(engine, 'proj', { absPath: '/ws/proj', ymlFileName: 'project.yml', mixins: ['gcc', 'proj/mixins/coverage.yml'] });
+        (engine as any).ceedlingVersionChecked = true;
+        await (engine as any).execCeedling(['test:all'], 'proj');
+        assert.strictEqual(
+            calls[0].command,
+            `ceedling test:all --project project.yml --mixin gcc --mixin proj/mixins/coverage.yml --mixin ${FAKE_BUNDLED_MIXIN_PATH}`,
+        );
     });
 
     test('the verbosity flag is only spliced on in development mode', async () => {

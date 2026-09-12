@@ -26,6 +26,7 @@ import {
     testCaseFilterMatchedExactly,
 } from './ceedlingOutputParsing';
 import { getTestListFromXmlReport } from './ceedlingXmlReport';
+import { buildProjectArgs } from './ceedlingMixinArgs';
 // Type-only, same reasoning as the `vscode` import above: Logger and ProblemMatcher both have
 // real runtime vscode calls of their own (an output channel, a DiagnosticCollection). Importing
 // only their types keeps this file from pulling either module's code in at require-time. Callers
@@ -38,9 +39,12 @@ const TEST_VERBOSITY_FLAG = '--verbosity debug';
 
 export type ProjectData = {
     projectPath: string,
-    ymlFileName: any,
+    ymlFileName: string,
     absPath: string,
     debugLaunchConfig: string,
+    // Resolved once in loadProjectPaths(): this project's own ceedlingExplorer.projects[].mixins
+    // when set, else the workspace-wide ceedlingExplorer.mixins. Lowest to highest priority.
+    mixins: string[],
     files: {
         assembly?: string[],
         header?: string[],
@@ -53,6 +57,9 @@ export type ProjectConfig = {
     path: string,
     debugLaunchConfig: string,
     name?: string,
+    // Absent (not merely []) means "use the workspace-wide ceedlingExplorer.mixins instead" -
+    // see loadProjectPaths(). An explicit [] opts this project out of the global list entirely.
+    mixins?: string[],
 }
 
 export type CeedlingTestCase = {
@@ -139,6 +146,9 @@ export class CeedlingEngine {
     // Resolves workspace configuration. Required, no in-file default - the only real
     // implementation needs the `vscode` module, and this file otherwise has none.
     private readonly configProvider: (uri: vscode.Uri) => vscode.WorkspaceConfiguration;
+    // Absolute path to the extension's bundled mixin that force-enables the CppUnit XML report.
+    // Always the last, highest-priority --mixin flag on every invocation - see buildProjectArgs.
+    private readonly bundledMixinPath: string;
 
     constructor(
         public readonly workspaceFolder: vscode.WorkspaceFolder,
@@ -148,6 +158,7 @@ export class CeedlingEngine {
             configProvider: (uri: vscode.Uri) => vscode.WorkspaceConfiguration,
             // Constructed by the caller, not here - see the type-only problemMatcher import above.
             problemMatcher: ProblemMatcher,
+            bundledMixinPath: string,
             exec?: typeof child_process.exec,
             readFile?: typeof fs.readFile,
         },
@@ -156,6 +167,7 @@ export class CeedlingEngine {
         this.exec = deps.exec ?? child_process.exec;
         this.readFile = deps.readFile ?? fs.readFile;
         this.configProvider = deps.configProvider;
+        this.bundledMixinPath = deps.bundledMixinPath;
     }
 
     dispose(): void {
@@ -467,6 +479,10 @@ export class CeedlingEngine {
 
     private loadProjectPaths(): void {
         const projectConfigs = this.getConfiguration().get<object>('projects', []) as Array<ProjectConfig>;
+        // The workspace-wide fallback. A project's own `mixins` is used only when it's genuinely
+        // absent from settings (`undefined`) - an explicit `mixins: []` opts a project out of
+        // this list rather than falling back to it.
+        const globalMixins = this.getConfiguration().get<string[]>('mixins', []);
         this.projectData = {};
         let workspacePath = this.workspaceFolder.uri.fsPath;
         projectConfigs.forEach(projectConfig => {
@@ -500,6 +516,7 @@ export class CeedlingEngine {
                     projectPath: projectConfig.path,
                     ymlFileName: ymlName,
                     absPath: absolutePath,
+                    mixins: projectConfig.mixins !== undefined ? projectConfig.mixins : globalMixins,
                     files: {}
                 };
             }
@@ -510,6 +527,7 @@ export class CeedlingEngine {
                 projectPath: ".",
                 ymlFileName: 'project.yml',
                 absPath: path.resolve(workspacePath, "."),
+                mixins: globalMixins,
                 files: {}
             };
         }
@@ -597,12 +615,9 @@ export class CeedlingEngine {
     private execCeedling(args: ReadonlyArray<string>, projectKey = Object.keys(this.projectData)[0], verbosity = ''): Promise<any> {
         let cwd = ".";
         if (this.ceedlingVersionChecked && projectKey in this.projectData) {
-            let projectParam = ` --project project.yml`;
-            if (this.projectData[projectKey].ymlFileName != 'project.yml') {
-                projectParam += ` --mixin ${this.projectData[projectKey].ymlFileName}`;
-            }
-            args = [...args, projectParam];
-            cwd = this.projectData[projectKey].absPath;
+            const project = this.projectData[projectKey];
+            args = [...args, ...buildProjectArgs(project.ymlFileName, project.mixins, this.bundledMixinPath)];
+            cwd = project.absPath;
         }
         if (this.isDevelopmentMode && verbosity) {
             args = [...args, verbosity];
