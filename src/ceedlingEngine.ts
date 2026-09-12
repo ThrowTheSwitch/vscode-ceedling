@@ -36,6 +36,9 @@ import type { FileDiagnostic, ProblemMatcher, ProblemMatchingPattern } from './p
 
 const MINIMUM_CEEDLING_VERSION = '1.0.0';
 const TEST_VERBOSITY_FLAG = '--verbosity debug';
+// Ceedling's own default for report_tests_log_factory's cppunit report. Also this extension's
+// fallback when nothing in the resolved config overrides it - see setXmlReportPath.
+const DEFAULT_CPPUNIT_REPORT_FILENAME = 'cppunit_tests_report.xml';
 
 export type ProjectData = {
     projectPath: string,
@@ -130,6 +133,10 @@ export class CeedlingEngine {
     private testLabelRegexps: Record<string, RegExp | undefined> = {};
     private buildDirectories: Record<string, string> = {};
     private reportFilenames: Record<string, string> = {};
+    // Warned about at most once per project per activation, not once per discover() cycle - the
+    // project.yml file watch re-runs discover() on every save, and this would otherwise pop up a
+    // notification on every single one.
+    private warnedNonDefaultReportFilename: Set<string> = new Set();
 
     private isPrettyTestLabelEnable: boolean = false;
     private isPrettyTestFileLabelEnable: boolean = false;
@@ -526,13 +533,17 @@ export class CeedlingEngine {
             if (!(fs.existsSync(absolutePath) && fs.lstatSync(absolutePath).isDirectory())) {
                 throw new CeedlingLoadError(`The project path ${absolutePath} does not exist or is not a directory.`);
             } else {
-                this.logger.debug(`loadProjectPaths: resolved project '${key}' -> path='${absolutePath}', ymlFileName='${ymlName}'`);
+                const mixins = projectConfig.mixins !== undefined ? projectConfig.mixins : globalMixins;
+                this.logger.debug(
+                    `loadProjectPaths: resolved project '${key}' -> path='${absolutePath}', ymlFileName='${ymlName}', ` +
+                    `mixins=${util.format(mixins)}`
+                );
                 this.projectData[key] = {
                     debugLaunchConfig: projectConfig.debugLaunchConfig,
                     projectPath: projectConfig.path,
                     ymlFileName: ymlName,
                     absPath: absolutePath,
-                    mixins: projectConfig.mixins !== undefined ? projectConfig.mixins : globalMixins,
+                    mixins,
                     files: {}
                 };
             }
@@ -724,7 +735,7 @@ export class CeedlingEngine {
     }
 
     private setXmlReportPath(projectKey: string, ymlProjectData: any = undefined) {
-        let reportFilename = 'cppunit_tests_report.xml';
+        let reportFilename = DEFAULT_CPPUNIT_REPORT_FILENAME;
         if (ymlProjectData) {
             try {
                 const ymlProjectReportFilename = ymlProjectData[':report_tests_log_factory'][':cppunit'][':filename'];
@@ -734,6 +745,18 @@ export class CeedlingEngine {
             } catch (e) {
                 this.logger.debug(`setXmlReportPath(${projectKey}): no ':report_tests_log_factory'/':cppunit'/':filename' in project.yml, using default '${reportFilename}': ${e}`);
             }
+        }
+        // A mixin or project.yml setting a non-default filename changes where this extension looks
+        // for the report (getXmlReportPath), silently as far as the user is concerned - surface it
+        // once per project so an unexpected report location doesn't look like a mystery failure.
+        if (reportFilename !== DEFAULT_CPPUNIT_REPORT_FILENAME && !this.warnedNonDefaultReportFilename.has(projectKey)) {
+            this.warnedNonDefaultReportFilename.add(projectKey);
+            this.logger.showWarning(
+                `Ceedling project '${projectKey}': the CppUnit XML report filename resolves to '${reportFilename}', ` +
+                `not the default '${DEFAULT_CPPUNIT_REPORT_FILENAME}' - project.yml or a configured mixin sets ` +
+                `':report_tests_log_factory' ↳ ':cppunit' ↳ ':filename'. This extension will use the resolved name; ` +
+                `if that's unexpected, check ceedlingExplorer.mixins/projects[].mixins and project.yml.`
+            );
         }
         this.reportFilenames[projectKey] = reportFilename;
     }
@@ -866,6 +889,7 @@ export class CeedlingEngine {
             os.tmpdir(),
             `ceedling-dumpconfig-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.yml`,
         );
+        this.logger.debug(`loadResolvedConfig(${projectKey}): resolving via 'ceedling dumpconfig' -> '${tmpPath}'`);
         const result = await this.execCeedling(['dumpconfig', quoteIfNeeded(tmpPath)], projectKey);
         if (result.error) {
             this.logger.error(`loadResolvedConfig(${projectKey}): 'ceedling dumpconfig' failed: ${util.format(result)}`);

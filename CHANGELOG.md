@@ -14,6 +14,7 @@ This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 * The `report_tests_log_factory` plugin’s `cppunit` report — the XML report this extension depends on — is now enabled automatically via a bundled [mixin](README.md#mixins). Manually enabling it in `project.yml` is no longer required.
 * New `ceedlingExplorer.mixins` and `ceedlingExplorer.projects[].mixins` settings expose Ceedling’s own mixin mechanism, so you can layer toolchain targets, CI overrides, or other configuration without hand-editing `project.yml`. See [Mixins](README.md#mixins).
+* A one-time warning notification when `project.yml` or a configured mixin sets a non-default CppUnit XML report filename, naming the project and the resolved filename.
 
 ---
 

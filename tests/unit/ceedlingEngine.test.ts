@@ -22,11 +22,20 @@ function fakeWorkspaceFolder(fsPath: string): vscode.WorkspaceFolder {
     } as unknown as vscode.WorkspaceFolder;
 }
 
-function noopLogger(): Logger {
+type RecordedCall = { level: string, message: string };
+type FakeLogger = Logger & { calls: RecordedCall[] };
+
+// A no-op Logger by default; every call is also recorded in `.calls` for tests that need to
+// assert on what was logged (the warning/debug-enrichment tests below).
+function fakeLogger(): FakeLogger {
+    const calls: RecordedCall[] = [];
+    const record = (level: string) => (...args: unknown[]) => { calls.push({ level, message: String(args[0]) }); };
     return {
-        trace() { }, debug() { }, info() { }, warn() { }, error() { },
-        showInfo() { }, showError() { }, dispose() { },
-    } as unknown as Logger;
+        trace: record('trace'), debug: record('debug'), info: record('info'), warn: record('warn'), error: record('error'),
+        showInfo: record('showInfo'), showError: record('showError'), showWarning: record('showWarning'),
+        dispose() { },
+        calls,
+    } as unknown as FakeLogger;
 }
 
 function fakeConfig(settings: Record<string, any>): vscode.WorkspaceConfiguration {
@@ -62,10 +71,12 @@ function makeEngine(opts: {
     settings?: Record<string, any>,
     isDevelopmentMode?: boolean,
     bundledMixinPath?: string,
+    logger?: FakeLogger,
+    workspacePath?: string,
 } = {}): CeedlingEngine {
     return new CeedlingEngine(
-        fakeWorkspaceFolder('/ws'),
-        noopLogger(),
+        fakeWorkspaceFolder(opts.workspacePath ?? '/ws'),
+        opts.logger ?? fakeLogger(),
         opts.isDevelopmentMode ?? false,
         {
             configProvider: () => fakeConfig(opts.settings ?? {}),
@@ -270,5 +281,53 @@ suite('real `ceedling dumpconfig` output (captured against tests/manual, see tes
         assert.strictEqual((engine as any).buildDirectories['proj'], 'build');
         // No :cppunit: :filename: override in this real output - the plugin default applies.
         assert.strictEqual((engine as any).reportFilenames['proj'], 'cppunit_tests_report.xml');
+    });
+});
+
+suite('setXmlReportPath: non-default report filename warning', () => {
+    test('the default filename never warns', () => {
+        const logger = fakeLogger();
+        const engine = makeEngine({ logger });
+        (engine as any).setXmlReportPath('proj', { ':report_tests_log_factory': { ':cppunit': { ':filename': 'cppunit_tests_report.xml' } } });
+        assert.ok(!logger.calls.some((c) => c.level === 'showWarning'));
+    });
+
+    test('a non-default filename warns once, naming the project and the resolved filename', () => {
+        const logger = fakeLogger();
+        const engine = makeEngine({ logger });
+        (engine as any).setXmlReportPath('proj', { ':report_tests_log_factory': { ':cppunit': { ':filename': 'custom_report.xml' } } });
+        const warnings = logger.calls.filter((c) => c.level === 'showWarning');
+        assert.strictEqual(warnings.length, 1);
+        assert.match(warnings[0].message, /proj/);
+        assert.match(warnings[0].message, /custom_report\.xml/);
+    });
+
+    test('the same non-default filename does not warn again on a later discover() cycle', () => {
+        const logger = fakeLogger();
+        const engine = makeEngine({ logger });
+        const resolvedConfig = { ':report_tests_log_factory': { ':cppunit': { ':filename': 'custom_report.xml' } } };
+        (engine as any).setXmlReportPath('proj', resolvedConfig);
+        (engine as any).setXmlReportPath('proj', resolvedConfig);
+        assert.strictEqual(logger.calls.filter((c) => c.level === 'showWarning').length, 1);
+    });
+});
+
+suite('loadProjectPaths: mixins are logged for diagnosis', () => {
+    test('the debug log naming a resolved project includes its resolved mixins', () => {
+        const logger = fakeLogger();
+        // loadProjectPaths() checks the workspace path against the real filesystem
+        // (fs.existsSync/lstatSync, not part of the injected seam) - point it at this test
+        // file's own real directory rather than the fake '/ws' the other tests use.
+        const engine = makeEngine({
+            logger,
+            workspacePath: __dirname,
+            settings: {
+                projects: [{ path: '.', debugLaunchConfig: 'ceedling', mixins: ['gcc'] }],
+            },
+        });
+        (engine as any).loadProjectPaths();
+        const line = logger.calls.find((c) => c.level === 'debug' && c.message.includes('loadProjectPaths'));
+        assert.ok(line, 'expected a loadProjectPaths debug log line');
+        assert.match(line!.message, /mixins.*gcc/);
     });
 });

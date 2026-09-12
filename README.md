@@ -100,6 +100,8 @@ A [Ceedling mixin][mixins-docs] is a YAML fragment merged into a project’s con
 
 The extension always applies one more mixin after any you configure: it enables the `report_tests_log_factory` plugin’s `cppunit` report, which the Testing view depends on to read results. This mixin is not configurable and always has the highest priority, so nothing you set here can disable test reporting — even if you also enable `report_tests_log_factory` yourself, applying it twice is harmless.
 
+If `project.yml` or one of your own mixins sets `:report_tests_log_factory` ↳ `:cppunit` ↳ `:filename` to something other than Ceedling’s default, the extension shows a one-time warning naming the project and the resolved filename — it still uses that filename correctly, the warning only calls out that the report lives somewhere non-default in case that wasn’t intentional.
+
 [mixins-docs]: https://throwtheswitch.github.io/Ceedling/1.1.0/configuration/mixins/
 
 ## Problem matching
