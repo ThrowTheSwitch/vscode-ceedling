@@ -8,7 +8,11 @@ import semver from 'semver';
 import stripAnsi from 'strip-ansi';
 import tree_kill from 'tree-kill';
 import util from 'util';
-import vscode from 'vscode';
+// Type-only. This file has no runtime dependency on the `vscode` module - the one real call it
+// used to make, resolving workspace configuration, is now supplied by the caller (see
+// `configProvider` below). That keeps this file loadable in a plain Node test process, where the
+// `vscode` module the Extension Host normally injects does not exist.
+import type vscode from 'vscode';
 import xml2js from 'xml2js';
 import {
     buildFileLabelRegex,
@@ -22,8 +26,12 @@ import {
     testCaseFilterMatchedExactly,
 } from './ceedlingOutputParsing';
 import { getTestListFromXmlReport } from './ceedlingXmlReport';
-import { Logger } from './logger';
-import { FileDiagnostic, ProblemMatcher, ProblemMatchingPattern } from './problemMatcher';
+// Type-only, same reasoning as the `vscode` import above: Logger and ProblemMatcher both have
+// real runtime vscode calls of their own (an output channel, a DiagnosticCollection). Importing
+// only their types keeps this file from pulling either module's code in at require-time. Callers
+// construct both and hand this file the instances (see `configProvider`/`deps.problemMatcher`).
+import type { Logger } from './logger';
+import type { FileDiagnostic, ProblemMatcher, ProblemMatchingPattern } from './problemMatcher';
 
 const MINIMUM_CEEDLING_VERSION = '1.0.0';
 const TEST_VERBOSITY_FLAG = '--verbosity debug';
@@ -123,12 +131,31 @@ export class CeedlingEngine {
 
     readonly problemMatcher: ProblemMatcher;
 
+    // Process spawning and YAML file reads go through these fields instead of the
+    // child_process/fs modules directly. Tests substitute fakes here to exercise
+    // Ceedling-invocation and config-parsing logic without a real Ceedling install or disk I/O.
+    private readonly exec: typeof child_process.exec;
+    private readonly readFile: typeof fs.readFile;
+    // Resolves workspace configuration. Required, no in-file default - the only real
+    // implementation needs the `vscode` module, and this file otherwise has none.
+    private readonly configProvider: (uri: vscode.Uri) => vscode.WorkspaceConfiguration;
+
     constructor(
         public readonly workspaceFolder: vscode.WorkspaceFolder,
         private readonly logger: Logger,
         private readonly isDevelopmentMode: boolean,
+        deps: {
+            configProvider: (uri: vscode.Uri) => vscode.WorkspaceConfiguration,
+            // Constructed by the caller, not here - see the type-only problemMatcher import above.
+            problemMatcher: ProblemMatcher,
+            exec?: typeof child_process.exec,
+            readFile?: typeof fs.readFile,
+        },
     ) {
-        this.problemMatcher = new ProblemMatcher(logger);
+        this.problemMatcher = deps.problemMatcher;
+        this.exec = deps.exec ?? child_process.exec;
+        this.readFile = deps.readFile ?? fs.readFile;
+        this.configProvider = deps.configProvider;
     }
 
     dispose(): void {
@@ -137,7 +164,7 @@ export class CeedlingEngine {
     }
 
     getConfiguration(): vscode.WorkspaceConfiguration {
-        return vscode.workspace.getConfiguration('ceedlingExplorer', this.workspaceFolder.uri);
+        return this.configProvider(this.workspaceFolder.uri);
     }
 
     getDebugLaunchConfig(projectKey: string): string {
@@ -584,7 +611,7 @@ export class CeedlingEngine {
         const shell = this.getShellPath();
         this.logger.debug(`execCeedling(args=${util.format(args)}) \ncommand=${command} \ncwd=${cwd} \nshell=${shell}`);
         return new Promise<any>((resolve) => {
-            this.ceedlingProcess = child_process.exec(
+            this.ceedlingProcess = this.exec(
                 command,
                 {
                     cwd: cwd,
@@ -804,7 +831,7 @@ export class CeedlingEngine {
             }
             return new Promise<any | undefined>((resolve) => {
                 const project_yml = this.getYmlProjectPath(projectKey);
-                fs.readFile(project_yml, 'utf8', (error, data) => {
+                this.readFile(project_yml, 'utf8', (error, data) => {
                     if (error) {
                         this.logger.error(`Failed to read YAML file '${project_yml}': ${util.format(error)}`);
                         resolve(undefined);
@@ -828,7 +855,7 @@ export class CeedlingEngine {
     private mergeYmlProjectData(projectKey: string): Promise<any | undefined> {
         return new Promise<any | undefined>((resolve) => {
             const project_data = this.getYmlProjectPath(projectKey);
-            fs.readFile(project_data, 'utf8', (error, data) => {
+            this.readFile(project_data, 'utf8', (error, data) => {
                 if (error) {
                     this.logger.error(`Failed to read YAML file: ${util.format(error)}`);
                     resolve(undefined);
@@ -837,7 +864,7 @@ export class CeedlingEngine {
                 try {
                     const result = yaml.safeLoad(data);
                     const defaultYmlPath = path.resolve(this.projectData[projectKey].absPath, 'project.yml');
-                    fs.readFile(defaultYmlPath, 'utf8', (error, data) => {
+                    this.readFile(defaultYmlPath, 'utf8', (error, data) => {
                         if (error) {
                             this.logger.error(`Failed to read default YAML file: ${util.format(error)}`);
                             resolve(result);
