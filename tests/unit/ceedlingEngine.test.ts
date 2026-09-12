@@ -1,15 +1,18 @@
 import * as assert from 'assert';
 import * as child_process from 'child_process';
 import * as fs from 'fs';
+import yaml from 'js-yaml';
+import * as path from 'path';
 import type vscode from 'vscode';
 import { CeedlingEngine } from '../../src/ceedlingEngine';
 import type { Logger } from '../../src/logger';
 import type { ProblemMatcher } from '../../src/problemMatcher';
 
-// Characterizes CeedlingEngine's current YAML-loading and command-construction behavior ahead of
-// replacing it with `ceedling dumpconfig` (see the project plan). None of this is new behavior -
-// every assertion here, including the ones that look like bugs, documents what the code already
-// does, so the refactor has a baseline to diff against.
+// Exercises CeedlingEngine's `ceedling dumpconfig`-backed config resolution and its
+// --project/--mixin command construction, with child_process/fs/vscode all faked - see
+// makeEngine()/withProject() below. A few tests instead replay real `ceedling dumpconfig` output
+// captured against tests/manual (see tests/fixtures/dumpconfig/), to ground the faked-YAML tests
+// against what Ceedling itself actually produces.
 
 function fakeWorkspaceFolder(fsPath: string): vscode.WorkspaceFolder {
     return {
@@ -231,5 +234,41 @@ suite('execCeedling: --project/--mixin flag construction', () => {
         (devEngine as any).ceedlingVersionChecked = true;
         await (devEngine as any).execCeedling(['test:all'], 'proj', '--verbosity debug');
         assert.match(devCalls[0].command, /--verbosity debug$/);
+    });
+});
+
+const dumpconfigFixturesRoot = path.resolve(__dirname, '..', '..', '..', 'tests', 'fixtures', 'dumpconfig');
+
+function loadDumpconfigFixture(name: string): any {
+    return yaml.safeLoad(fs.readFileSync(path.resolve(dumpconfigFixturesRoot, name), 'utf8'));
+}
+
+suite('real `ceedling dumpconfig` output (captured against tests/manual, see tests/fixtures/dumpconfig/README.md)', () => {
+    test('without the bundled mixin, report_tests_log_factory is genuinely absent - checkYmlProjectData catches it', async () => {
+        const engine = makeEngine();
+        withProject(engine, 'proj', { absPath: '/ws/proj', ymlFileName: 'project.yml' });
+        (engine as any).resolvedConfig = { proj: loadDumpconfigFixture('manual-project-no-report-plugin.yml') };
+        const error = await (engine as any).checkYmlProjectData('proj');
+        assert.match(error, /report_tests_log_factory.*did not take effect/);
+    });
+
+    test('with the bundled mixin applied, report_tests_log_factory and its cppunit report are present', async () => {
+        const engine = makeEngine();
+        withProject(engine, 'proj', { absPath: '/ws/proj', ymlFileName: 'project.yml' });
+        const resolvedConfig = loadDumpconfigFixture('manual-project-with-bundled-mixin.yml');
+        (engine as any).resolvedConfig = { proj: resolvedConfig };
+        const error = await (engine as any).checkYmlProjectData('proj');
+        assert.strictEqual(error, undefined);
+        assert.deepStrictEqual(resolvedConfig[':report_tests_log_factory'][':reports'], ['cppunit']);
+    });
+
+    test('setBuildDirectory/setXmlReportPath read real dumpconfig output correctly', () => {
+        const engine = makeEngine();
+        const resolvedConfig = loadDumpconfigFixture('manual-project-with-bundled-mixin.yml');
+        (engine as any).setBuildDirectory('proj', resolvedConfig);
+        (engine as any).setXmlReportPath('proj', resolvedConfig);
+        assert.strictEqual((engine as any).buildDirectories['proj'], 'build');
+        // No :cppunit: :filename: override in this real output - the plugin default applies.
+        assert.strictEqual((engine as any).reportFilenames['proj'], 'cppunit_tests_report.xml');
     });
 });
