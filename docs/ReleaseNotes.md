@@ -4,6 +4,20 @@ Complemented by three other documents: [../CHANGELOG.md](../CHANGELOG.md), [Know
 
 ---
 
+# Unreleased
+
+## 👀 Highlights
+
+Project configuration is now resolved with Ceedling’s own `ceedling dumpconfig` command instead of the extension parsing and merging `project.yml` by hand — the same merge a real build sees, plugin defaults included.
+
+The `report_tests_log_factory` plugin’s `cppunit` report, which the Testing view depends on to read results, is now enabled automatically via a mixin bundled with the extension. Manually editing `project.yml` to enable it is no longer necessary. New `ceedlingExplorer.mixins` and `ceedlingExplorer.projects[].mixins` settings expose Ceedling’s own mixin mechanism directly, for anyone who wants to layer toolchain targets, CI overrides, or other configuration. See [Mixins](../README.md#mixins).
+
+## 🚨 Important Changes
+
+None — existing `project.yml` files that already enable `report_tests_log_factory` themselves continue to work unchanged; the extension’s mixin is additive.
+
+---
+
 # 2.0.0 — 2026-08-31
 
 ## 👀 Highlights
