@@ -4,6 +4,18 @@ Complemented by three other documents: [../CHANGELOG.md](../CHANGELOG.md), [Rele
 
 ---
 
+# [Unreleased]
+
+## Minimum VS Code version is now 1.88.0
+
+This extension now requires VS Code 1.88.0 or later, up from 1.71.0. 1.88.0 is the release that finalized VS Code's test coverage API, which the new **Run with Coverage** support is built on.
+
+**What changes for you:**
+- On VS Code 1.88.0 or later, nothing. Coverage is additive and opt-in; every existing behavior and setting is unchanged.
+- On anything older, VS Code will not offer this version. It keeps the last version you can run, which continues to work.
+
+---
+
 # [2.0.0] — 2026-08-31
 
 ## Native Testing API replaces the Test Explorer UI extension dependency

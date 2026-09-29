@@ -34,6 +34,9 @@ export class CeedlingTestController {
     private readonly itemMeta = new WeakMap<vscode.TestItem, ItemMeta>();
     private readonly idToItem = new Map<string, vscode.TestItem>();
     private readonly watchedReloadFiles = new Set<string>();
+    // Detailed per-file coverage from the last coverage run, keyed by file URI. VS Code asks for
+    // this lazily, after the run has ended, so it cannot be recomputed on demand.
+    private readonly detailedCoverage = new Map<string, vscode.FileCoverageDetail[]>();
     private projects: CeedlingProjectNode[] = [];
 
     private activeDebugSession: vscode.DebugSession | undefined;
@@ -68,7 +71,15 @@ export class CeedlingTestController {
             'Debug', vscode.TestRunProfileKind.Debug,
             (request, token) => this.handleDebug(request, token), true,
         );
-        this.disposables.push(runProfile, debugProfile);
+        // Not the default profile: a coverage run rebuilds instrumented and is measurably slower
+        // than a plain one, so it stays opt-in behind the Run with Coverage button.
+        const coverageProfile = this.controller.createRunProfile(
+            'Coverage', vscode.TestRunProfileKind.Coverage,
+            (request, token) => this.handleRun(request, token, true), false,
+        );
+        coverageProfile.loadDetailedCoverage = async (_run, fileCoverage) =>
+            this.detailedCoverage.get(fileCoverage.uri.toString()) ?? [];
+        this.disposables.push(runProfile, debugProfile, coverageProfile);
 
         this.disposables.push(vscode.workspace.onDidChangeConfiguration(event => {
             if (event.affectsConfiguration("ceedlingExplorer.problemMatching", this.workspaceFolder.uri)) {
@@ -338,28 +349,60 @@ export class CeedlingTestController {
         };
     }
 
-    private async handleRun(request: vscode.TestRunRequest, token: vscode.CancellationToken): Promise<void> {
+    private async handleRun(request: vscode.TestRunRequest, token: vscode.CancellationToken, coverage = false): Promise<void> {
         const run = this.controller.createTestRun(request);
         token.onCancellationRequested(() => this.engine.cancel());
         const reporter = this.makeReporter(run);
+        const coveredProjects = new Set<string>();
         try {
             const plan = this.buildRunPlan(request.include);
             this.logger.debug(`handleRun: starting, plan has ${plan.length} entr${plan.length === 1 ? 'y' : 'ies'}`);
             for (const entry of plan) {
                 if (token.isCancellationRequested) break;
-                if (entry.kind === 'project') {
-                    await this.engine.runProjectAll(entry.projectKey, entry.files, reporter, token);
-                } else if (entry.kind === 'function') {
-                    await this.engine.runFunction(entry.projectKey, entry.file, entry.fn, reporter, token);
-                } else {
-                    await this.engine.runFile(entry.projectKey, entry.file, reporter, token);
+                // Once per project, not per entry: a later entry's failed build must not discard the report
+                // an earlier entry of this same run produced.
+                if (coverage && !coveredProjects.has(entry.projectKey)) {
+                    await this.engine.deleteCoverageReport(entry.projectKey);
                 }
+                coveredProjects.add(entry.projectKey);
+                if (entry.kind === 'project') {
+                    await this.engine.runProjectAll(entry.projectKey, entry.files, reporter, token, coverage);
+                } else if (entry.kind === 'function') {
+                    await this.engine.runFunction(entry.projectKey, entry.file, entry.fn, reporter, token, coverage);
+                } else {
+                    await this.engine.runFile(entry.projectKey, entry.file, reporter, token, coverage);
+                }
+            }
+            if (coverage && !token.isCancellationRequested) {
+                await this.reportCoverage(run, coveredProjects);
             }
         } catch (e) {
             this.logger.error(`handleRun error: ${util.format(e)}`);
         } finally {
             this.logger.debug(`handleRun: done`);
             run.end();
+        }
+    }
+
+    // Ceedling rewrites one report per project, so this reads each project's report once the
+    // whole plan has run rather than after each entry, which would only ever see the last one.
+    private async reportCoverage(run: vscode.TestRun, projectKeys: Set<string>): Promise<void> {
+        this.detailedCoverage.clear();
+        for (const projectKey of projectKeys) {
+            for (const file of await this.engine.readCoverageReport(projectKey)) {
+                const uri = vscode.Uri.file(file.path);
+                const details: vscode.FileCoverageDetail[] = file.lines.map(line => new vscode.StatementCoverage(
+                    line.hits,
+                    // Cobertura line numbers are 1-based; VS Code positions are 0-based.
+                    new vscode.Position(line.line - 1, 0),
+                    line.branches.map(taken => new vscode.BranchCoverage(taken)),
+                ));
+                for (const fn of file.functions) {
+                    details.push(new vscode.DeclarationCoverage(fn.name, fn.hits, new vscode.Position(fn.line - 1, 0)));
+                }
+                this.detailedCoverage.set(uri.toString(), details);
+                run.addCoverage(vscode.FileCoverage.fromDetails(uri, details));
+            }
         }
     }
 

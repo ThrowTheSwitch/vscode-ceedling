@@ -72,7 +72,7 @@
   "devDependencies": {
     "@types/glob": "^7.1.3",
     "@types/mocha": "^8.2.0",
-    "@types/vscode": "^1.71.0",
+    "@types/vscode": "^1.88.0",
     "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.28.1",
@@ -82,7 +82,7 @@
     "typescript": "^6.0.3"
   },
   "engines": {
-    "vscode": "^1.71.0",
+    "vscode": "^1.88.0",
     "node": ">=22"
   },
   "activationEvents": [
@@ -149,6 +149,17 @@
           "type": "array",
           "default": [
             "test:${TEST_ID}"
+          ],
+          "scope": "resource"
+        },
+        "ceedlingExplorer.coverageCommandArgs": {
+          "description": "The command line arguments used to run Ceedling tests with coverage, from the Testing view's Run with Coverage button. The first argument has to literally contain the ${TEST_ID} tag. Requires Ceedling's gcov plugin with its 'Cobertura' report enabled.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "gcov:${TEST_ID}"
           ],
           "scope": "resource"
         },

@@ -4,6 +4,20 @@ This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ---
 
+# [Unreleased]
+
+## ✨ Added
+
+Native test coverage. The Testing view's **Run with Coverage** button runs the suite through Ceedling's `gcov:` task and reports the result through VS Code's own coverage UI: the Test Coverage panel, per-file percentages, and inline line and branch hit counts. Function-level entries follow when gcovr populates `<method>` — gcovr 5.0 leaves it empty, 8.6 fills it in.
+
+New `ceedlingExplorer.coverageCommandArgs` setting, for projects whose coverage task is not the default `gcov:${TEST_ID}`.
+
+## ⚠️ Changed
+
+Minimum VS Code version is now 1.71.0 → **1.88.0**, the release that finalized the test coverage API this feature is built on.
+
+---
+
 # [2.0.1] — 2026-08-31
 
 ## ⚠️ Changed

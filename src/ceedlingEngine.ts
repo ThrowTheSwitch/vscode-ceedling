@@ -22,6 +22,7 @@ import {
     testCaseFilterMatchedExactly,
 } from './ceedlingOutputParsing';
 import { getTestListFromXmlReport } from './ceedlingXmlReport';
+import { CoveredFile, getCoverageFromCoberturaReport } from './gcovrCoberturaReport';
 import { Logger } from './logger';
 import { FileDiagnostic, ProblemMatcher, ProblemMatchingPattern } from './problemMatcher';
 
@@ -202,13 +203,13 @@ export class CeedlingEngine {
         return this.getExistingProjectKeys().map((projectKey) => this.getYmlProjectPath(projectKey));
     }
 
-    async runFile(projectKey: string, file: CeedlingFileNode, reporter: RunReporter, token: vscode.CancellationToken): Promise<void> {
-        await this.runInternal(projectKey, file.id, this.getTestCommandArgs(file.id), getAllIds(file), reporter, token);
+    async runFile(projectKey: string, file: CeedlingFileNode, reporter: RunReporter, token: vscode.CancellationToken, coverage = false): Promise<void> {
+        await this.runInternal(projectKey, file.id, this.getTestCommandArgs(file.id, undefined, coverage), getAllIds(file), reporter, token);
     }
 
-    async runProjectAll(projectKey: string, files: CeedlingFileNode[], reporter: RunReporter, token: vscode.CancellationToken): Promise<void> {
+    async runProjectAll(projectKey: string, files: CeedlingFileNode[], reporter: RunReporter, token: vscode.CancellationToken, coverage = false): Promise<void> {
         const allIds = files.flatMap((file) => getAllIds(file));
-        await this.runInternal(projectKey, projectKey, this.getTestCommandArgs('all'), allIds, reporter, token);
+        await this.runInternal(projectKey, projectKey, this.getTestCommandArgs('all', undefined, coverage), allIds, reporter, token);
     }
 
     // Runs a single test function (and, if parametrized, all its cases together - Ceedling's
@@ -216,7 +217,8 @@ export class CeedlingEngine {
     // its siblings) instead of every test in the file. Ceedling still recompiles the whole file
     // regardless - --test-case narrows what runs and gets reported, not what gets built.
     async runFunction(
-        projectKey: string, file: CeedlingFileNode, fn: CeedlingTestFunction, reporter: RunReporter, token: vscode.CancellationToken
+        projectKey: string, file: CeedlingFileNode, fn: CeedlingTestFunction, reporter: RunReporter, token: vscode.CancellationToken,
+        coverage = false
     ): Promise<void> {
         const functionName = extractTestFunctionName(fn.id);
         const ids = [fn.id, ...fn.cases.map((c) => c.id)];
@@ -226,14 +228,14 @@ export class CeedlingEngine {
         // it stops being used, so a since-fixed error would linger under fn.id after a later
         // whole-file run replaced only file.id's own entry.
         const collided = await this.runInternal(
-            projectKey, file.id, this.getTestCommandArgs(file.id, functionName), ids, reporter, token, functionName
+            projectKey, file.id, this.getTestCommandArgs(file.id, functionName, coverage), ids, reporter, token, functionName
         );
         if (collided) {
             this.logger.warn(
                 `runFunction: --test-case=${functionName} also matched an unrelated test in '${file.id}' - ` +
                 `Ceedling's filter is a substring match, not exact. Falling back to a full-file run.`
             );
-            await this.runFile(projectKey, file, reporter, token);
+            await this.runFile(projectKey, file, reporter, token, coverage);
         }
     }
 
@@ -510,14 +512,61 @@ export class CeedlingEngine {
     // `testCaseFilter`, when given, appends Ceedling's --test-case flag to narrow the run to one
     // function (and, if parametrized, all its cases - see runFunction). Ceedling auto-enables
     // :test_runner: :cmdline_args itself when this flag is present; nothing here needs to.
-    private getTestCommandArgs(testToExec: string, testCaseFilter?: string): Array<string> {
+    // `coverage` swaps in the instrumented task set, which is a separate setting because the
+    // gcov task is not a drop-in for the test task: it needs Ceedling's gcov plugin enabled.
+    private getTestCommandArgs(testToExec: string, testCaseFilter?: string, coverage = false): Array<string> {
         // Keep only the filename of the test 'test/test_foo.c' -> 'test_foo.c'
         const testSuiteFilename = testToExec.replace(/^.*[\\/]/, "");
-        const defaultTestCommandArgs = ["test:${TEST_ID}"];
+        const setting = coverage ? 'coverageCommandArgs' : 'testCommandArgs';
+        const fallback = coverage ? ["gcov:${TEST_ID}"] : ["test:${TEST_ID}"];
         const args = this.getConfiguration()
-            .get<Array<string>>('testCommandArgs', defaultTestCommandArgs)
+            .get<Array<string>>(setting, fallback)
             .map(x => x.replace("${TEST_ID}", testSuiteFilename));
         return testCaseFilter === undefined ? args : [...args, `--test-case=${testCaseFilter}`];
+    }
+
+    // Where Ceedling's gcov plugin leaves its gcovr Cobertura report. Fixed by the plugin, not
+    // configurable: only the enclosing build directory varies per project.
+    private getCoverageReportPath(projectKey: string): string {
+        return path.resolve(
+            this.projectData[projectKey].absPath, this.buildDirectories[projectKey],
+            'artifacts', 'gcov', 'gcovr', 'GcovCoverageCobertura.xml'
+        );
+    }
+
+    // Returns [] rather than throwing when the report is absent or unreadable: a coverage run
+    // whose report never appeared is a misconfiguration to report as "no coverage", not a reason
+    // to fail a test run whose results are otherwise perfectly good.
+    async readCoverageReport(projectKey: string): Promise<CoveredFile[]> {
+        const reportPath = this.getCoverageReportPath(projectKey);
+        if (!fs.existsSync(reportPath)) {
+            this.logger.warn(
+                `readCoverageReport: no report at '${reportPath}' - the build failed, or Ceedling's gcov ` +
+                `plugin is not enabled with the 'Cobertura' report.`
+            );
+            return [];
+        }
+        try {
+            const parser = new xml2js.Parser({ explicitArray: false });
+            const parsed = await parser.parseStringPromise(fs.readFileSync(reportPath, 'utf8'));
+            // absPath is where execCeedling runs Ceedling, and so where Ceedling runs gcovr.
+            const files = getCoverageFromCoberturaReport(parsed, this.projectData[projectKey].absPath);
+            this.logger.debug(`readCoverageReport: ${files.length} file(s) from '${reportPath}'`);
+            return files;
+        } catch (e) {
+            this.logger.error(`readCoverageReport: failed to read '${reportPath}': ${util.format(e)}`);
+            return [];
+        }
+    }
+
+    // A coverage build that fails never reaches gcovr, which would leave the previous run's report
+    // to be shown as this one's - the same trap deleteXmlReport avoids for test results.
+    async deleteCoverageReport(projectKey: string): Promise<void> {
+        try {
+            await fs.promises.rm(this.getCoverageReportPath(projectKey), { force: true });
+        } catch (e) {
+            this.logger.error(`deleteCoverageReport: ${util.format(e)}`);
+        }
     }
 
     // Picks the diagnostic that best explains a compile failure. Patterns are evaluated

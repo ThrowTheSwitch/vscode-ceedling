@@ -28,12 +28,13 @@ Ceedling and its complementary [ThrowTheSwitch] pieces and parts are and always 
 * Shows a failed test’s message and failing line directly in the Test Explorer and the editor.
 * Runs a single test function in isolation, without running the rest of its file.
 * Can be configured to report compiler and linker problems inline in the editor and in the Problems panel.
+* Reports code coverage through VS Code’s built-in coverage UI, from Ceedling’s gcov plugin.
 
 # Requirements
 
 ## VS Code
 
-Requires VS Code 1.71.0 or later.
+Requires VS Code 1.88.0 or later.
 
 ## Ceedling
 
@@ -67,6 +68,16 @@ Run and debug tests from the Testing view, or from the gutter next to a test in 
 
 The Testing view’s toolbar also has Clean and Clobber buttons. They run `ceedling clean` and `ceedling clobber` against the current project.
 
+# Coverage
+
+The Testing view’s **Run with Coverage** button runs the same tests through Ceedling’s `gcov:` task and reports the result in VS Code’s own coverage UI: the Test Coverage panel, per-file percentages, and — with Toggle Inline Coverage — line and branch hit counts in the editor.
+
+It reads the report Ceedling’s [gcov plugin](https://throwtheswitch.github.io/Ceedling/plugins/gcov/) writes to `<build_root>/artifacts/gcov/gcovr/GcovCoverageCobertura.xml`. Configure that plugin as its own documentation describes; this extension only requires that `gcovr` is among its `:utilities:` and `Cobertura` among its `:reports:`.
+
+Function rows in the Test Coverage panel depend on your gcovr version. gcovr 5.0 writes an empty `<methods/>` for every file, leaving only line and branch coverage; 8.6 populates it, and the rows appear with no change here.
+
+Coverage is not the default run profile — a coverage run rebuilds instrumented, so it stays opt-in behind its own button. If your project’s coverage task is not `gcov:${TEST_ID}`, override `ceedlingExplorer.coverageCommandArgs`.
+
 # Configuration
 
 ## Options
@@ -80,6 +91,7 @@ This table of options should be read as `ceedlingExplorer.<property>`.
 | `.prettyTestLabel` | Shortens the test label in the _Testing_ explorer by dropping its leading prefix (e.g. inactive `test_BlinkTaskShouldToggleLed` vs. active `BlinkTaskShouldToggleLed`).<br><br>Inactive:<br><img src="img/prettyTestLabelInactive.png" alt="prettyTestLabelInactive" width="420"><br><br> Active:<br><img src="img/prettyTestLabelActive.png" alt="prettyTestLabelActive" width="420">|
 | `.prettyTestFileLabel` | Shortens the test file label in the _Testing_ explorer by dropping its path, leading prefix, and file type (e.g. inactive `test/LEDs/test_BlinkTask.c` vs. active `BlinkTask`).<br><br>Inactive:<br><img src="img/prettyTestFileLabelInactive.png" alt="prettyTestFileLabelInactive" width="320"><br><br> Active:<br><img src="img/prettyTestFileLabelActive.png" alt="prettyTestFileLabelActive" width="320"> |
 | `.testCommandArgs` | The command line arguments used to run Ceedling tests. The first argument has to literally contain the `${TEST_ID}` tag. The value `["test:${TEST_ID}"]` is used by default. For example, the arguments `"test:${TEST_ID}", "gcov:${TEST_ID}", "utils:gcov"` can be used to run tests and generate a gcov report. |
+| `.coverageCommandArgs` | The command line arguments used by the Testing view's **Run with Coverage** button. The first argument has to literally contain the `${TEST_ID}` tag. The value `["gcov:${TEST_ID}"]` is used by default. See [Coverage](#coverage). |
 | `.problemMatching` | Configuration of compiler/linker problem matching. See the [Problem matching](#problem%20matching) section for details. |
 | `.testCaseMacroAliases` | An array of aliases for Unity’s parameterized test `TEST_CASE` macro. By default it is `["TEST_CASE"]`. |
 | `.testRangeMacroAliases` | An array of aliases for Unity’s parameterized test `TEST_RANGE` macro. By default it is `["TEST_RANGE"]`. |
