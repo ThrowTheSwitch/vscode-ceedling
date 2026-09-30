@@ -690,23 +690,12 @@ export class CeedlingEngine {
         let testPrefix = 'test|spec|should';
         if (ymlProjectData) {
             try {
-                const ymlProjectUnityDefines = ymlProjectData[':unity'][':defines'];
-                if (ymlProjectUnityDefines != undefined && (
-                    ymlProjectUnityDefines.includes('-UNITY_SKIP_DEFAULT_RUNNER') ||
-                    ymlProjectUnityDefines.includes('-RUN_TEST')
-                )) {
-                    const ymlProjectTestRunnerTestPrefix = ymlProjectData[':test_runner'][':test_prefix'];
-                    if (ymlProjectTestRunnerTestPrefix != undefined) {
-                        testPrefix = ymlProjectTestRunnerTestPrefix;
-                    }
-                } else {
-                    const ymlProjectTestPrefix = ymlProjectData[':unity'][':test_prefix'];
-                    if (ymlProjectTestPrefix != undefined) {
-                        testPrefix = ymlProjectTestPrefix;
-                    }
+                const ymlProjectTestPrefix = ymlProjectData[':test_runner'][':test_prefix'];
+                if (ymlProjectTestPrefix != undefined) {
+                    testPrefix = ymlProjectTestPrefix;
                 }
             } catch (e) {
-                this.logger.debug(`getTestPrefix: no ':unity'/':test_runner' data in project.yml, using default '${testPrefix}': ${e}`);
+                this.logger.debug(`getTestPrefix: no ':test_runner'/':test_prefix' in project.yml, using default '${testPrefix}': ${e}`);
             }
         }
         return testPrefix;

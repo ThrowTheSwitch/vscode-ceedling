@@ -284,6 +284,33 @@ suite('real `ceedling dumpconfig` output (captured against tests/manual, see tes
     });
 });
 
+suite('getTestPrefix', () => {
+    test('defaults to test|spec|should when no project data is given', () => {
+        const engine = makeEngine({ logger: fakeLogger() });
+        assert.strictEqual((engine as any).getTestPrefix(undefined), 'test|spec|should');
+    });
+
+    test('uses :test_runner: :test_prefix: when present', () => {
+        const engine = makeEngine({ logger: fakeLogger() });
+        const prefix = (engine as any).getTestPrefix({ ':test_runner': { ':test_prefix': 'my_test_prefix' } });
+        assert.strictEqual(prefix, 'my_test_prefix');
+    });
+
+    test(':unity: :test_prefix: is no longer recognized and is ignored', () => {
+        const engine = makeEngine({ logger: fakeLogger() });
+        const prefix = (engine as any).getTestPrefix({ ':unity': { ':test_prefix': 'legacy_prefix' } });
+        assert.strictEqual(prefix, 'test|spec|should');
+    });
+
+    test('missing :test_runner: data logs a debug message and falls back to the default', () => {
+        const logger = fakeLogger();
+        const engine = makeEngine({ logger });
+        const prefix = (engine as any).getTestPrefix({});
+        assert.strictEqual(prefix, 'test|spec|should');
+        assert.ok(logger.calls.some((c) => c.level === 'debug' && /getTestPrefix/.test(c.message)));
+    });
+});
+
 suite('setXmlReportPath: non-default report filename warning', () => {
     test('the default filename never warns', () => {
         const logger = fakeLogger();
