@@ -43,7 +43,7 @@ _[Ceedling documentation](https://throwtheswitch.github.io/Ceedling/latest/)_
 
 ## Parameterized Unity test cases
 
-Parametrized tests using Unity’s `TEST_CASE()` / `TEST_RANGE()` require `:unity` ↳ `:use_param_tests:` ⇒ `true` in your project configuration.
+Parametrized tests using Unity’s `TEST_CASE()`, `TEST_RANGE()`, and `TEST_MATRIX()` require `:unity` ↳ `:use_param_tests:` ⇒ `true` in your project configuration. The _Testing_ view lists each case individually only when this setting is enabled, just as Ceedling runs them.
 
 Ceedling 1.0.0 also requires test-file preprocessing disabled (`:project` ↳ `:use_test_preprocessor` ⇒ `:none` (default) or `:mocks`). Ceedling 1.0.0 cannot preserve these macros through preprocessing, but Ceedling 1.1.0 supports parametrized tests with or without preprocessing.
 
@@ -83,8 +83,6 @@ This table of options should be read as `ceedlingExplorer.<property>`.
 | `.prettyTestFileLabel` | Shortens the test file label in the _Testing_ explorer by dropping its path, leading prefix, and file type (e.g. inactive `test/LEDs/test_BlinkTask.c` vs. active `BlinkTask`).<br><br>Inactive:<br><img src="img/prettyTestFileLabelInactive.png" alt="prettyTestFileLabelInactive" width="320"><br><br> Active:<br><img src="img/prettyTestFileLabelActive.png" alt="prettyTestFileLabelActive" width="320"> |
 | `.testCommandArgs` | The command line arguments used to run Ceedling tests. The first argument has to literally contain the `${TEST_ID}` tag. The value `["test:${TEST_ID}"]` is used by default. For example, the arguments `"test:${TEST_ID}", "gcov:${TEST_ID}", "utils:gcov"` can be used to run tests and generate a gcov report. |
 | `.problemMatching` | Configuration of compiler/linker problem matching. See the [Problem matching](#problem%20matching) section for details. |
-| `.testCaseMacroAliases` | An array of aliases for Unity’s parameterized test `TEST_CASE` macro. By default it is `["TEST_CASE"]`. |
-| `.testRangeMacroAliases` | An array of aliases for Unity’s parameterized test `TEST_RANGE` macro. By default it is `["TEST_RANGE"]`. |
 | `.ansiEscapeSequencesRemoved` | Whether ANSI escape sequences are removed from Ceedling `$stdout` and `$stderr`. By default it is `true`. |
 
 ### `ceedlingExplorer.projects` properties

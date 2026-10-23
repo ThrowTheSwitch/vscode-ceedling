@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<TestRun>
+  <FailedTests/>
+  <SuccessfulTests>
+    <Test id="1">
+      <Name>test/test_unity_parity.c::test_AfterTrickyComment</Name>
+    </Test>
+    <Test id="2">
+      <Name>test/test_unity_parity.c::should_UseShouldPrefix</Name>
+    </Test>
+    <Test id="3">
+      <Name>test/test_unity_parity.c::spec_UseSpecPrefix</Name>
+    </Test>
+    <Test id="4">
+      <Name>test/test_unity_parity.c::test_Prototyped</Name>
+    </Test>
+    <Test id="5">
+      <Name>test/test_unity_parity.c::test_StringCaseArgs("a;b{c}")</Name>
+    </Test>
+    <Test id="6">
+      <Name>test/test_unity_parity.c::test_StringCaseArgs("//not a comment")</Name>
+    </Test>
+    <Test id="7">
+      <Name>test/test_unity_parity.c::test_CommentBetweenCases(1)</Name>
+    </Test>
+    <Test id="8">
+      <Name>test/test_unity_parity.c::test_CommentBetweenCases(2)</Name>
+    </Test>
+    <Test id="9">
+      <Name>test/test_unity_parity.c::test_ExclusiveRange(0)</Name>
+    </Test>
+    <Test id="10">
+      <Name>test/test_unity_parity.c::test_ExclusiveRange(1)</Name>
+    </Test>
+    <Test id="11">
+      <Name>test/test_unity_parity.c::test_ExclusiveRange(2)</Name>
+    </Test>
+    <Test id="12">
+      <Name>test/test_unity_parity.c::test_FloatRange(0.0)</Name>
+    </Test>
+    <Test id="13">
+      <Name>test/test_unity_parity.c::test_FloatRange(0.5)</Name>
+    </Test>
+    <Test id="14">
+      <Name>test/test_unity_parity.c::test_FloatRange(1.0)</Name>
+    </Test>
+    <Test id="15">
+      <Name>test/test_unity_parity.c::test_FloatRangeAccumulates(0.0)</Name>
+    </Test>
+    <Test id="16">
+      <Name>test/test_unity_parity.c::test_FloatRangeAccumulates(0.1)</Name>
+    </Test>
+    <Test id="17">
+      <Name>test/test_unity_parity.c::test_FloatRangeAccumulates(0.2)</Name>
+    </Test>
+    <Test id="18">
+      <Name>test/test_unity_parity.c::test_FloatRangeAccumulates(0.30000000000000004)</Name>
+    </Test>
+    <Test id="19">
+      <Name>test/test_unity_parity.c::test_FloatRangeAccumulates(0.4)</Name>
+    </Test>
+    <Test id="20">
+      <Name>test/test_unity_parity.c::test_FloatRangeAccumulates(0.5)</Name>
+    </Test>
+    <Test id="21">
+      <Name>test/test_unity_parity.c::test_FloatRangeAccumulates(0.6000000000000001)</Name>
+    </Test>
+    <Test id="22">
+      <Name>test/test_unity_parity.c::test_FloatRangeAccumulates(0.7)</Name>
+    </Test>
+    <Test id="23">
+      <Name>test/test_unity_parity.c::test_MixedIntFloatRange(0.0)</Name>
+    </Test>
+    <Test id="24">
+      <Name>test/test_unity_parity.c::test_MixedIntFloatRange(1.0)</Name>
+    </Test>
+    <Test id="25">
+      <Name>test/test_unity_parity.c::test_MixedIntFloatRange(2.0)</Name>
+    </Test>
+    <Test id="26">
+      <Name>test/test_unity_parity.c::test_TwoRangesProduct(0, 5)</Name>
+    </Test>
+    <Test id="27">
+      <Name>test/test_unity_parity.c::test_TwoRangesProduct(0, 6)</Name>
+    </Test>
+    <Test id="28">
+      <Name>test/test_unity_parity.c::test_TwoRangesProduct(1, 5)</Name>
+    </Test>
+    <Test id="29">
+      <Name>test/test_unity_parity.c::test_TwoRangesProduct(1, 6)</Name>
+    </Test>
+    <Test id="30">
+      <Name>test/test_unity_parity.c::test_CaseAndRangeMixed(9, 9)</Name>
+    </Test>
+    <Test id="31">
+      <Name>test/test_unity_parity.c::test_CaseAndRangeMixed(1, 7)</Name>
+    </Test>
+    <Test id="32">
+      <Name>test/test_unity_parity.c::test_CaseAndRangeMixed(2, 7)</Name>
+    </Test>
+    <Test id="33">
+      <Name>test/test_unity_parity.c::test_Matrix(1, 3)</Name>
+    </Test>
+    <Test id="34">
+      <Name>test/test_unity_parity.c::test_Matrix(1, 4)</Name>
+    </Test>
+    <Test id="35">
+      <Name>test/test_unity_parity.c::test_Matrix(2, 3)</Name>
+    </Test>
+    <Test id="36">
+      <Name>test/test_unity_parity.c::test_Matrix(2, 4)</Name>
+    </Test>
+    <Test id="37">
+      <Name>test/test_unity_parity.c::test_MatrixStringsAndInts("x", 10)</Name>
+    </Test>
+    <Test id="38">
+      <Name>test/test_unity_parity.c::test_MatrixStringsAndInts("x", -20)</Name>
+    </Test>
+    <Test id="39">
+      <Name>test/test_unity_parity.c::test_MatrixStringsAndInts("y", 10)</Name>
+    </Test>
+    <Test id="40">
+      <Name>test/test_unity_parity.c::test_MatrixStringsAndInts("y", -20)</Name>
+    </Test>
+  </SuccessfulTests>
+  <IgnoredTests/>
+  <Statistics>
+    <Tests>40</Tests>
+    <Ignores>0</Ignores>
+    <FailuresTotal>0</FailuresTotal>
+    <Errors>0</Errors>
+    <Failures>0</Failures>
+  </Statistics>
+</TestRun>
