@@ -13,7 +13,6 @@ import {
     extractGdbLogReference,
     extractTestFunctionName,
     joinMacroAliases,
-    normalizeMultilineFunctionName,
     parseCeedlingVersionString,
     parseFileListBullets,
     testCaseFilterMatchedExactly,
@@ -94,7 +93,7 @@ suite('buildTestFunctionRegex / expandParametrizedTestCases', () => {
         const regex = buildTestFunctionRegex('test|spec|should', ['TEST_CASE'], ['TEST_RANGE']);
         const match = regex.exec(fileText);
         assert.ok(match, 'expected the function regex to match test_add_ParameterizedCases');
-        assert.strictEqual(normalizeMultilineFunctionName(match![2]), 'test_add_ParameterizedCases');
+        assert.strictEqual(match![2], 'test_add_ParameterizedCases');
 
         const cases = expandParametrizedTestCases(match![1], ['TEST_CASE'], ['TEST_RANGE']);
         assert.deepStrictEqual(cases.map((c) => c.args), ['2, 3, 5', '10, -4, 6']);
@@ -107,7 +106,7 @@ suite('buildTestFunctionRegex / expandParametrizedTestCases', () => {
         assert.ok(match, 'expected a first function match (test_add_ParameterizedCases)');
         match = regex.exec(fileText);
         assert.ok(match, 'expected a second function match (test_add_RangeCases)');
-        assert.strictEqual(normalizeMultilineFunctionName(match![2]), 'test_add_RangeCases');
+        assert.strictEqual(match![2], 'test_add_RangeCases');
 
         const cases = expandParametrizedTestCases(match![1], ['TEST_CASE'], ['TEST_RANGE']);
         assert.deepStrictEqual(cases.map((c) => c.args), ['0', '1', '2', '3', '4']);
@@ -118,13 +117,44 @@ suite('buildTestFunctionRegex / expandParametrizedTestCases', () => {
     });
 });
 
-suite('normalizeMultilineFunctionName', () => {
-    test('strips backslash-newline continuations', () => {
-        assert.strictEqual(normalizeMultilineFunctionName('test_foo\\\n    _bar'), 'test_foo_bar');
+// Every test function name, and each one's parametrized case args, that buildTestFunctionRegex
+// and expandParametrizedTestCases find in a source text, in source order.
+function discover(fileText: string): Array<{ name: string, args: string[] }> {
+    const regex = buildTestFunctionRegex('test|spec|should', ['TEST_CASE'], ['TEST_RANGE']);
+    return [...fileText.matchAll(regex)].map((match) => ({
+        name: match[2],
+        args: expandParametrizedTestCases(match[1], ['TEST_CASE'], ['TEST_RANGE']).map((c) => c.args),
+    }));
+}
+
+// Unity's runner generator names a test by its bare identifier, and trims a TEST_CASE's
+// arguments, so discovery must yield exactly those strings. Ceedling's report names come from
+// that generator. Any difference leaves the discovered item without a result.
+suite('test function discovery matches Unity naming (issue #14)', () => {
+    test('a conventional signature yields its bare name', () => {
+        assert.deepStrictEqual(discover('void test_a(void)\n{\n}\n'), [{ name: 'test_a', args: [] }]);
     });
 
-    test('leaves a single-line name unchanged', () => {
-        assert.strictEqual(normalizeMultilineFunctionName('test_foo'), 'test_foo');
+    test('every function in a file is found, in order', () => {
+        const names = discover('void test_a(void)\n{\n}\n\nvoid test_b(void)\n{\n}\n').map((t) => t.name);
+        assert.deepStrictEqual(names, ['test_a', 'test_b']);
+    });
+
+    test('a space before the parameter list is not part of the name', () => {
+        assert.deepStrictEqual(discover('void test_example (void)\n{\n}\n'), [{ name: 'test_example', args: [] }]);
+    });
+
+    test('a tab and a line break before the parameter list are not part of the name', () => {
+        assert.deepStrictEqual(discover('void test_example\t(\n    void)\n{\n}\n'), [{ name: 'test_example', args: [] }]);
+    });
+
+    test('a one-line body containing parentheses does not extend the name', () => {
+        assert.deepStrictEqual(discover('void test_x(void) { f(g(1)); }\n'), [{ name: 'test_x', args: [] }]);
+    });
+
+    test('TEST_CASE arguments are trimmed inside their parentheses', () => {
+        const found = discover('TEST_CASE( 2, 3, 5 )\nTEST_CASE(10, -4, 6)\nvoid test_p (int a, int b, int c)\n{\n}\n');
+        assert.deepStrictEqual(found, [{ name: 'test_p', args: ['2, 3, 5', '10, -4, 6'] }]);
     });
 });
 

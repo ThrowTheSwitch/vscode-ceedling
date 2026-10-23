@@ -20,7 +20,6 @@ import {
     buildTestLabelRegex,
     expandParametrizedTestCases,
     extractTestFunctionName,
-    normalizeMultilineFunctionName,
     parseCeedlingVersionString,
     parseFileListBullets,
     testCaseFilterMatchedExactly,
@@ -840,7 +839,7 @@ export class CeedlingEngine {
             let match = testRegex.exec(fileText);
             while (match != null) {
                 const testCases = this.parseParametrizedTestCases(match[1]);
-                const testName = normalizeMultilineFunctionName(match[2]);
+                const testName = match[2];
                 const testLabel = this.setTestLabel(projectKey, testName);
                 let line = fileText.substr(0, match.index).split('\n').length - 1;
                 line = line + match[0].substr(0, match[0].search(/\S/g)).split('\n').length - 1;

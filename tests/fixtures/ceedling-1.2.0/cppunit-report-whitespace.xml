@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<TestRun name="Capture">
+  <FailedTests/>
+  <SuccessfulTests>
+    <Test id="1">
+      <Name>test/test_whitespace.c::test_SpaceBeforeParen</Name>
+    </Test>
+    <Test id="2">
+      <Name>test/test_whitespace.c::test_TabAndNewlineBeforeParen</Name>
+    </Test>
+    <Test id="3">
+      <Name>test/test_whitespace.c::test_OneLineBody</Name>
+    </Test>
+    <Test id="4">
+      <Name>test/test_whitespace.c::test_PaddedParamArgs(2, 3, 5)</Name>
+    </Test>
+    <Test id="5">
+      <Name>test/test_whitespace.c::test_PaddedParamArgs(10, -4, 6)</Name>
+    </Test>
+  </SuccessfulTests>
+  <IgnoredTests/>
+  <Statistics>
+    <Tests>5</Tests>
+    <Ignores>0</Ignores>
+    <FailuresTotal>0</FailuresTotal>
+    <Errors>0</Errors>
+    <Failures>0</Failures>
+  </Statistics>
+</TestRun>

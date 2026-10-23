@@ -106,7 +106,7 @@ Click the refresh icon to re-discover after an edit.
 
 Run all test cases. Each shows its state.
 
-* `test_calculator.c`: One passes. One fails. One is ignored.
+* `test_calculator.c`: Two pass. One fails. One is ignored. `test_add_should_HandleSpaceBeforeParen` has a space before its parameter list, and it still passes.
 * `test_calculator_parametrized.c`: All parameterized test cases pass.
 
 Click a single test’s gutter icon to run just that test. Ceedling still recompiles the whole file — `--test-case` narrows what runs and gets reported, not what gets built. A parametrized function’s cases always run together; Ceedling’s filter can isolate one function, not one case within it.
@@ -128,7 +128,7 @@ This is a repeatable checklist. Run it after a change that could affect the exte
 All steps run against [`tests/manual/`](../tests/manual/), opened as its own folder in the Development Host.
 
 - [ ] **Discovery.** The Testing view lists all test files. Confirms parsing and discovery both work.
-- [ ] **Run all.** One test passes, one fails, one is ignored. Each shows the correct message.
+- [ ] **Run all.** In `test_calculator.c`, two tests pass, one fails, and one is ignored. Each shows the correct message. `test_add_should_HandleSpaceBeforeParen` shows as passed, not skipped.
 - [ ] **Run one.** A single test runs in isolation, from its gutter icon. The Ceedling Explorer log (Trace level) shows `--test-case=` in the invocation.
 - [ ] **Debug.** A breakpoint in `src/Calculator.c` is hit, from a test’s debug icon.
 - [ ] **Clean.** The Testing view’s Clean button clears `build/`.

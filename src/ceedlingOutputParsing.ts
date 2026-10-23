@@ -34,13 +34,15 @@ export function joinMacroAliases(testCaseAliases: string[], testRangeAliases: st
     return [...testCaseAliases, ...testRangeAliases].join('|');
 }
 
-// Builds the regex that finds each test function in a test file's source, capturing any
-// preceding block of TEST_CASE(...)/TEST_RANGE(...) macro lines as group 1, the function name as
-// group 2, and its argument list as group 3.
+// Builds the regex that finds each test function in a test file's source. Group 1 captures any
+// preceding block of TEST_CASE(...)/TEST_RANGE(...) lines. Group 2 captures the function name.
+// The name is the configured prefix plus identifier characters only, as in Unity's own runner
+// generator (auto/generate_test_runner.rb). Ceedling reports each test under that generator's
+// name, so whitespace before the parameter list or a one-line body never belongs to it.
 export function buildTestFunctionRegex(testPrefix: string, testCaseAliases: string[], testRangeAliases: string[]): RegExp {
     const macroAliases = joinMacroAliases(testCaseAliases, testRangeAliases);
     return new RegExp(
-        `^((?:\\s*(?:${macroAliases})\\s*\\(.*?\\)\\s*)*)\\s*void\\s+((?:${testPrefix})(?:.*\\\\\\s+)*.*)\\s*\\(\\s*(.*)\\s*\\)`,
+        `^((?:\\s*(?:${macroAliases})\\s*\\(.*?\\)\\s*)*)\\s*void\\s+((?:${testPrefix})\\w*)\\s*\\(`,
         'gm'
     );
 }
@@ -56,7 +58,8 @@ export function expandParametrizedTestCases(
     return [...testCasesToken.matchAll(regex)]
         .flatMap((x: any, i: number) => {
             if (testCaseAliases.includes(x[1])) {
-                return [{ args: x[2], line: i }]
+                // Trimmed inside the parentheses, as Unity's generator does when naming the case.
+                return [{ args: x[2].trim(), line: i }]
             } else {
                 return [...x[2].matchAll(/\[\s*(-?\d+.?\d*),\s*(-?\d+.?\d*),\s*(-?\d+.?\d*)\s*\]/gm)]
                     .map((y) => [parseFloat(y[1]), parseFloat(y[2]), parseFloat(y[3])])
@@ -69,12 +72,6 @@ export function expandParametrizedTestCases(
                     .map((y: any) => { return { args: y.join(', '), line: i } })
             }
         });
-}
-
-// Strips backslash-newline continuations from a multi-line function signature (group 2 from
-// buildTestFunctionRegex's match).
-export function normalizeMultilineFunctionName(functionName: string): string {
-    return functionName.replace(/\\\s*/g, '');
 }
 
 // Builds the regex used to strip a configured test-file prefix (e.g. "test_") from a file path
