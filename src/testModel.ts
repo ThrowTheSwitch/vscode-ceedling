@@ -3,7 +3,7 @@
 // function and `file::function(args)` for a parametrized case, matching the names in Ceedling's
 // reports.
 
-import { type CoveredFile } from './gcovrCoberturaReport';
+import { type CoveredFile } from './coberturaReport';
 
 export type CeedlingTestCase = { id: string, label: string, line: number };
 

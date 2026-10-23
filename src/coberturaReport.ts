@@ -1,5 +1,5 @@
-// Reads a Cobertura XML coverage report, as Ceedling's gcov plugin writes one through gcovr, into
-// plain per-file line, branch, and function coverage. It has no `vscode` or filesystem dependency,
+// Reads a Cobertura XML coverage report, as Ceedling's gcov plugin writes one through gcovr or
+// ReportGenerator, into plain per-file line, branch, and function coverage. It has no `vscode` or filesystem dependency,
 // so it is unit-tested in plain Node. Choosing among a file's candidate paths is the engine's job,
 // since only the filesystem knows which exists.
 

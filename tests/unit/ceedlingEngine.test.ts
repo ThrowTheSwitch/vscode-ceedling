@@ -1308,6 +1308,18 @@ suite('CeedlingEngine coverage', () => {
             .map((o) => [o.path, o.files.map((f) => f.path)]), [[nested, [`${WS}/src/calc.c`]]]);
     });
 
+    test("ReportGenerator's real report resolves every file, inside the project and above it", async () => {
+        const report = `${WS}/build/artifacts/gcov/ReportGenerator/Cobertura.xml`;
+        const world = coverageWorld({ [report]: fs.readFileSync(path.resolve(fixturesRoot, 'reportgenerator-5.5.11', 'cobertura-probe.xml'), 'utf8') },
+            gcovConfig({ utilities: ['ReportGenerator'] }));
+        world.write(`${WS}/src/Calculator.c`, '');
+        world.write('/lib/Clamp.c', '');
+        const { engine, file } = await discovered(world);
+        const reporter = recordingReporter();
+        await engine.runFile('default', file, reporter, token(), coverageMode());
+        assert.deepStrictEqual((coverageCalls(reporter)[0] as { files: Array<{ path: string }> }).files.map((f) => f.path), ['/lib/Clamp.c', `${WS}/src/Calculator.c`]);
+    });
+
     test('a project writing no Cobertura report runs with coverage and says what to configure', async () => {
         const world = coverageWorld({}, gcovConfig({ reports: [] }));
         const { engine, file } = await discovered(world);

@@ -5,7 +5,7 @@ import vscode from 'vscode';
 import { CeedlingEngine, CeedlingLoadError, coverageMode, type RunMode } from './ceedlingEngine';
 import { pathKey } from './ceedlingProjectConfig';
 import { debugTarget, resolveLaunchConfig } from './debugLaunch';
-import { type CoveredFile, mergeCoverage } from './gcovrCoberturaReport';
+import { type CoveredFile, mergeCoverage } from './coberturaReport';
 import { type Logger } from './logger';
 import { ProblemMatcher } from './problemMatcher';
 import { buildRunPlan, type PlanTarget, type RunPlanEntry } from './runPlan';

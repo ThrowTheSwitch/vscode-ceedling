@@ -5,7 +5,7 @@ import * as path from 'path';
 // root tsconfig.json, which production code relies on for `import xml2js from 'xml2js'`), and
 // @types/xml2js has no default export - only this form type-checks here.
 import * as xml2js from 'xml2js';
-import { type CoveredFile, mergeCoverage, parseCoberturaReport, readCoberturaReport, reportedFiles } from '../../src/gcovrCoberturaReport';
+import { type CoveredFile, mergeCoverage, parseCoberturaReport, readCoberturaReport, reportedFiles } from '../../src/coberturaReport';
 
 // Each file at its first candidate path, which is its only one in these single-source reports.
 function getCoverageFromCoberturaReport(xmlReportData: unknown, baseDir: string): CoveredFile[] {
@@ -175,5 +175,48 @@ suite('mergeCoverage', () => {
 
     test('no reports, no coverage', () => {
         assert.deepStrictEqual(mergeCoverage([], exact), []);
+    });
+});
+
+// Ceedling 1.2.0's gcov plugin, run by tests/fixtures/capture/capture-gcov.sh in /probe/project,
+// with src/Calculator.c inside the project and ../lib/Clamp.c above it.
+suite('readCoberturaReport (ReportGenerator 5.5.11)', () => {
+    const probe = path.posix.resolve('/probe/project');
+    let report: Awaited<ReturnType<typeof parseCoberturaReport>>;
+    suiteSetup(async () => {
+        report = await parseCoberturaReport(fs.readFileSync(path.resolve(fixturesRoot, 'reportgenerator-5.5.11', 'cobertura-probe.xml'), 'utf8'));
+    });
+
+    // ReportGenerator lists every source directory Ceedling gave it, and names files relative to
+    // the directory it ran in. The engine keeps whichever candidate exists.
+    test('each file has a candidate for every source, the one that exists first', () => {
+        assert.deepStrictEqual(report.sources, ['.', 'src', '../lib']);
+        assert.deepStrictEqual(reportedFiles(report, probe, path.posix).map((f) => f.candidates), [
+            ['/probe/lib/Clamp.c', '/probe/project/lib/Clamp.c'],
+            ['/probe/project/src/Calculator.c', '/probe/project/src/src/Calculator.c', '/probe/lib/src/Calculator.c'],
+        ]);
+    });
+
+    test('carries line hits and partly taken branches', () => {
+        const clamp = report.files[0];
+        assert.deepStrictEqual(clamp.lines.map((l) => [l.line, l.hits, l.branches]), [
+            [3, 1, []], [5, 1, [true, false]], [6, 1, []], [7, 0, [false, false]], [8, 0, []], [9, 0, []],
+        ]);
+    });
+
+    test('reads each function from its <method>, its hits from its first line', () => {
+        assert.deepStrictEqual(report.files.map((f) => f.functions), [
+            [{ name: 'clamp', line: 3, hits: 1 }],
+            [{ name: 'add', line: 3, hits: 1 }, { name: 'subtract', line: 8, hits: 0 }],
+        ]);
+    });
+});
+
+suite('readCoberturaReport (gcovr 7.2)', () => {
+    // With the plugin's default :report_root: ".", gcovr 7.2 leaves out ../lib/Clamp.c entirely.
+    test('reports only sources within its root, without functions', async () => {
+        const report = await parseCoberturaReport(fs.readFileSync(path.resolve(fixturesRoot, 'gcovr-7.2', 'cobertura-probe.xml'), 'utf8'));
+        assert.deepStrictEqual(reportedFiles(report, '/probe/project', path.posix).map((f) => [f.candidates, f.lines.map((l) => [l.line, l.hits]), f.functions]),
+            [[['/probe/project/src/Calculator.c'], [[3, 1], [5, 1], [8, 0], [10, 0]], []]]);
     });
 });

@@ -43,7 +43,7 @@ import {
     projectState,
     projectsFromSettings,
 } from './ceedlingProjectConfig';
-import { parseCoberturaReport, reportedFiles } from './gcovrCoberturaReport';
+import { parseCoberturaReport, reportedFiles } from './coberturaReport';
 import type { Logger } from './logger';
 import type { FileDiagnostic, ProblemMatcher } from './problemMatcher';
 import { allIds, type CeedlingFileNode, type CeedlingProjectNode, type CeedlingTestFunction, type CoverageOutcome, leafIds, type RunReporter } from './testModel';
