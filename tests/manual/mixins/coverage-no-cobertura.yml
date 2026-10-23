@@ -1,0 +1,7 @@
+# Enables Ceedling's gcov plugin with no Cobertura report, so a coverage run has nothing for the
+# extension to show, and says what to configure.
+---
+:plugins:
+  :enabled:
+    - gcov
+...

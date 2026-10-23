@@ -44,7 +44,7 @@ Requires VS Code 1.88.0 or later.
 
 ## Ceedling
 
-Requires Ceedling 1.0.0 or later. Ceedling 1.0.0 through 1.2.0 are supported.
+Requires Ceedling 1.0.0 or later. Ceedling 1.0.0 through 1.2.0 are supported. [Code coverage](#code-coverage) also needs Ceedling’s gcov plugin and a coverage report tool.
 
 _[Ceedling documentation](https://throwtheswitch.github.io/Ceedling/latest/)_
 
@@ -80,15 +80,60 @@ Running a single test function runs only that function. Ceedling still compiles 
 
 The _Testing_ view’s toolbar also has Clean and Clobber buttons. They run `ceedling clean` and `ceedling clobber` in every Ceedling project in the workspace, after any test run in progress finishes.
 
-# Coverage
+# Code coverage
 
-The Testing view’s **Run with Coverage** button runs the same tests through Ceedling’s `gcov:` task and reports the result in VS Code’s own coverage UI: the Test Coverage panel, per-file percentages, and — with Toggle Inline Coverage — line and branch hit counts in the editor.
+**Run with Coverage** runs tests through Ceedling’s gcov plugin and shows what they executed in VS Code’s coverage views. The _Test Coverage_ panel lists each source file’s line, branch, and function coverage. In the editor, inline coverage marks each line’s hit count and each branch’s outcome.
 
-It reads the report Ceedling’s [gcov plugin](https://throwtheswitch.github.io/Ceedling/plugins/gcov/) writes to `<build_root>/artifacts/gcov/gcovr/GcovCoverageCobertura.xml`. Configure that plugin as its own documentation describes; this extension only requires that `gcovr` is among its `:utilities:` and `Cobertura` among its `:reports:`.
+The Testing view offers Run with Coverage, beside Run and Debug, while a project enables the gcov plugin. A coverage run rebuilds your tests with coverage instrumentation, which is slower, so plain runs stay uninstrumented.
 
-Function rows in the Test Coverage panel depend on your gcovr version. gcovr 5.0 writes an empty `<methods/>` for every file, leaving only line and branch coverage; 8.6 populates it, and the rows appear with no change here.
+## Setting up coverage
 
-Coverage is not the default run profile — a coverage run rebuilds instrumented, so it stays opt-in behind its own button. If your project’s coverage task is not `gcov:${TEST_ID}`, override `ceedlingExplorer.coverageCommandArgs`.
+Coverage needs Ceedling’s [gcov plugin][gcov-plugin], `gcov` from your GCC toolchain, and one of two report tools: [gcovr] or [ReportGenerator]. The extension reads the Cobertura XML report either tool writes.
+
+1. Install `gcovr` (e.g. `pip install gcovr`) or ReportGenerator (`dotnet tool install -g dotnet-reportgenerator-globaltool`), where Ceedling runs. ReportGenerator is popular on Windows.
+2. Enable the plugin and a Cobertura report, in `project.yml` or a [mixin](#mixins):
+
+    ```yaml
+    :plugins:
+      :enabled:
+        - gcov
+    :gcov:
+      :utilities:
+        - gcovr           # or ReportGenerator, or both
+      :reports:
+        - Cobertura       # the report the extension reads; add any others you want
+    ```
+
+3. Run with Coverage from the _Testing_ view, on a test, a file, or a whole project.
+
+A mixin keeps coverage settings out of `project.yml`. Save the YAML above as, e.g., `coverage.yml`, and add it to [`ceedlingExplorer.mixins`](#options). Every run then has the plugin available, and only coverage runs use it.
+
+## How coverage runs work
+
+A coverage run uses Ceedling’s `gcov:` tasks in place of `test:` tasks. Test results appear in the _Testing_ view exactly as for a plain run.
+
+- **One run, one measurement.** The tools report every coverage counter in the build directory, so earlier runs would otherwise add to later ones. Before each coverage run, the extension clears the counters earlier runs left. To accumulate coverage across runs instead, as Ceedling itself does until `ceedling clobber`, set `ceedlingExplorer.coverageResetsCounters` to `false`.
+- **Which report.** With both tools enabled, the extension reads gcovr’s report.
+- **Deferred reports.** With `:gcov:` ↳ `:report_task: TRUE`, reports come only from Ceedling’s `report:gcov` task. A coverage run adds that task to its own command line.
+- **Several projects.** A run spanning projects shows their coverage together. A source file that several projects test shows their combined hits.
+- **A project without the plugin** still runs its tests in a coverage run, and a notification says why it has no coverage.
+
+## What each tool reports
+
+- **Sources outside the project.** gcovr reports only files beneath its `:gcov:` ↳ `:gcovr:` ↳ `:report_root:`, which defaults to the project directory. To include sources above the project, set it to a directory that holds them all, e.g. `".."`. ReportGenerator includes every source directory in `:paths:`.
+- **Functions.** The _Test Coverage_ panel lists functions when the report names them. ReportGenerator does. gcovr does in some versions, e.g. 8.6, and not in others, e.g. 5.0 and 7.2. Line and branch coverage appear either way.
+
+## When no coverage appears
+
+A notification explains each run that has no coverage to show. The _Test Results_ panel holds Ceedling’s full output. The usual causes:
+
+- The Cobertura report isn’t enabled. Add `Cobertura` to `:gcov:` ↳ `:reports:`.
+- The report tool isn’t installed where Ceedling runs, or isn’t on its `PATH`.
+- The build failed, so no report was written. The _Testing_ view shows the errors.
+
+[gcov-plugin]: https://throwtheswitch.github.io/Ceedling/latest/plugins/gcov/
+[gcovr]: https://gcovr.com/
+[ReportGenerator]: https://reportgenerator.io/
 
 # Configuration
 
@@ -106,8 +151,9 @@ Read each property below as `ceedlingExplorer.<property>`.
 | `.ceedlingCommand` | The command that runs Ceedling. By default it is `ceedling`. Set it to, e.g., `bundle exec ceedling` or the path to a vendored Ceedling. |
 | `.prettyTestLabel` | Shortens each test’s label in the _Testing_ view by dropping its prefix, e.g. `test_BlinkTaskShouldToggleLed` becomes `BlinkTaskShouldToggleLed`. By default it is `true`.<br><br>Inactive:<br><img src="img/prettyTestLabelInactive.png" alt="prettyTestLabelInactive" width="420"><br><br> Active:<br><img src="img/prettyTestLabelActive.png" alt="prettyTestLabelActive" width="420">|
 | `.prettyTestFileLabel` | Shortens each test file’s label by dropping its path, prefix, and extension, e.g. `test/LEDs/test_BlinkTask.c` becomes `BlinkTask`. By default it is `true`.<br><br>Inactive:<br><img src="img/prettyTestFileLabelInactive.png" alt="prettyTestFileLabelInactive" width="320"><br><br> Active:<br><img src="img/prettyTestFileLabelActive.png" alt="prettyTestFileLabelActive" width="320"> |
-| `.testCommandArgs` | The command line arguments that run a test file. The first must contain the `${TEST_ID}` tag, which becomes the test file. With Ceedling 1.2.0 and later that is the file’s project-relative path (e.g. `test/unit/test_foo.c`), which tells same-named test files apart. With earlier versions it is the file’s name alone. By default it is `["test:${TEST_ID}"]`. For example, `"test:${TEST_ID}", "gcov:${TEST_ID}", "utils:gcov"` runs tests and generates a gcov report. |
-| `.coverageCommandArgs` | The command line arguments used by the Testing view's **Run with Coverage** button. The first argument has to literally contain the `${TEST_ID}` tag. The value `["gcov:${TEST_ID}"]` is used by default. See [Coverage](#coverage). |
+| `.testCommandArgs` | The command line arguments that run a test file. The first must contain the `${TEST_ID}` tag, which becomes the test file. With Ceedling 1.2.0 and later that is the file’s project-relative path (e.g. `test/unit/test_foo.c`), which tells same-named test files apart. With earlier versions it is the file’s name alone. By default it is `["test:${TEST_ID}"]`. Coverage runs use `.coverageCommandArgs` instead. |
+| `.coverageCommandArgs` | The command line arguments that run a test file with [coverage](#code-coverage). The first must contain the `${TEST_ID}` tag, which becomes the test file’s name alone, as Ceedling’s `gcov:` tasks require. By default it is `["gcov:${TEST_ID}"]`. |
+| `.coverageResetsCounters` | Whether each [coverage](#code-coverage) run clears the coverage counters earlier runs left, so it shows only what it executed. By default it is `true`. |
 | `.problemMatching` | Compiler and linker problem matching. See [Problem matching](#problem-matching). |
 | `.ansiEscapeSequencesRemoved` | Whether ANSI escape sequences are removed from Ceedling’s output. By default it is `true`. |
 
@@ -263,6 +309,8 @@ This VS Code extension is a fork of the original _Ceedling Test Explorer_ extens
 Ceedling 1.0.0 compatibility was added to the original extension by merging a [PR][1.0.0-pr] authored by [@simeon-s1](https://github.com/simeon-s1).
 
 Thank you to Kin, @simeon-s1, and all those who contributed to the original repository.
+
+[Acknowledgments.md](docs/Acknowledgments.md) also credits contributions to this extension since.
 
 [ceedling-test-explorer-github]: https://github.com/numaru/vscode-ceedling-test-adapter.git
 [ceedling-test-explorer-marketplace]: https://marketplace.visualstudio.com/items?itemName=numaru.vscode-ceedling-test-adapter

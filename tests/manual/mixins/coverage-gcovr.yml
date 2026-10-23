@@ -1,0 +1,13 @@
+# Enables Ceedling's gcov plugin with a gcovr Cobertura report, for the manual coverage checks in
+# docs/Development.md. Add it with "ceedlingExplorer.mixins": ["mixins/coverage-gcovr.yml"].
+---
+:plugins:
+  :enabled:
+    - gcov
+:gcov:
+  :utilities:
+    - gcovr
+  :reports:
+    - Cobertura
+    - HtmlBasic
+...

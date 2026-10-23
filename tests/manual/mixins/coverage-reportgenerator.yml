@@ -1,0 +1,14 @@
+# Enables Ceedling's gcov plugin with a ReportGenerator Cobertura report, for the manual coverage
+# checks in docs/Development.md. With two report types, ReportGenerator nests each in its own
+# subdirectory, as many projects' reports do.
+---
+:plugins:
+  :enabled:
+    - gcov
+:gcov:
+  :utilities:
+    - ReportGenerator
+  :reports:
+    - Cobertura
+    - HtmlBasic
+...
