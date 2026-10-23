@@ -104,6 +104,8 @@ export class CeedlingEngine {
     private readonly runner: CeedlingRunner;
     private readonly fs: EngineFileSystem;
     private readonly platform: NodeJS.Platform;
+    // Path rules follow `platform` rather than the host's, as ceedlingProjectConfig's do.
+    private readonly paths: typeof path.posix;
     private readonly tmpdir: string;
     // Serializes every Ceedling invocation that builds or deletes in a project's build directory.
     private readonly mutex = new Mutex();
@@ -129,6 +131,7 @@ export class CeedlingEngine {
         this.runner = deps.runner ?? new CeedlingRunner();
         this.fs = deps.fileSystem ?? nodeFileSystem;
         this.platform = deps.platform ?? process.platform;
+        this.paths = this.platform === 'win32' ? path.win32 : path.posix;
         this.tmpdir = deps.tmpdir ?? os.tmpdir();
     }
 
@@ -151,7 +154,7 @@ export class CeedlingEngine {
     }
 
     getYmlProjectPaths(): string[] {
-        return this.candidates.map((project) => path.resolve(project.absPath, project.ymlFileName));
+        return this.candidates.map((project) => this.paths.resolve(project.absPath, project.ymlFileName));
     }
 
     // Discovers every configured project and its tests. Throws CeedlingLoadError when Ceedling or
@@ -163,7 +166,7 @@ export class CeedlingEngine {
             this.workspaceFolder.uri.fsPath, this.platform, (p) => this.fs.isDirectory(p),
         );
         this.candidates = settings.filter((project) => {
-            const projectFile = path.resolve(project.absPath, project.ymlFileName);
+            const projectFile = this.paths.resolve(project.absPath, project.ymlFileName);
             const exists = this.fs.exists(projectFile);
             this.logger.debug(
                 `discover: project '${project.key}' -> ${projectFile}${exists ? '' : ' (absent, skipped)'}, mixins=${util.format(project.mixins)}`
@@ -326,7 +329,7 @@ export class CeedlingEngine {
     // plugin defaults, as a real build sees them. dumpconfig writes only to a file, so this goes
     // through a uniquely named temporary file.
     private async resolveConfig(project: CeedlingProject): Promise<unknown | undefined> {
-        const outputPath = path.join(this.tmpdir, `ceedling-dumpconfig-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.yml`);
+        const outputPath = this.paths.join(this.tmpdir, `ceedling-dumpconfig-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.yml`);
         const result = await this.ceedling(['dumpconfig', outputPath], { project });
         if (result.error) {
             this.logger.error(`resolveConfig(${project.key}): 'ceedling dumpconfig' failed: ${util.format(result)}`);
@@ -373,7 +376,7 @@ export class CeedlingEngine {
         const label = (regex: RegExp | undefined, text: string) => (regex && regex.exec(text)?.[1]) || text;
         const nodes: CeedlingFileNode[] = [];
         for (const file of files) {
-            const absPath = path.resolve(project.absPath, file);
+            const absPath = this.paths.resolve(project.absPath, file);
             let discovered: ReturnType<typeof discoverTests>;
             try {
                 discovered = discoverTests(await this.fs.readFile(absPath), options);
@@ -468,9 +471,9 @@ export class CeedlingEngine {
             this.problemMatcher.retainIds((id) => !id.startsWith(`${project.key}::`));
             this.problemMatcher.set(project.key, diagnostics);
         } else {
-            const testFile = path.resolve(scope.file.absPath);
+            const testFile = this.paths.resolve(scope.file.absPath);
             this.problemMatcher.set(fileDiagnosticsId(project.key, scope.file.id), diagnostics);
-            this.problemMatcher.retain(project.key, (d) => path.resolve(d.file) !== testFile);
+            this.problemMatcher.retain(project.key, (d) => this.paths.resolve(d.file) !== testFile);
         }
         return diagnostics;
     }
@@ -509,7 +512,7 @@ export class CeedlingEngine {
 
     // A test run writes its report under artifacts/test, a gcov run under artifacts/gcov.
     private reportPaths(project: LoadedProject): string[] {
-        return ['test', 'gcov'].map((dir) => path.resolve(project.absPath, project.state.buildRoot, 'artifacts', dir, project.state.reportFilename));
+        return ['test', 'gcov'].map((dir) => this.paths.resolve(project.absPath, project.state.buildRoot, 'artifacts', dir, project.state.reportFilename));
     }
 
     private async deleteReports(project: LoadedProject): Promise<void> {
