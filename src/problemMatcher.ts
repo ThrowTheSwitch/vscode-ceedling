@@ -15,6 +15,7 @@ import {
     type ProblemMatchingPattern,
 } from './problemMatching';
 import util from 'util';
+import { DiagnosticsStore } from './diagnosticsStore';
 import { type Logger } from './logger';
 
 // A Diagnostic with the absolute path of the file it belongs to.
@@ -39,11 +40,11 @@ function toFileDiagnostic(problem: MatchedProblem): FileDiagnostic {
 }
 
 // The Problems panel side of problem matching. Pattern matching itself lives in the pure
-// problemMatching.ts. This class holds the vscode state: the DiagnosticCollection, and each id's
-// diagnostics. An id is whatever a run keys its diagnostics under, a project or one of its files.
-// The panel shows the union of every id's diagnostics, without duplicates.
+// problemMatching.ts, and each id's diagnostics in DiagnosticsStore. An id is whatever a run keys
+// its diagnostics under, a project or one of its files. This class publishes the store to the
+// DiagnosticCollection after every change.
 export class ProblemMatcher {
-    private readonly entries = new Map<string, FileDiagnostic[]>();
+    private readonly store = new DiagnosticsStore<FileDiagnostic>((a, b) => sameDiagnostic(a.diagnostic, b.diagnostic));
     private readonly diagnosticCollection: DiagnosticCollection;
 
     constructor(private readonly logger: Logger) {
@@ -76,31 +77,25 @@ export class ProblemMatcher {
     }
 
     set(id: string, diagnostics: FileDiagnostic[]): void {
-        this.entries.set(id, diagnostics);
+        this.store.set(id, diagnostics);
         this.publish();
     }
 
     // Keeps only the diagnostics under `id` that `keep` accepts.
     retain(id: string, keep: (diagnostic: FileDiagnostic) => boolean): void {
-        const current = this.entries.get(id);
-        if (current) {
-            this.entries.set(id, current.filter(keep));
+        if (this.store.retain(id, keep)) {
             this.publish();
         }
     }
 
     // Keeps only the ids `keep` accepts, e.g. dropping a deleted test file's entry.
     retainIds(keep: (id: string) => boolean): void {
-        for (const id of [...this.entries.keys()]) {
-            if (!keep(id)) {
-                this.entries.delete(id);
-            }
-        }
+        this.store.retainIds(keep);
         this.publish();
     }
 
     clear(): void {
-        this.entries.clear();
+        this.store.clear();
         this.diagnosticCollection.clear();
     }
 
@@ -110,19 +105,9 @@ export class ProblemMatcher {
     }
 
     private publish(): void {
-        const byFile = new Map<string, Diagnostic[]>();
-        for (const fileDiagnostics of this.entries.values()) {
-            for (const { file, diagnostic } of fileDiagnostics) {
-                const diagnostics = byFile.get(file) ?? [];
-                if (!diagnostics.some((existing) => sameDiagnostic(existing, diagnostic))) {
-                    diagnostics.push(diagnostic);
-                }
-                byFile.set(file, diagnostics);
-            }
-        }
         this.diagnosticCollection.clear();
-        for (const [file, diagnostics] of byFile) {
-            this.diagnosticCollection.set(Uri.file(file), diagnostics);
+        for (const [file, diagnostics] of this.store.byFile()) {
+            this.diagnosticCollection.set(Uri.file(file), diagnostics.map((d) => d.diagnostic));
         }
     }
 }

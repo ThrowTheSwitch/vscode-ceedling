@@ -1,6 +1,7 @@
 import vscode from 'vscode';
-import { CeedlingTestController } from './testController';
 import { Logger } from './logger';
+import { CeedlingTestController } from './testController';
+import { controllerLabel } from './testModel';
 
 const logger = new Logger();
 // Keyed by folder URI. VS Code reuses folder objects in practice but doesn't promise to.
@@ -8,9 +9,8 @@ const controllers = new Map<string, CeedlingTestController>();
 let isDevelopmentMode = false;
 let extensionPath = '';
 
-// The Testing view names each folder's tests when there is more than one folder.
 function labelFor(workspaceFolder: vscode.WorkspaceFolder): string {
-    return (vscode.workspace.workspaceFolders?.length ?? 0) > 1 ? `Ceedling (${workspaceFolder.name})` : 'Ceedling';
+    return controllerLabel(workspaceFolder.name, vscode.workspace.workspaceFolders?.length ?? 0);
 }
 
 function addWorkspaceFolder(workspaceFolder: vscode.WorkspaceFolder): void {

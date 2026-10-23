@@ -3,18 +3,18 @@ import path from 'path';
 import util from 'util';
 import vscode from 'vscode';
 import { CeedlingEngine, CeedlingLoadError } from './ceedlingEngine';
-import { extractGdbLogReference } from './ceedlingOutputParsing';
+import { debugTarget, resolveLaunchConfig } from './debugLaunch';
 import { type Logger } from './logger';
 import { ProblemMatcher } from './problemMatcher';
 import { buildRunPlan, type PlanTarget, type RunPlanEntry } from './runPlan';
 import { SingleFlight } from './singleFlight';
 import { type CeedlingFileNode, type CeedlingProjectNode, type CeedlingTestFunction, type RunReporter } from './testModel';
+import { createRunReporter, type ReportMessage } from './testReporting';
+import { Debouncer, settingsChangeEffects, sourceEventEffect, watcherChanges } from './watchPolicy';
 
 // Names the launch configuration of one debug request, so its debug session can be told apart
 // from any other session VS Code starts meanwhile.
 const DEBUG_REQUEST_KEY = '__ceedlingDebugRequest';
-// Settings whose change changes what discovery finds. The rest apply on the next run.
-const DISCOVERY_SETTINGS = ['projects', 'mixins', 'shellPath', 'ceedlingCommand', 'prettyTestLabel', 'prettyTestFileLabel'];
 // How long typing pauses before an unsaved test file is reparsed.
 const EDIT_REPARSE_DELAY_MS = 400;
 
@@ -33,7 +33,7 @@ export class CeedlingTestController {
     // project directory's C sources.
     private readonly configurationWatchers = new Map<string, vscode.Disposable>();
     private readonly sourceWatchers = new Map<string, vscode.Disposable>();
-    private readonly pendingReparses = new Map<string, NodeJS.Timeout>();
+    private readonly editReparses = new Debouncer(EDIT_REPARSE_DELAY_MS);
 
     private readonly targets = new WeakMap<vscode.TestItem, PlanTarget>();
     // Item ids are unique only within a project, so lookups are scoped by project key.
@@ -84,7 +84,7 @@ export class CeedlingTestController {
 
     dispose(): void {
         this.logger.debug(`CeedlingTestController disposed for ${this.workspaceFolder.uri.toString()}`);
-        this.pendingReparses.forEach((timer) => clearTimeout(timer));
+        this.editReparses.dispose();
         [...this.configurationWatchers.values(), ...this.sourceWatchers.values(), ...this.disposables].forEach((d) => { d.dispose(); });
         this.disposeController();
         this.engine.dispose();
@@ -119,18 +119,19 @@ export class CeedlingTestController {
     }
 
     private onConfigurationChanged(event: vscode.ConfigurationChangeEvent): void {
-        const affects = (setting: string) => event.affectsConfiguration(`ceedlingExplorer.${setting}`, this.workspaceFolder.uri);
-        if (affects('problemMatching') && this.engine.getConfiguration().get<string>('problemMatching.mode', 'disabled') === 'disabled') {
+        const { clearDiagnostics, rediscoverFor } = settingsChangeEffects(
+            (setting) => event.affectsConfiguration(`ceedlingExplorer.${setting}`, this.workspaceFolder.uri),
+            () => this.engine.getConfiguration().get<string>('problemMatching.mode', 'disabled'),
+        );
+        if (clearDiagnostics) {
             this.logger.debug(`onConfigurationChanged: problem matching disabled, clearing diagnostics`);
             this.engine.problemMatcher.clear();
         }
-        const changed = DISCOVERY_SETTINGS.filter(affects);
-        if (changed.length > 0) {
-            this.logger.debug(`onConfigurationChanged: ${changed.join(', ')} changed, refreshing`);
+        if (rediscoverFor.length > 0) {
+            this.logger.debug(`onConfigurationChanged: ${rediscoverFor.join(', ')} changed, refreshing`);
             void this.refresh();
         }
     }
-
 
     private async runTask(name: string, task: (token: vscode.CancellationToken) => Promise<boolean>): Promise<void> {
         this.logger.trace(`${name.toLowerCase()}()`);
@@ -168,9 +169,8 @@ export class CeedlingTestController {
         await this.updateWatchers();
     }
 
-    // Configuration files rediscover everything. A C source change in a project directory
-    // reparses that test file alone. A test file appearing or disappearing rediscovers, since only
-    // `ceedling files:test` knows the full list.
+    // Configuration files rediscover everything. C sources in a project directory follow
+    // sourceEventEffect.
     private async updateWatchers(): Promise<void> {
         const configurationFiles = new Set(await this.engine.configurationFiles());
         const projectDirectories = new Set(this.projects.map((p) => this.engine.getProjectAbsPath(p.projectKey)));
@@ -185,15 +185,17 @@ export class CeedlingTestController {
             });
         this.syncWatchers(this.sourceWatchers, projectDirectories,
             (directory) => new vscode.RelativePattern(vscode.Uri.file(directory), '**/*.c'),
-            (watcher) => [
-                watcher.onDidChange((uri) => void this.reparse(uri.fsPath)),
-                watcher.onDidCreate((uri) => {
-                    if (this.engine.mayBeTestFile(uri.fsPath)) void this.refresh();
-                }),
-                watcher.onDidDelete((uri) => {
-                    if (this.engine.testFileAt(uri.fsPath)) void this.refresh();
-                }),
-            ]);
+            (watcher) => {
+                const onSource = (event: 'changed' | 'created' | 'deleted') => (uri: vscode.Uri) => {
+                    const effect = sourceEventEffect(event, {
+                        isTestFile: () => this.engine.testFileAt(uri.fsPath) !== undefined,
+                        mayBeTestFile: () => this.engine.mayBeTestFile(uri.fsPath),
+                    });
+                    if (effect === 'reparse') void this.reparse(uri.fsPath);
+                    else if (effect === 'rediscover') void this.refresh();
+                };
+                return [watcher.onDidChange(onSource('changed')), watcher.onDidCreate(onSource('created')), watcher.onDidDelete(onSource('deleted'))];
+            });
     }
 
     private syncWatchers(
@@ -201,17 +203,14 @@ export class CeedlingTestController {
         pattern: (key: string) => vscode.RelativePattern,
         listen: (watcher: vscode.FileSystemWatcher, key: string) => vscode.Disposable[],
     ): void {
-        for (const [key, watcher] of watchers) {
-            if (!wanted.has(key)) {
-                watcher.dispose();
-                watchers.delete(key);
-            }
+        const { stale, added } = watcherChanges(watchers.keys(), wanted);
+        for (const key of stale) {
+            watchers.get(key)?.dispose();
+            watchers.delete(key);
         }
-        for (const key of wanted) {
-            if (!watchers.has(key)) {
-                const watcher = vscode.workspace.createFileSystemWatcher(pattern(key));
-                watchers.set(key, vscode.Disposable.from(watcher, ...listen(watcher, key)));
-            }
+        for (const key of added) {
+            const watcher = vscode.workspace.createFileSystemWatcher(pattern(key));
+            watchers.set(key, vscode.Disposable.from(watcher, ...listen(watcher, key)));
         }
     }
 
@@ -221,11 +220,7 @@ export class CeedlingTestController {
         if (document.uri.scheme !== 'file' || !this.engine.testFileAt(file)) {
             return;
         }
-        clearTimeout(this.pendingReparses.get(file));
-        this.pendingReparses.set(file, setTimeout(() => {
-            this.pendingReparses.delete(file);
-            void this.reparse(file, document.getText());
-        }, EDIT_REPARSE_DELAY_MS));
+        this.editReparses.schedule(file, () => void this.reparse(file, document.getText()));
     }
 
     // Replaces one test file's functions and cases in the tree, without running Ceedling. Watchers
@@ -355,54 +350,21 @@ export class CeedlingTestController {
 
     private makeReporter(run: vscode.TestRun, projectKey: string, excluded: Set<vscode.TestItem>): RunReporter {
         const items = this.items.get(projectKey);
-        const lookup = (callback: string, id: string): vscode.TestItem | undefined => {
-            const item = items?.get(id);
-            if (!item) {
-                this.logger.warn(`makeReporter.${callback}: no TestItem for '${id}' in project '${projectKey}', dropping this result`);
-            }
-            return item && !excluded.has(item) ? item : undefined;
-        };
-        return {
-            started: (id) => {
-                const item = lookup('started', id);
-                if (item) run.started(item);
+        return createRunReporter<vscode.TestItem>({
+            sink: {
+                started: (item) => { run.started(item); },
+                passed: (item) => { run.passed(item); },
+                failed: (item, message) => { run.failed(item, testMessage(message, item)); },
+                skipped: (item) => { run.skipped(item); },
+                errored: (item, message) => { run.errored(item, testMessage(message, item)); },
+                appendOutput: (text) => { run.appendOutput(text); },
             },
-            passed: (id) => {
-                const item = lookup('passed', id);
-                if (item) run.passed(item);
-            },
-            failed: (id, message, line) => {
-                const item = lookup('failed', id);
-                if (!item) return;
-                // Ceedling 1.1.0+'s :use_backtrace: :gdb ends a crash message with a gdb log
-                // path, relative to the project directory. It becomes a clickable link.
-                const { text, logPath } = extractGdbLogReference(message);
-                const testMessage = logPath !== undefined
-                    ? new vscode.TestMessage(new vscode.MarkdownString(
-                        `${text}\n\n[${logPath}](${vscode.Uri.file(path.resolve(this.engine.getProjectAbsPath(projectKey), logPath)).toString()})`
-                    ))
-                    : new vscode.TestMessage(message);
-                if (line !== undefined && item.uri) {
-                    testMessage.location = new vscode.Location(item.uri, new vscode.Position(line, 0));
-                }
-                run.failed(item, testMessage);
-            },
-            skipped: (id) => {
-                const item = lookup('skipped', id);
-                if (item) run.skipped(item);
-            },
-            errored: (id, message, location) => {
-                const item = lookup('errored', id);
-                if (!item) return;
-                const testMessage = new vscode.TestMessage(message);
-                if (location) {
-                    // The diagnostic's own file, which may be a header rather than the test file.
-                    testMessage.location = new vscode.Location(vscode.Uri.file(location.file), new vscode.Position(location.line, 0));
-                }
-                run.errored(item, testMessage);
-            },
-            appendOutput: (text) => run.appendOutput(text),
-        };
+            projectKey,
+            find: (id) => items?.get(id),
+            excluded: (item) => excluded.has(item),
+            projectAbsPath: () => this.engine.getProjectAbsPath(projectKey),
+            warn: (message) => { this.logger.warn(message); },
+        });
     }
 
     // Cancellation reaches Ceedling through `token`, which stops only this run's processes.
@@ -443,14 +405,13 @@ export class CeedlingTestController {
         const run = this.ensureController().createTestRun(request);
         const listeners: vscode.Disposable[] = [];
         try {
-            const plan = this.planFor(request);
-            const files = plan.flatMap((entry) => entry.kind === 'project' ? entry.files : [entry.file]);
-            const file = files[0];
-            if (!file) {
+            const target = debugTarget(this.planFor(request));
+            if (!target) {
                 this.logger.debug(`handleDebug: nothing to debug`);
                 return;
             }
-            if (new Set(files.map((f) => `${f.projectKey}::${f.id}`)).size > 1) {
+            const { file } = target;
+            if (target.severalFiles) {
                 vscode.window.showInformationMessage(`Debugging ${file.id} only. Ceedling debugs one test file at a time.`);
             }
 
@@ -501,21 +462,28 @@ export class CeedlingTestController {
         }
     }
 
-    // Splices the built test executable's relative path into every occurrence of
-    // ${command:ceedlingExplorer.debugTestExecutable} in the named launch.json configuration.
-    // VS Code never resolves the token itself, so debugging doesn't depend on when it would.
+    // The named launch.json configuration, debugging the built test executable.
     private resolveLaunchConfig(debugLaunchConfig: string, executableSubpath: string): vscode.DebugConfiguration | undefined {
         const configurations = vscode.workspace
             .getConfiguration('launch', this.workspaceFolder.uri)
             .get<vscode.DebugConfiguration[]>('configurations', []);
-        const found = configurations.find((c) => c.name === debugLaunchConfig);
-        if (!found) {
-            this.logger.debug(`resolveLaunchConfig: '${debugLaunchConfig}' not found among ${configurations.length} launch.json configuration(s)`);
-            return undefined;
-        }
-        this.logger.debug(`resolveLaunchConfig: resolved '${debugLaunchConfig}' with executableSubpath='${executableSubpath}'`);
-        return JSON.parse(
-            JSON.stringify(found).replace(/\$\{command:ceedlingExplorer\.debugTestExecutable\}/g, () => executableSubpath)
-        ) as vscode.DebugConfiguration;
+        const config = resolveLaunchConfig(configurations, debugLaunchConfig, executableSubpath);
+        this.logger.debug(config
+            ? `resolveLaunchConfig: resolved '${debugLaunchConfig}' with executableSubpath='${executableSubpath}'`
+            : `resolveLaunchConfig: '${debugLaunchConfig}' not found among ${configurations.length} launch.json configuration(s)`);
+        return config;
     }
+}
+
+// A reported message as the Testing view shows it: a gdb log as a link, a location as a place in
+// the editor, by default in the test's own file.
+function testMessage(message: ReportMessage, item: vscode.TestItem): vscode.TestMessage {
+    const shown = message.log
+        ? new vscode.TestMessage(new vscode.MarkdownString(`${message.text}\n\n[${message.log.label}](${vscode.Uri.file(message.log.absPath).toString()})`))
+        : new vscode.TestMessage(message.text);
+    const uri = message.location?.file !== undefined ? vscode.Uri.file(message.location.file) : item.uri;
+    if (message.location && uri) {
+        shown.location = new vscode.Location(uri, new vscode.Position(message.location.line, 0));
+    }
+    return shown;
 }
