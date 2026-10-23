@@ -44,6 +44,8 @@ This document is the terse, itemized record of what changed in each release. Its
 * A failure Ceedling reports without a source location, or a very large test output, no longer aborts the whole run.
 * A missing header now appears in the _Problems_ panel at its `#include` line. GCC reports it as a “fatal error”, which problem matching misread as a different file and line.
 * Compiler problems in the _Problems_ panel no longer go stale when whole-project and single-file runs alternate.
+* A compiler warning GCC places at line 0, such as a redefined command-line macro (`<command-line>:0:0`), no longer drops the other problems that run found from the _Problems_ panel.
+* Running one function whose test cases have `::` in their arguments, such as `TEST_CASE("a::b")`, no longer reruns the whole file with a warning about an unrelated test.
 * Two projects in one folder with the same test file path no longer mix up their results.
 * Tests excluded from a run, such as hidden tests, are no longer reported.
 * Ceedling 1.0.0’s encoding crash on non-ASCII source is now prevented on every platform, including macOS. The extension no longer overrides your locale to do so.
