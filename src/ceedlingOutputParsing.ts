@@ -1,71 +1,55 @@
-// Pure, `vscode`-free parsing helpers for Ceedling's stdout, report names, and test labels. Kept free of
-// any `vscode`/`child_process`/`fs` dependency so they can be unit-tested directly in plain Node
-// (see tests/unit/ceedlingOutputParsing.test.ts), without a real VS Code Extension Host.
+// Parsing for Ceedling's console output, its report names, and the Testing view's pretty labels.
+// It has no `vscode`, `child_process`, or `fs` dependency, so it is unit-tested in plain Node.
 
-// Parses the bullet-pointed file list from `ceedling files:test` stdout.
-// Confirmed empirically against real Ceedling output: 1.0.0 emits a "-" bullet, 1.1.0 emits a
-// "*" bullet. "•" is kept defensively - never actually observed by us, but an earlier version of
-// this code assumed Ceedling's loginator.rb used it, so we keep accepting it in case some other
-// release does.
-// Normalizes CRLF/CR to LF before splitting - confirmed via a real Windows GitHub Actions runner
-// that without this, every line here ends up with a trailing "\r" that "." (which excludes line
-// terminators) can never consume, so "(.*)$" can never match and every line is silently dropped.
-// This isn't just a checkout-line-ending artifact: Ceedling running natively on Windows plausibly
-// emits CRLF in its own stdout too.
+// The files listed in `ceedling files:test` stdout, one per bullet line. Ceedling 1.0.0 bullets
+// with "-", 1.1.0 and later with "*". "•" is accepted as well. CRLF output is normalized first.
+// Otherwise a trailing "\r" on every line defeats the line pattern and the list comes back empty,
+// as it did on a real Windows runner.
 export function parseFileListBullets(stdout: string): string[] {
     return stdout.replace(/\r\n?/g, '\n').split('\n')
-        .map((value: string) => /^\s*[-•*]\s+(.*)$/.exec(value))
-        .filter((match: RegExpExecArray | null): match is RegExpExecArray => match !== null)
-        .map((match: RegExpExecArray) => match[1].trim());
+        .map((line) => /^\s*[-•*]\s+(.*)$/.exec(line))
+        .filter((match): match is RegExpExecArray => match !== null)
+        .map((match) => match[1].trim());
 }
 
-// Extracts the version string from `ceedling version` stdout (e.g. "1.0.0" or, for a dev build,
-// "1.1.0-5bbbc8f"). Returns undefined - rather than logging or defaulting - if no match is found;
-// callers decide how to handle that.
+// The version in `ceedling version` stdout, e.g. "1.0.0" or a build's "1.1.0-5bbbc8f". undefined
+// when there is none. The caller decides what that means.
 export function parseCeedlingVersionString(stdout: string): string | undefined {
-    const regex = new RegExp('^\\s*Ceedling\\s*(?:::|=>)\\s*(.*)(?:\\n)*$', 'gm');
-    const match = regex.exec(stdout);
+    const match = /^\s*Ceedling\s*(?:::|=>)\s*(.*)$/m.exec(stdout);
     return match ? match[1].trim() : undefined;
 }
 
-// Builds the regex used to strip a configured test-file prefix (e.g. "test_") from a file path
-// for pretty labels, capturing the remainder.
+// Captures a test file's pretty label: its name after the configured prefix, without directory or
+// `.c` extension. The prefix must begin the file's name, after either path separator.
 export function buildFileLabelRegex(filePrefix: string): RegExp {
-    return new RegExp(`.*\/${filePrefix}(.*).c`, 'i');
+    return new RegExp(`(?:^|[\\\\/])${filePrefix}(.*)\\.c$`, 'i');
 }
 
-// Builds the regex used to strip a configured test-function prefix (e.g. "test|spec|should")
-// from a function name for pretty labels, capturing the remainder.
+// Captures a test function's pretty label: its name after the configured prefix (a regex
+// alternation such as "test|spec|should") and any underscores following it.
 export function buildTestLabelRegex(testPrefix: string): RegExp {
-    return new RegExp(`(?:${testPrefix})_*(.*)`);
+    return new RegExp(`^(?:${testPrefix})_*(.*)`);
 }
 
-// Extracts the bare function name from an XML report's Test Name field, e.g.
-// "test/foo.c::test_add_should_ReturnSum" -> "test_add_should_ReturnSum", and
-// "test/foo.c::test_add_ParameterizedCases(2, 3, 5)" -> "test_add_ParameterizedCases".
+// The function name within a reported test name, without its file or parametrized arguments:
+// "test/foo.c::test_add(2, 3)" gives "test_add".
 export function extractTestFunctionName(reportedName: string): string {
     const afterFile = reportedName.includes('::') ? reportedName.split('::').pop()! : reportedName;
     const parenIndex = afterFile.indexOf('(');
     return parenIndex === -1 ? afterFile : afterFile.slice(0, parenIndex);
 }
 
-// Ceedling's --test-case filter is a substring match, not an exact one. A short function name
-// can accidentally also match a longer, unrelated function name that contains it as a prefix.
-// Given the function name that was requested and every test name Ceedling actually reported,
-// returns true only when every reported test genuinely belongs to the requested function.
-// Multiple reported tests are expected and fine when the requested function is parametrized -
-// this checks the function name each belongs to, not how many there are.
+// Whether a --test-case run reported only the requested function. Ceedling's filter is a
+// substring match, so `test_add` also selects `test_add_more`. Several reported names are fine
+// when they are one parametrized function's cases.
 export function testCaseFilterMatchedExactly(requestedFunctionName: string, reportedNames: string[]): boolean {
     return reportedNames.every((name) => extractTestFunctionName(name) === requestedFunctionName);
 }
 
-// Ceedling 1.1.0+'s :use_backtrace: :gdb writes a per-test-case gdb transcript to a log file and
-// references its path, relative to the project directory, in parentheses at the end of a crashed
-// test's failure message. Splits the message into the text before that reference and the
-// referenced path, so a caller with the project's absolute path can turn it into a clickable
-// link. Returns the whole message unchanged with no logPath when there's no such reference -
-// including all Ceedling 1.0.0 output, which never emits this pattern (1.0.0's backtrace
-// generator embeds the filtered gdb text directly in the message, with no separate log file).
+// Splits a crash message from Ceedling 1.1.0+'s `:use_backtrace: :gdb` into its text and the gdb
+// log path it ends with, in parentheses and relative to the project directory. A caller turns
+// that path into a link. A message without one, including all Ceedling 1.0.0 output, comes back
+// whole. That version embeds the gdb text in the message instead of writing a log.
 export function extractGdbLogReference(message: string): { text: string, logPath: string | undefined } {
     const match = message.match(/\n?\(([^()\n]+\.gdb\.log)\)\s*$/);
     if (!match || match.index === undefined) {

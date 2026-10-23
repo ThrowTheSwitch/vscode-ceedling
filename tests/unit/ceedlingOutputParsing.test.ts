@@ -2,8 +2,6 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as semver from 'semver';
-// Namespace import, not a default import: test.tsconfig.json has no esModuleInterop, and
-// @types/xml2js has no default export.
 import * as xml2js from 'xml2js';
 import {
     buildFileLabelRegex,
@@ -15,8 +13,7 @@ import {
     testCaseFilterMatchedExactly,
 } from '../../src/ceedlingOutputParsing';
 
-// __dirname at runtime is out/tests/unit (tsc mirrors the source tree under outDir); fixtures are
-// plain data files tsc doesn't copy into out/, so walk back up to the repo root to find them.
+// Fixtures stay in the source tree. Compiled tests run from out/tests/unit, three levels below.
 const fixturesRoot = path.resolve(__dirname, '..', '..', '..', 'tests', 'fixtures');
 
 function readFixture(...segments: string[]): string {
@@ -32,9 +29,7 @@ suite('parseFileListBullets', () => {
         ]);
     });
 
-    // This is the regression test for the confirmed bug: Ceedling 1.1.0 emits a "*" bullet
-    // instead of "-", which the original regex (`/^\s*[-•]\s+(.*)$/`) didn't accept at all,
-    // silently returning an empty file list for every 1.1.0 project.
+    // Ceedling 1.1.0 bullets with "*" rather than 1.0.0's "-". Missing it lists no files at all.
     test('parses a Ceedling 1.1.0 "*" bulleted files:test transcript', () => {
         const stdout = readFixture('ceedling-1.1.0', 'files-test-stdout.txt');
         assert.deepStrictEqual(parseFileListBullets(stdout), [
@@ -42,9 +37,7 @@ suite('parseFileListBullets', () => {
         ]);
     });
 
-    // "•" was never actually observed against real Ceedling output during probing, but an
-    // earlier version of this code assumed some release used it - kept as defensive coverage
-    // with a small synthetic (non-fixture) input.
+    // No captured Ceedling output uses "•". It is accepted defensively, so this input is synthetic.
     test('still accepts a "•" bulleted line defensively', () => {
         const stdout = 'Test files:\n • test/test_defensive.c\nFile count: 1\n';
         assert.deepStrictEqual(parseFileListBullets(stdout), ['test/test_defensive.c']);
@@ -64,8 +57,7 @@ suite('parseCeedlingVersionString', () => {
         assert.strictEqual(parseCeedlingVersionString(stdout), '1.0.0');
     });
 
-    // Regression coverage for the confirmed-safe behavior: 1.1.0 reports a dev-build git-hash
-    // suffix, which is valid semver (a prerelease identifier) and must still compare correctly.
+    // A build's commit suffix is a semver prerelease identifier, so the version still compares.
     test('parses a Ceedling 1.1.0 version string with a dev-build suffix', () => {
         const stdout = readFixture('ceedling-1.1.0', 'version-stdout.txt');
         const version = parseCeedlingVersionString(stdout);
@@ -84,6 +76,18 @@ suite('buildFileLabelRegex / buildTestLabelRegex', () => {
         const match = regex.exec('test/test_calculator.c');
         assert.ok(match);
         assert.strictEqual(match![1], 'calculator');
+    });
+
+    test('buildFileLabelRegex labels a file at the project root and one under backslashes', () => {
+        const regex = buildFileLabelRegex('test_');
+        assert.strictEqual(regex.exec('test_root.c')?.[1], 'root');
+        assert.strictEqual(regex.exec('test\\unit\\test_win.c')?.[1], 'win');
+    });
+
+    test('buildFileLabelRegex takes only a literal .c extension, and a prefix starting the name', () => {
+        const regex = buildFileLabelRegex('test_');
+        assert.strictEqual(regex.exec('test/test_calcxc'), null);
+        assert.strictEqual(regex.exec('test/my_test_calc.c'), null);
     });
 
     test('buildTestLabelRegex captures the function name past a configured prefix', () => {
@@ -112,9 +116,8 @@ suite('extractTestFunctionName', () => {
 });
 
 suite('testCaseFilterMatchedExactly', () => {
-    // Real names from tests/manual/test/test_calculator.c. Confirmed empirically: Ceedling's
-    // --test-case=test_add_should_ReturnSum also matched test_add_should_ReturnSumButIsDeliberatelyWrong,
-    // since the filter is a substring match and the former is a prefix of the latter.
+    // Real names from tests/manual/test/test_calculator.c. Ceedling's substring filter
+    // --test-case=test_add_should_ReturnSum also runs test_add_should_ReturnSumButIsDeliberatelyWrong.
     test('detects the real substring-collision case', () => {
         const reported = [
             'test/test_calculator.c::test_add_should_ReturnSum',
@@ -147,8 +150,7 @@ suite('extractGdbLogReference', () => {
         });
     }
 
-    // Real crash captured via a real Ceedling 1.1.0 run with :use_backtrace: :gdb and a test that
-    // dereferences a null pointer.
+    // Captured from Ceedling 1.1.0 with :use_backtrace: :gdb, for a test dereferencing null.
     test('splits a real Ceedling 1.1.0 :use_backtrace: :gdb crash message', async () => {
         const xmlText = readFixture('ceedling-1.1.0', 'cppunit-report-crash.xml');
         const parsed = await parseXml(xmlText);
@@ -164,9 +166,7 @@ suite('extractGdbLogReference', () => {
         assert.deepStrictEqual(extractGdbLogReference(message), { text: message, logPath: undefined });
     });
 
-    // Ceedling 1.0.0's :use_backtrace: :gdb embeds the filtered gdb transcript directly in the
-    // message, with no separate log file - confirmed by reading its generator source. This
-    // pattern must not match that shape.
+    // Ceedling 1.0.0's :use_backtrace: :gdb embeds the gdb text in the message, with no log file.
     test('does not match a Ceedling 1.0.0-style embedded gdb transcript', () => {
         const message = 'Test case crashed >> Program received signal SIGSEGV, Segmentation fault.\n0x0 in testCrash () at test/test_calculator.c:13';
         assert.deepStrictEqual(extractGdbLogReference(message), { text: message, logPath: undefined });

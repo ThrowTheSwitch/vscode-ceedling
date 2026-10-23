@@ -1,9 +1,9 @@
 import * as assert from 'assert';
 import { buildProjectArgs } from '../../src/ceedlingMixinArgs';
 
-// Ceedling's own mixin rule: a later --mixin flag outranks an earlier one, and lists merge by
-// prepending the higher-priority mixin's entries. That makes flag order the whole design here -
-// see buildProjectArgs's own comment for the three-tier priority this pins down.
+// A later --mixin flag outranks an earlier one in Ceedling, so flag order is the whole design.
+// These tests pin buildProjectArgs's priority order: alternate project file, user mixins, then
+// the bundled mixin.
 
 suite('buildProjectArgs', () => {
     test('a ceedling.yml project names it with --project', () => {

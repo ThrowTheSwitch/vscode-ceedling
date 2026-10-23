@@ -11,8 +11,7 @@ import {
     resolveDiagnosticFilePath,
 } from '../../src/problemMatching';
 
-// __dirname at runtime is out/tests/unit (tsc mirrors the source tree under outDir); fixtures are
-// plain data files tsc doesn't copy into out/, so walk back up to the repo root to find them.
+// Fixtures stay in the source tree. Compiled tests run from out/tests/unit, three levels below.
 const fixturesRoot = path.resolve(__dirname, '..', '..', '..', 'tests', 'fixtures');
 
 function readFixture(...segments: string[]): string {
@@ -65,9 +64,8 @@ suite('gcc preset against a real missing-header failure', () => {
 });
 
 suite('gcc preset against real linker-failure output', () => {
-    // Real ld output differs between the two probed toolchains: 1.1.0's newer ld inserts a
-    // "(.text+0xNN):" section+offset between the line number and the message; 1.0.0's older ld
-    // does not. Both must be recognized by the same catch-all pattern.
+    // The two toolchains' ld differ. 1.1.0's newer ld inserts a "(.text+0xNN):" section and offset
+    // after the line number, 1.0.0's older one doesn't. The one catch-all pattern takes both.
     for (const version of ['ceedling-1.0.0', 'ceedling-1.1.0']) {
         test(`${version}: finds the linker's undefined-reference error, with no duplicate or false match`, () => {
             const stderr = readFixture(version, 'linker-failure-stderr.txt');
@@ -75,9 +73,7 @@ suite('gcc preset against real linker-failure output', () => {
 
             assert.strictEqual(problems.length, 1, 'expected exactly one match across all three patterns');
             const [problem] = problems;
-            // The real ld output reports an absolute path - confirms resolveDiagnosticFilePath's
-            // already-absolute handling, exercised here through the real preset, not just in
-            // isolation below.
+            // ld reports an absolute path, which the project-path prefix must not be joined onto.
             assert.ok(path.isAbsolute(problem.file), `expected an absolute file path, got '${problem.file}'`);
             assert.match(problem.file, /test_calculator\.c$/);
             assert.strictEqual(problem.severity, 'error');
@@ -86,9 +82,8 @@ suite('gcc preset against real linker-failure output', () => {
         });
     }
 
-    // Regression coverage for the confirmed bug this session's catch-all fix closes: the original
-    // pattern (its optional "(.text+0xNN):" segment not yet added) required whitespace
-    // immediately after the line number, which the newer ld's output does not have.
+    // Without its optional "(.text+0xNN):" segment, the catch-all requires whitespace right after
+    // the line number, which the newer ld's output lacks. This pins why the segment is there.
     test('the pre-fix catch-all pattern does not match the 1.1.0 linker line', () => {
         const preFixCatchAll: ProblemMatchingPattern = {
             ...getGccPatternsPreset()[2],
@@ -108,8 +103,7 @@ suite('resolveDiagnosticFilePath', () => {
         assert.strictEqual(resolveDiagnosticFilePath('/abs/test_foo.c', ''), path.normalize('/abs/test_foo.c'));
     });
 
-    // The fix this session added: an already-absolute matched file is used as-is even under a
-    // non-empty prefix, instead of being nonsensically joined onto it.
+    // A compiler or linker may report an absolute path even where a prefix applies to relative ones.
     test('uses an already-absolute matched file as-is, even under a non-empty prefix', () => {
         assert.strictEqual(resolveDiagnosticFilePath('/abs/test_foo.c', '/project'), path.normalize('/abs/test_foo.c'));
     });
