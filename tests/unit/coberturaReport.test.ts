@@ -8,7 +8,7 @@ import * as xml2js from 'xml2js';
 import { type CoveredFile, mergeCoverage, parseCoberturaReport, readCoberturaReport, reportedFiles } from '../../src/coberturaReport';
 
 // Each file at its first candidate path, which is its only one in these single-source reports.
-function getCoverageFromCoberturaReport(xmlReportData: unknown, baseDir: string): CoveredFile[] {
+function coveredFiles(xmlReportData: unknown, baseDir: string): CoveredFile[] {
     return reportedFiles(readCoberturaReport(xmlReportData), baseDir, path)
         .map(({ candidates, lines, functions }) => ({ path: candidates[0], lines, functions }));
 }
@@ -38,10 +38,10 @@ function byPath(files: CoveredFile[], filePath: string): CoveredFile {
 }
 
 for (const version of ['gcovr-5.0', 'gcovr-8.6']) {
-    suite(`getCoverageFromCoberturaReport (${version}, mixed relative/absolute paths)`, () => {
+    suite(`coveredFiles (${version}, mixed relative/absolute paths)`, () => {
         let files: CoveredFile[];
         suiteSetup(async () => {
-            files = getCoverageFromCoberturaReport(await parseFixture(version, 'cobertura-mixed-paths.xml'), projectDir);
+            files = coveredFiles(await parseFixture(version, 'cobertura-mixed-paths.xml'), projectDir);
         });
 
         test('reports every class in the report', () => {
@@ -72,27 +72,27 @@ for (const version of ['gcovr-5.0', 'gcovr-8.6']) {
     });
 }
 
-suite('getCoverageFromCoberturaReport (function entries)', () => {
+suite('coveredFiles (function entries)', () => {
     test('gcovr 5.0 writes an empty <methods/>, so there are none', async () => {
-        const files = getCoverageFromCoberturaReport(await parseFixture('gcovr-5.0', 'cobertura-mixed-paths.xml'), projectDir);
+        const files = coveredFiles(await parseFixture('gcovr-5.0', 'cobertura-mixed-paths.xml'), projectDir);
         assert.deepStrictEqual(files.map(file => file.functions), [[], []]);
     });
 
     test('gcovr 8.6 fills them in; a function takes its hit count from its first line', async () => {
-        const files = getCoverageFromCoberturaReport(await parseFixture('gcovr-8.6', 'cobertura-mixed-paths.xml'), projectDir);
+        const files = coveredFiles(await parseFixture('gcovr-8.6', 'cobertura-mixed-paths.xml'), projectDir);
         assert.deepStrictEqual(byPath(files, outsideRoot).functions, [{ name: 'clamp_positive', line: 3, hits: 1 }]);
         assert.deepStrictEqual(byPath(files, insideRoot).functions, [{ name: 'add', line: 3, hits: 1 }]);
     });
 });
 
-suite('getCoverageFromCoberturaReport (degenerate reports)', () => {
+suite('coveredFiles (degenerate reports)', () => {
     test('returns nothing for a report with no packages', () => {
-        assert.deepStrictEqual(getCoverageFromCoberturaReport({ coverage: { sources: { source: '.' }, packages: '' } }, projectDir), []);
+        assert.deepStrictEqual(coveredFiles({ coverage: { sources: { source: '.' }, packages: '' } }, projectDir), []);
     });
 
     test('skips a class that has no filename', () => {
         const report = { coverage: { packages: { package: { classes: { class: { $: {} } } } } } };
-        assert.deepStrictEqual(getCoverageFromCoberturaReport(report, projectDir), []);
+        assert.deepStrictEqual(coveredFiles(report, projectDir), []);
     });
 });
 
@@ -189,7 +189,7 @@ suite('readCoberturaReport (ReportGenerator 5.5.11)', () => {
 
     // ReportGenerator lists every source directory Ceedling gave it, and names files relative to
     // the directory it ran in. The engine keeps whichever candidate exists.
-    test('each file has a candidate for every source, the one that exists first', () => {
+    test('each file has one candidate per source, without duplicates, in source order', () => {
         assert.deepStrictEqual(report.sources, ['.', 'src', '../lib']);
         assert.deepStrictEqual(reportedFiles(report, probe, path.posix).map((f) => f.candidates), [
             ['/probe/lib/Clamp.c', '/probe/project/lib/Clamp.c'],
@@ -230,5 +230,72 @@ suite('readCoberturaReport (incomplete data)', () => {
 
     test('a line without a number or hit count is left out', () => {
         assert.deepStrictEqual(one('{"number":"4"}').files[0].lines, []);
+    });
+});
+
+// Malformed or implausible values in a report are left out rather than reaching VS Code, whose
+// positions can't be negative.
+suite('readCoberturaReport (implausible values)', () => {
+    const lines = (...attributes: string[]) => readCoberturaReport({ coverage: { packages: { package: { classes: { class: {
+        $: { filename: 'a.c' }, lines: { line: attributes.map((a) => ({ $: JSON.parse(a) })) },
+    } } } } } }).files[0].lines;
+
+    test('a line numbered 0, empty, fractional, or negative is left out', () => {
+        assert.deepStrictEqual(lines('{"number":"0","hits":"1"}', '{"number":"","hits":"1"}', '{"number":"2.5","hits":"1"}', '{"number":"-3","hits":"1"}', '{"number":"4","hits":"1"}')
+            .map((l) => l.line), [4]);
+    });
+
+    test('a negative or fractional hit count is left out', () => {
+        assert.deepStrictEqual(lines('{"number":"1","hits":"-1"}', '{"number":"2","hits":"0.5"}', '{"number":"3","hits":"0"}').map((l) => l.line), [3]);
+    });
+
+    test('a function on line 0 is left out', () => {
+        const report = readCoberturaReport({ coverage: { packages: { package: { classes: { class: {
+            $: { filename: 'a.c' }, methods: { method: [
+                { $: { name: '_GLOBAL__sub_I' }, lines: { line: { $: { number: '0', hits: '1' } } } },
+                { $: { name: 'f' }, lines: { line: { $: { number: '2', hits: '1' } } } },
+            ] },
+        } } } } } });
+        assert.deepStrictEqual(report.files[0].functions, [{ name: 'f', line: 2, hits: 1 }]);
+    });
+
+    test('a branch count past any real line has no branch outcomes', () => {
+        assert.deepStrictEqual(lines('{"number":"1","hits":"1","branch":"true","condition-coverage":"0% (0/4294967296)"}')[0].branches, []);
+    });
+
+    test('condition-coverage without its counts has no branch outcomes', () => {
+        assert.deepStrictEqual(lines('{"number":"1","hits":"1","branch":"true","condition-coverage":"100%"}')[0].branches, []);
+    });
+});
+
+suite('parseCoberturaReport (structure)', () => {
+    test('an empty <coverage/> covers nothing', async () => {
+        assert.deepStrictEqual(await parseCoberturaReport('<coverage/>'), { sources: [], files: [] });
+    });
+
+    test('reads every package and class, and trims each source', async () => {
+        const report = await parseCoberturaReport(`<coverage><sources><source>
+            /p/project
+        </source></sources><packages>
+            <package><classes><class filename="a.c"><lines><line number="1" hits="1"/></lines></class></classes></package>
+            <package><classes><class filename="b.c"/><class filename="c.c"/></classes></package>
+        </packages></coverage>`);
+        assert.deepStrictEqual(report.sources, ['/p/project']);
+        assert.deepStrictEqual(report.files.map((f) => f.filename), ['a.c', 'b.c', 'c.c']);
+    });
+
+    test('an empty <sources/> resolves files against the directory the tool ran in', async () => {
+        const report = await parseCoberturaReport('<coverage><sources/><packages><package><classes><class filename="a.c"/></classes></package></packages></coverage>');
+        assert.deepStrictEqual(reportedFiles(report, '/p', path.posix).map((f) => f.candidates), [['/p/a.c']]);
+    });
+});
+
+suite('mergeCoverage (functions)', () => {
+    test('a function only one report names is kept as that report counted it', () => {
+        const merged = mergeCoverage([
+            { path: '/p/report.xml', files: [{ path: '/lib/c.c', lines: [], functions: [{ name: 'f', line: 1, hits: 1 }] }] },
+            { path: '/q/report.xml', files: [{ path: '/lib/c.c', lines: [], functions: [{ name: 'g', line: 5, hits: 2 }] }] },
+        ], (p) => p);
+        assert.deepStrictEqual(merged[0].functions, [{ name: 'f', line: 1, hits: 1 }, { name: 'g', line: 5, hits: 2 }]);
     });
 });

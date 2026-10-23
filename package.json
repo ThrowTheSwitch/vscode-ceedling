@@ -182,7 +182,7 @@
           }
         },
         "ceedlingExplorer.coverageCommandArgs": {
-          "description": "The command line arguments that run a test file with coverage, from the Testing view's Run with Coverage. The first must contain the ${TEST_ID} tag, which becomes the test file's name alone, as Ceedling's gcov: tasks require. Requires Ceedling's gcov plugin with a Cobertura report.",
+          "markdownDescription": "The command line arguments that run a test file with coverage, from the Testing view's **Run with Coverage**. Each `${TEST_ID}` becomes the test file: its project-relative path with Ceedling 1.2.1 and later, and its name alone before, as earlier `gcov:` tasks require. Requires Ceedling's gcov plugin with a Cobertura report.",
           "type": "array",
           "items": {
             "type": "string"

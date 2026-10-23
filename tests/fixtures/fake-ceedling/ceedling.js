@@ -8,7 +8,7 @@
 //                                                "test_c": "ignore", "test_p(1)": "pass" } },
 //                "test/test_y.c": { "compileError": "ceedling-1.0.0/compile-failure-stderr.txt" },
 //                "test/test_z.c": { "hang": true } },
-//     "gcov": { "reports": ["Cobertura"], "reportTask": false,
+//     "gcov": { "utilities": ["gcovr"], "reports": ["Cobertura"], "reportTask": false,
 //               "coverage": { "test/test_x.c": { "src/x.c": { "lines": [[1, 3], [2, 0], [4, 1, "50% (1/2)"]], "functions": [["f", 1, 3]] } } } } }
 //
 // A result left out of `results` goes unreported, as when discovery and Ceedling disagree on a
@@ -75,14 +75,16 @@ function gcovConfig(gcov) {
     return `:gcov:\n  :report_task: ${gcov.reportTask === true}\n  :utilities:${list(gcov.utilities ?? ['gcovr'])}  :reports:${list(gcov.reports ?? [])}`;
 }
 
-// Ceedling's gcov task prefixes test_ to a name that lacks it, so a path never names a test file.
+// Before 1.2.1, Ceedling's gcov task prepends the test file prefix to a name lacking it, so a path
+// never names a test file. From 1.2.1 it takes a project-relative path, as test: tasks do.
 function gcov(name) {
-    if (/[\\/]/.test(name)) {
-        process.stderr.write(`Ceedling could not complete operations because of errors: no test file test_${name}\n`);
+    const byPath = /^1\.2\.[1-9]|^1\.([3-9]|\d\d)\.|^[2-9]\./.test(scenario.version);
+    if (/[\\/]/.test(name) && !byPath) {
+        process.stderr.write(`EXCEPTION: Found no file \`test_${name}\` in search paths.\n`);
         process.exitCode = 1;
         return;
     }
-    const files = name === 'all' ? ['all'] : Object.keys(scenario.files).filter((file) => path.basename(file) === name);
+    const files = name === 'all' ? ['all'] : Object.keys(scenario.files).filter((file) => file === name || path.basename(file) === name);
     const ran = test(files[0] ?? name, 'gcov');
     const cobertura = (scenario.gcov.reports ?? []).some((report) => report.toLowerCase() === 'cobertura');
     if (ran && cobertura && (!scenario.gcov.reportTask || args.includes('report:gcov'))) {
@@ -137,7 +139,7 @@ function writeCobertura(testFiles) {
         `<lines>${covered.lines.map(line).join('')}</lines></class>`).join('');
     const reportDir = path.join(buildRoot, 'artifacts', 'gcov', 'gcovr');
     fs.mkdirSync(reportDir, { recursive: true });
-    fs.writeFileSync(path.join(reportDir, 'GcovCoverageCobertura.xml'), '<?xml version="1.0"?>\n<coverage version="gcovr 7.2"><sources><source>.</source></sources>' +
+    fs.writeFileSync(path.join(reportDir, 'GcovCoverageCobertura.xml'), '<?xml version="1.0"?>\n<coverage version="gcovr 8.6"><sources><source>.</source></sources>' +
         `<packages><package name="fake"><classes>${classes}</classes></package></packages></coverage>\n`);
 }
 

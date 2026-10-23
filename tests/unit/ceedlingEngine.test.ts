@@ -68,10 +68,10 @@ class FakeCeedling {
                 if (content === undefined) throw Object.assign(new Error(`ENOENT: ${p}`), { code: 'ENOENT' });
                 return content;
             },
-            listFiles: async (dir) => [...this.files.keys()].filter((f) => f.startsWith(`${dir}/`)).sort(),
+            listFiles: async (dir) => [...this.files.keys()].filter((f) => f.startsWith(`${dir}/`) || f.startsWith(`${dir}\\`)).sort(),
             unlink: async (p) => {
                 if (this.undeletable.has(p)) throw Object.assign(new Error(`EPERM: ${p}`), { code: 'EPERM' });
-                this.files.delete(p);
+                if (!this.files.delete(p)) throw Object.assign(new Error(`ENOENT: ${p}`), { code: 'ENOENT' });
             },
             mtimeMs: async (p) => this.mtimes.get(p),
         };
@@ -1027,6 +1027,15 @@ suite('nodeFileSystem', () => {
         assert.strictEqual(await nodeFileSystem.exists(file), false);
     });
 
+    test('every file beneath a directory is listed, at any depth, and a missing directory lists nothing', async () => {
+        fs.mkdirSync(path.join(folder, 'out', 'test_a'), { recursive: true });
+        fs.writeFileSync(path.join(folder, 'out', 'top.gcda'), '');
+        fs.writeFileSync(path.join(folder, 'out', 'test_a', 'a.gcda'), '');
+        assert.deepStrictEqual(await nodeFileSystem.listFiles(path.join(folder, 'out')),
+            [path.join(folder, 'out', 'test_a', 'a.gcda'), path.join(folder, 'out', 'top.gcda')]);
+        assert.deepStrictEqual(await nodeFileSystem.listFiles(path.join(folder, 'missing')), []);
+    });
+
     test('a directory is a directory', async () => {
         assert.strictEqual(await nodeFileSystem.isDirectory(folder), true);
     });
@@ -1202,7 +1211,8 @@ suite('CeedlingEngine coverage', () => {
         assert.strictEqual((await discovered(coverageWorld())).engine.coverageEnabled(), true);
     });
 
-    // Ceedling's gcov: task prefixes test_ to its argument, so a path-qualified name never matches.
+    // Before 1.2.1, Ceedling's gcov: task prefixes the test file prefix to a name lacking it, so
+    // `test/test_calc.c` becomes `test_test/test_calc.c` and matches nothing.
     test('a file runs through gcov: with the bare file name, results from the gcov artifacts, and its coverage', async () => {
         const world = coverageWorld();
         const { engine, file } = await discovered(world);
@@ -1214,6 +1224,19 @@ suite('CeedlingEngine coverage', () => {
             kind: 'report', path: GCOVR_REPORT,
             files: [{ path: `${WS}/src/calc.c`, lines: [{ line: 1, hits: 2, branches: [] }, { line: 2, hits: 0, branches: [] }], functions: [] }],
         }]);
+    });
+
+    // Ceedling 1.2.1's gcov: tasks take the same project-relative path as its test: tasks.
+    test('from Ceedling 1.2.1, a coverage run names its file by path, and same-named files need no warning', async () => {
+        const world = coverageWorld();
+        world.version = '1.2.1';
+        world.testFiles = ['test/a/test_calc.c', 'test/b/test_calc.c'];
+        for (const f of world.testFiles) world.write(`${WS}/${f}`, 'void test_add(void) {}\n');
+        const logs: LogCall[] = [];
+        const { engine, file } = await discovered(world, { logs });
+        await engine.runFile('default', file, recordingReporter(), token(), coverageMode());
+        assert.deepStrictEqual(world.commandsMatching(/^ceedling gcov:/), [`ceedling gcov:test/a/test_calc.c --force-test-rerun ${PROJECT_ARGS}`]);
+        assert.ok(!logs.some((l) => l.level === 'warn' && /test\/b\/test_calc\.c/.test(l.message)));
     });
 
     test('a function narrows its coverage run with --test-case', async () => {
@@ -1266,20 +1289,25 @@ suite('CeedlingEngine coverage', () => {
         assert.ok(!world.files.has(counters[0]), 'a new run clears them again');
     });
 
-    // The fallback's counters add to the first attempt's, which ran the same tests' file.
-    test("a function run's whole-file fallback keeps the counters its first attempt produced", async () => {
+    // Otherwise the fallback would count the first attempt's tests twice.
+    test("a function run's whole-file fallback clears its first attempt's counters, and no other test's", async () => {
         const world = coverageWorld();
         const counter = `${WS}/build/gcov/out/test_calc/calc.gcda`;
+        const otherTest = `${WS}/build/gcov/out/test_other/other.gcda`;
         world.handlers.unshift((command) => /--test-case/.test(command)
             ? { writes: { ...world.reportWrite(cppunit({ passed: ['test/test_calc.c::test_add', 'test/test_calc.c::test_add_more'] }), 'build', 'gcov'), [counter]: '' } }
             : undefined);
         const { engine, file } = await discovered(world);
-        await engine.runFunction('default', file, file.functions[0], recordingReporter(), token(), coverageMode());
-        assert.deepStrictEqual(world.commandsMatching(/^ceedling gcov:/), [
+        const mode = coverageMode();
+        await engine.runFile('default', file, recordingReporter(), token(), mode);
+        world.write(otherTest, '');
+        await engine.runFunction('default', file, file.functions[0], recordingReporter(), token(), mode);
+        assert.deepStrictEqual(world.commandsMatching(/^ceedling gcov:/).slice(1), [
             `ceedling gcov:test_calc.c --test-case=test_add --force-test-rerun ${PROJECT_ARGS}`,
             `ceedling gcov:test_calc.c --force-test-rerun ${PROJECT_ARGS}`,
         ]);
-        assert.ok(world.files.has(counter));
+        assert.ok(!world.files.has(counter));
+        assert.ok(world.files.has(otherTest));
     });
 
     test('each build directory has its counters cleared once per run', async () => {
@@ -1369,6 +1397,72 @@ suite('CeedlingEngine coverage', () => {
         await engine.runFile('default', file, reporter, token(), coverageMode());
         assert.deepStrictEqual(world.commandsMatching(/^ceedling (test|gcov):/), [`ceedling test:test/test_calc.c --force-test-rerun ${PROJECT_ARGS}`]);
         assert.match((coverageCalls(reporter)[0] as { message: string }).message, /gcov plugin/);
+    });
+
+    test("a build that fails explains a project's missing coverage configuration all the same", async () => {
+        const world = coverageWorld({}, gcovConfig({ reports: [] }));
+        world.handlers.unshift((command) => /^ceedling gcov:/.test(command) ? { error: true } : undefined);
+        const { engine, file } = await discovered(world);
+        const reporter = recordingReporter();
+        await engine.runFile('default', file, reporter, token(), coverageMode());
+        assert.match((coverageCalls(reporter)[0] as { message: string }).message, /:reports:/);
+    });
+
+    // Its test errors already explain a failed build.
+    test('a failed build in a project configured for coverage reports no coverage outcome', async () => {
+        const world = coverageWorld();
+        world.handlers.unshift((command) => /^ceedling gcov:/.test(command) ? { error: true } : undefined);
+        const { engine, file } = await discovered(world);
+        const reporter = recordingReporter();
+        await engine.runFile('default', file, reporter, token(), coverageMode());
+        assert.deepStrictEqual(coverageCalls(reporter), []);
+        assert.ok(reporter.of('errored').length > 0);
+    });
+
+    test('a report covering no source files says where gcovr looks', async () => {
+        const world = coverageWorld({ [GCOVR_REPORT]: cobertura(['.'], []) });
+        const { engine, file } = await discovered(world);
+        const reporter = recordingReporter();
+        await engine.runFile('default', file, reporter, token(), coverageMode());
+        assert.match((coverageCalls(reporter)[0] as { message: string }).message, /:report_root:/);
+    });
+
+    test('a file whose candidates all fail to exist keeps its first', async () => {
+        const world = coverageWorld({ [GCOVR_REPORT]: cobertura(['src', 'lib'], [{ filename: 'gone.c', lines: [[1, 1]] }]) });
+        const { engine, file } = await discovered(world);
+        const reporter = recordingReporter();
+        await engine.runFile('default', file, reporter, token(), coverageMode());
+        assert.deepStrictEqual((coverageCalls(reporter)[0] as { files: Array<{ path: string }> }).files.map((f) => f.path), [`${WS}/src/gone.c`]);
+    });
+
+    // Before 1.2.1, Ceedling's gcov: tasks take a bare name, so they can't tell the two files apart.
+    test('a coverage run of one of two same-named test files warns that Ceedling may pick the other', async () => {
+        const world = coverageWorld();
+        world.testFiles = ['test/a/test_calc.c', 'test/b/test_calc.c'];
+        for (const f of world.testFiles) world.write(`${WS}/${f}`, 'void test_add(void) {}\n');
+        const logs: LogCall[] = [];
+        const { engine, file } = await discovered(world, { logs });
+        await engine.runFile('default', file, recordingReporter(), token(), coverageMode());
+        assert.ok(logs.some((l) => l.level === 'warn' && /test\/a\/test_calc\.c/.test(l.message) && /test\/b\/test_calc\.c/.test(l.message)));
+    });
+
+    test('on Windows, counters and reports are found under the project, whatever the case of its path', async () => {
+        const world = new FakeCeedling();
+        world.resolvedConfig = gcovConfig();
+        world.write('C:\\ws\\project.yml', ':project: {}\n');
+        world.write('C:\\ws\\test\\test_calc.c', 'void test_add(void) {}\n');
+        world.write('C:\\ws\\build\\gcov\\out\\test_calc\\calc.gcda', '');
+        world.handlers.push((command) => /^ceedling gcov:/.test(command) ? { writes: {
+            'C:\\ws\\build\\artifacts\\gcov\\cppunit_tests_report.xml': cppunit({ passed: ['test/test_calc.c::test_add'] }),
+            'C:\\ws\\build\\artifacts\\gcov\\gcovr\\GcovCoverageCobertura.xml': cobertura(['.'], [{ filename: 'src\\calc.c', lines: [[1, 1]] }]),
+        } } : undefined);
+        const engine = makeEngine(world, { folder: 'c:\\ws', platform: 'win32' });
+        const [project] = await engine.discover();
+        const reporter = recordingReporter();
+        await engine.runFile('default', project.files[0], reporter, token(), coverageMode());
+        assert.ok(!world.files.has('C:\\ws\\build\\gcov\\out\\test_calc\\calc.gcda'));
+        assert.deepStrictEqual((coverageCalls(reporter)[0] as { files: Array<{ path: string }> }).files.map((f) => f.path), ['C:\\ws\\src\\calc.c']);
+        assert.strictEqual(engine.keyOfPath('c:\\WS\\Src\\Calc.c'), engine.keyOfPath('C:\\ws\\src\\calc.c'));
     });
 
     test('an unreadable coverage report is reported as missing, naming it', async () => {

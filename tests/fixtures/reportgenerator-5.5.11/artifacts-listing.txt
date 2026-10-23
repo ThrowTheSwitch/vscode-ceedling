@@ -1,0 +1,11 @@
+# build/artifacts/gcov after capture-gcov.sh 1.2.0, with gcovr 7.2 and ReportGenerator 5.5.11.
+# single/: mixins/both.yml, one report type (Cobertura).
+single/ReportGenerator/Cobertura.xml
+single/gcovr/GcovCoverageCobertura.xml
+# multi/: mixins/multi.yml, two report types (Cobertura, HtmlBasic). ReportGenerator nests each type in its own directory.
+multi/ReportGenerator/Cobertura/Cobertura.xml
+multi/ReportGenerator/HtmlSummary/index.html
+multi/ReportGenerator/HtmlSummary/summary.htm
+multi/ReportGenerator/HtmlSummary/summary.html
+multi/gcovr/GcovCoverageCobertura.xml
+multi/gcovr/GcovCoverageResults.html

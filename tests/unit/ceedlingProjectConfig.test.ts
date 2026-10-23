@@ -131,16 +131,25 @@ suite('projectsFromSettings: the default project file', () => {
 });
 
 suite('capabilitiesOf', () => {
+    const none = { dumpconfigStdout: false, forceTestRerun: false, pathQualifiedTestTasks: false, pathQualifiedCoverageTasks: false, ceedlingYml: false };
+
     test('Ceedling before 1.2.0 has none of the 1.2.0 features', () => {
         for (const version of ['1.0.0', '1.1.10', '1.1.10-85ec551']) {
-            assert.deepStrictEqual(capabilitiesOf(version), { dumpconfigStdout: false, forceTestRerun: false, pathQualifiedTestTasks: false, ceedlingYml: false });
+            assert.deepStrictEqual(capabilitiesOf(version), none);
         }
     });
 
     // Real 1.2.0 builds report a commit suffix, e.g. 1.2.0-13a540f, which semver ranks below 1.2.0.
-    test('Ceedling 1.2.0 and later, build suffix included, has every 1.2.0 feature', () => {
-        for (const version of ['1.2.0', '1.2.0-13a540f', '1.3.1']) {
-            assert.deepStrictEqual(capabilitiesOf(version), { dumpconfigStdout: true, forceTestRerun: true, pathQualifiedTestTasks: true, ceedlingYml: true });
+    // 1.2.0's gcov: tasks still take only a bare file name.
+    test('Ceedling 1.2.0, build suffix included, has every 1.2.0 feature but path-qualified coverage tasks', () => {
+        for (const version of ['1.2.0', '1.2.0-13a540f']) {
+            assert.deepStrictEqual(capabilitiesOf(version), { ...none, dumpconfigStdout: true, forceTestRerun: true, pathQualifiedTestTasks: true, ceedlingYml: true });
+        }
+    });
+
+    test('Ceedling 1.2.1 and later, build suffix included, also takes paths in coverage tasks', () => {
+        for (const version of ['1.2.1', '1.2.1-0a1b2c3', '1.3.1']) {
+            assert.deepStrictEqual(capabilitiesOf(version), { dumpconfigStdout: true, forceTestRerun: true, pathQualifiedTestTasks: true, pathQualifiedCoverageTasks: true, ceedlingYml: true });
         }
     });
 });

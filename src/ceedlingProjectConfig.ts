@@ -74,6 +74,8 @@ export type CeedlingCapabilities = {
     forceTestRerun: boolean,
     // A `test:` task accepts a project-relative path, which tells same-named test files apart.
     pathQualifiedTestTasks: boolean,
+    // A `gcov:` task does too. Ceedling 1.2.0's gcov plugin still took a bare name.
+    pathQualifiedCoverageTasks: boolean,
     // ceedling.yml is a default project file, like project.yml.
     ceedlingYml: boolean,
 };
@@ -82,8 +84,14 @@ export type CeedlingCapabilities = {
 // its release, though semver would rank it below.
 export function capabilitiesOf(version: string): CeedlingCapabilities {
     const release = semver.coerce(version);
-    const atLeast1_2 = release !== null && semver.gte(release, '1.2.0');
-    return { dumpconfigStdout: atLeast1_2, forceTestRerun: atLeast1_2, pathQualifiedTestTasks: atLeast1_2, ceedlingYml: atLeast1_2 };
+    const atLeast = (minimum: string) => release !== null && semver.gte(release, minimum);
+    return {
+        dumpconfigStdout: atLeast('1.2.0'),
+        forceTestRerun: atLeast('1.2.0'),
+        pathQualifiedTestTasks: atLeast('1.2.0'),
+        pathQualifiedCoverageTasks: atLeast('1.2.1'),
+        ceedlingYml: atLeast('1.2.0'),
+    };
 }
 
 // Projects in settings order. With none configured, one default project sits at the workspace
@@ -189,8 +197,9 @@ export function projectState(resolved: unknown, platform: NodeJS.Platform): Proj
     };
 }
 
-// Ceedling compares utility and report names case-insensitively, and with no :utilities: listed
-// the plugin uses gcovr.
+// Where a gcov project's Cobertura reports appear, and whether they wait for report:gcov. undefined
+// without the gcov plugin. Ceedling compares utility and report names case-insensitively, and with
+// no :utilities: listed the plugin uses gcovr.
 export function coverageState(resolved: unknown): CoverageState | undefined {
     const enabledPlugins = setting(resolved, ':plugins', ':enabled');
     if (!Array.isArray(enabledPlugins) || !enabledPlugins.includes('gcov')) {

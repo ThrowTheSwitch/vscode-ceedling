@@ -11,7 +11,7 @@ This document explains each change that can break an existing setup, and what to
 The extension now requires VS Code 1.88.0 or later, up from 1.74.0. VS Code 1.88.0 finalized the test coverage API that the new _Run with Coverage_ is built on.
 
 **What changes for you:**
-- On VS Code 1.88.0 or later, nothing. Coverage is opt-in, and every existing behavior and setting is unchanged.
+- On VS Code 1.88.0 or later, nothing changes. Coverage is opt-in, and every existing behavior and setting stays the same.
 - On an older VS Code, this version isn’t offered. VS Code keeps the last version that runs there, which continues to work.
 
 ## Test case marker alias settings removed

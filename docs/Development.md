@@ -120,10 +120,10 @@ Diagnostics are keyed by run scope: the project key for a project run, `projectK
 
 A coverage run is an ordinary run with a `RunMode` of `coverage`. The controller creates a fresh one per request with `coverageMode()`. The Coverage profile exists while `CeedlingEngine.coverageEnabled()` is true, i.e. while some project enables Ceedling’s gcov plugin. `syncCoverageProfile()` creates or disposes it after each discovery.
 
-- **Configuration.** `coverageState()` reads the resolved configuration. It returns whether reports wait for `report:gcov`, and where each enabled utility writes its Cobertura report, relative to the build root, gcovr’s first. ReportGenerator writes `ReportGenerator/Cobertura.xml`, or `ReportGenerator/Cobertura/Cobertura.xml` with several report types. `coverageProblem()` explains a project that writes no Cobertura report.
-- **Building.** `commandArgs()` uses `coverageCommandArgs` with the bare file name, since Ceedling’s `gcov:` tasks prefix `test_` to their argument. It appends `report:gcov` when reports wait for that task. Under the directory lock, `prepareCoverage()` deletes stale Cobertura reports. Then, once per build directory per request, it clears `.gcda` and `.gcov` counters under `<build>/gcov/out`, unless `coverageResetsCounters` is off. `readCoverage()` reads the first report present before the lock is released.
+- **Configuration.** `coverageState()` reads the resolved configuration. It says whether reports wait for `report:gcov`. It also lists where each enabled utility writes its Cobertura report, relative to the build root, gcovr’s first. ReportGenerator writes `ReportGenerator/Cobertura.xml`, or `ReportGenerator/Cobertura/Cobertura.xml` with several report types. `coverageProblem()` explains a project that writes no Cobertura report.
+- **Building.** `commandArgs()` uses `coverageCommandArgs`. Before Ceedling 1.2.1 it passes the bare file name, since the `gcov:` task prepends the test file prefix to a name lacking it. From 1.2.1 it passes the path (`capabilitiesOf().pathQualifiedCoverageTasks`). It appends `report:gcov` when reports wait for that task. Under the directory lock, `prepareCoverage()` deletes stale Cobertura reports. Once per build directory per request, it also deletes the `.gcda` counters, and the `.gcov` files gcov writes from them, under `<build>/gcov/out`, unless `coverageResetsCounters` is off. A `--test-case` collision clears only its test’s own counters before the whole-file fallback. `readCoverage()` reads the first report present before the lock is released.
 - **Paths.** Cobertura names files relative to one of its `<source>` roots, or absolutely. `reportedFiles()` gives each file a candidate per source, resolved against the project directory, where Ceedling runs the tools. The engine keeps the first candidate that exists.
-- **Showing.** Each completed build reports a `CoverageOutcome` through `RunReporter.coverage()`. `mergeCoverage()` keeps the last report per report path, and adds up reports from separate build directories. The controller adds a `FileCoverage` per file, and keeps its details in a `WeakMap` that `loadDetailedCoverage` reads. A `missing` outcome becomes a notification and a line in the run’s output.
+- **Showing.** Each build that produced test results reports a `CoverageOutcome` through `RunReporter.coverage()`. A failed build reports one only for a configuration that can’t give coverage. `mergeCoverage()` keeps the last report per report path, and adds up reports from separate build directories. The controller adds a `FileCoverage` per file, and keeps its details in a `WeakMap` that `loadDetailedCoverage` reads. A `missing` outcome becomes a notification and a line in the run’s output.
 
 ### Test seams
 
@@ -142,7 +142,8 @@ The integration tests run the built extension in a real VS Code, on two workspac
 - results and failure locations in the Testing view;
 - compiler errors in the Problems panel;
 - cancellation;
-- watchers and unsaved edits.
+- watchers and unsaved edits;
+- the Coverage profile, and file coverage and its details reaching VS Code.
 
 On Windows they also run the engine with Windows paths. VS Code’s API can’t read another extension’s TestItems or run results, so `activate()` returns a small handle for the tests, `CeedlingExplorerApi`. See [`tests/integration/main.ts`](../tests/integration/main.ts).
 

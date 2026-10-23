@@ -3,7 +3,7 @@
 // function and `file::function(args)` for a parametrized case, matching the names in Ceedling's
 // reports.
 
-import { type CoveredFile } from './coberturaReport';
+import { type CoverageReport } from './coberturaReport';
 
 export type CeedlingTestCase = { id: string, label: string, line: number };
 
@@ -28,7 +28,7 @@ export type CeedlingProjectNode = { projectKey: string, label: string, files: Ce
 
 // What a coverage run found: the report read, or why there is none to show.
 export type CoverageOutcome =
-    | { kind: 'report', path: string, files: CoveredFile[] }
+    | ({ kind: 'report' } & CoverageReport)
     | { kind: 'missing', message: string };
 
 // A run's results for one project. The controller maps ids onto TestItems.

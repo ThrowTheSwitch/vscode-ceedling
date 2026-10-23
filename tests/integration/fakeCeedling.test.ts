@@ -203,6 +203,30 @@ suite('Extension against a fake Ceedling', function () {
         }
     });
 
+    // Run with Coverage still runs the tests, and says what the project must configure.
+    test('a coverage run in a project writing no Cobertura report explains what to add', async () => {
+        const scenarioFile = fileUri('fake-ceedling.json').fsPath;
+        const original = fs.readFileSync(scenarioFile, 'utf8');
+        const problems: string[] = [];
+        const covered: vscode.FileCoverage[] = [];
+        const listeners = [controller.onDidReportCoverageProblem((p) => problems.push(p)), controller.onDidReportCoverage((c) => covered.push(c))];
+        try {
+            const scenario = JSON.parse(original) as { gcov: { reports: string[] } };
+            scenario.gcov.reports = [];
+            fs.writeFileSync(scenarioFile, JSON.stringify(scenario));
+            await controller.whenDiscovered();
+            const results = await run(['test/test_calc.c'], undefined, true);
+            assert.deepStrictEqual(outcome(results, 'test/test_calc.c::test_add'), ['passed']);
+            assert.deepStrictEqual(covered, []);
+            assert.strictEqual(problems.length, 1);
+            assert.match(problems[0] ?? '', /Cobertura[\s\S]*:reports:/);
+        } finally {
+            listeners.forEach((l) => { l.dispose(); });
+            fs.writeFileSync(scenarioFile, original);
+            await controller.whenDiscovered();
+        }
+    });
+
     test('the Coverage profile follows the gcov plugin across rediscovery', async () => {
         const scenarioFile = fileUri('fake-ceedling.json').fsPath;
         const original = fs.readFileSync(scenarioFile, 'utf8');

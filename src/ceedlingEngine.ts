@@ -126,7 +126,7 @@ type RunScope = { kind: 'project' } | { kind: 'file', file: CeedlingFileNode };
 
 // One coverage request, which may run Ceedling several times. Its build directories' coverage
 // counters are cleared before their first build only, so later builds add to this request's own.
-export type CoverageRun = { readonly resetDirectories: Set<string> };
+type CoverageRun = { readonly resetDirectories: Set<string> };
 
 export type RunMode = { kind: 'test' } | { kind: 'coverage', run: CoverageRun };
 
@@ -351,8 +351,16 @@ export class CeedlingEngine {
                 `runFunction: --test-case=${name} also matched an unrelated test in '${file.id}'. ` +
                 `Ceedling's filter is a substring match, not exact. Falling back to a full-file run.`
             );
+            if (mode.kind === 'coverage') {
+                await this.inDirectory(project, () => this.clearTestCounters(project, file));
+            }
             await this.runFile(projectKey, file, reporter, token, mode);
         }
+    }
+
+    // The key two spellings of one path share, as this engine's platform compares paths.
+    keyOfPath(filePath: string): string {
+        return pathKey(filePath, this.platform);
     }
 
     // Whether any project enables Ceedling's gcov plugin, and so can run with coverage.
@@ -625,6 +633,11 @@ export class CeedlingEngine {
             }
             if (!outcome.report) {
                 this.reportMissingReport(ids, outcome.transcript, outcome.diagnostics, reporter);
+                // The test errors explain a failed build, but not a configuration that can't give coverage.
+                const problem = mode.kind === 'coverage' ? this.coverageConfigurationProblem(project) : undefined;
+                if (problem !== undefined) {
+                    reporter.coverage({ kind: 'missing', message: problem });
+                }
                 return 'done';
             }
             if (testCaseFilter !== undefined && !testCaseFilterMatchedExactly(testCaseFilter, reportedNames(outcome.report))) {
@@ -642,7 +655,7 @@ export class CeedlingEngine {
     // a report left by an earlier run can't pass as this one's.
     // Callers hold the project directory's lock, so a coverage report read here is this build's.
     private async buildAndRun(project: LoadedProject, scope: RunScope, mode: RunMode, args: string[], reporter: RunReporter, token: Cancellation): Promise<BuildOutcome> {
-        await this.deleteReports(project);
+        await this.deleteStale(this.reportPaths(project));
         if (mode.kind === 'coverage') {
             await this.prepareCoverage(project, mode.run);
         }
@@ -743,19 +756,13 @@ export class CeedlingEngine {
         return ['test', 'gcov'].map((dir) => this.paths.resolve(project.absPath, project.state.buildRoot, 'artifacts', dir, project.state.reportFilename));
     }
 
-    private deleteReports(project: LoadedProject): Promise<void> {
-        return this.deleteStale(this.reportPaths(project));
-    }
-
     // Deletes whichever files exist. A file that won't go is logged, and the build goes ahead.
     private async deleteStale(filePaths: string[]): Promise<void> {
-        await Promise.all(filePaths.map(async (filePath) => {
-            if (await this.fs.exists(filePath)) {
-                await this.fs.unlink(filePath).catch((e: unknown) => {
-                    this.logger.warn(`Failed to delete stale file '${filePath}': ${util.format(e)}`);
-                });
+        await Promise.all(filePaths.map((filePath) => this.fs.unlink(filePath).catch((e: unknown) => {
+            if ((e as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT') {
+                this.logger.warn(`Failed to delete stale file '${filePath}': ${util.format(e)}`);
             }
-        }));
+        })));
     }
 
     // Where the project's Cobertura report may appear, most preferred first.
@@ -763,36 +770,63 @@ export class CeedlingEngine {
         return (project.state.coverage?.coberturaReports ?? []).map((report) => this.paths.resolve(project.absPath, project.state.buildRoot, report));
     }
 
-    // A build that fails before its report step would otherwise leave the last run's report to be
-    // read as this one's. Coverage tools also report every counter on disk, so counters from earlier
-    // runs are cleared before the request's first build in this directory, unless the user chose to
-    // accumulate them. ReportGenerator reads the .gcov files the plugin writes from the counters.
+    // Clears what earlier runs left: stale Cobertura reports before every coverage build, and the
+    // build directory's coverage counters before the request's first build there. A failed build
+    // would otherwise leave the last run's report to be read as this one's, and the tools report
+    // every counter on disk. The counters stay when the user chose to accumulate them.
     private async prepareCoverage(project: LoadedProject, run: CoverageRun): Promise<void> {
         await this.deleteStale(this.coberturaPaths(project));
-        const counters = this.paths.resolve(project.absPath, project.state.buildRoot, 'gcov', 'out');
-        const key = pathKey(counters, this.platform);
-        if (project.state.coverage === undefined || run.resetDirectories.has(key) || !this.getConfiguration().get<boolean>('coverageResetsCounters', true)) {
+        const key = pathKey(this.countersDirectory(project), this.platform);
+        if (project.state.coverage === undefined || run.resetDirectories.has(key) || !this.resetsCounters()) {
             return;
         }
         run.resetDirectories.add(key);
-        const files = await this.reads.run(() => this.fs.listFiles(counters));
-        await this.deleteStale(files.filter((file) => /\.(gcda|gcov)$/.test(file)));
+        await this.deleteCounters(project, () => true);
+    }
+
+    // Clears one test file's counters, under its own directory of gcov/out, before a whole-file run
+    // repeats the tests its filtered run just counted.
+    private async clearTestCounters(project: LoadedProject, file: CeedlingFileNode): Promise<void> {
+        if (this.resetsCounters()) {
+            const name = this.paths.basename(file.id).replace(/\.[^.]*$/, '');
+            await this.deleteCounters(project, (segments) => segments.includes(name));
+        }
+    }
+
+    private resetsCounters(): boolean {
+        return this.getConfiguration().get<boolean>('coverageResetsCounters', true);
+    }
+
+    private countersDirectory(project: LoadedProject): string {
+        return this.paths.resolve(project.absPath, project.state.buildRoot, 'gcov', 'out');
+    }
+
+    // Deletes gcov's counters (.gcda) and ReportGenerator's .gcov inputs, which gcov writes from them,
+    // wherever `within` accepts the file's directories beneath gcov/out.
+    private async deleteCounters(project: LoadedProject, within: (segments: string[]) => boolean): Promise<void> {
+        const directory = this.countersDirectory(project);
+        const files = await this.reads.run(() => this.fs.listFiles(directory));
+        await this.deleteStale(files.filter((file) =>
+            /\.(gcda|gcov)$/.test(file) && within(this.paths.relative(directory, this.paths.dirname(file)).split(/[\\/]/))));
+    }
+
+    // Why a project can't give coverage at all, or undefined when it can.
+    private coverageConfigurationProblem(project: LoadedProject): string | undefined {
+        const coverage = project.state.coverage;
+        return coverage === undefined
+            ? `Ceedling project '${project.key}' doesn't enable the gcov plugin, so its tests ran without coverage.`
+            : coverageProblem(project.key, coverage);
     }
 
     // The first Cobertura report present, with each file at its candidate path that exists. Ceedling
     // runs the coverage tools in the project directory, which relative report paths start from.
     private async readCoverage(project: LoadedProject): Promise<CoverageOutcome> {
-        const coverage = project.state.coverage;
-        if (coverage === undefined) {
-            return { kind: 'missing', message: `Ceedling project '${project.key}' doesn't enable the gcov plugin, so its tests ran without coverage.` };
-        }
-        const problem = coverageProblem(project.key, coverage);
+        const problem = this.coverageConfigurationProblem(project);
         if (problem !== undefined) {
             return { kind: 'missing', message: problem };
         }
         const reportPaths = this.coberturaPaths(project);
-        const present = await Promise.all(reportPaths.map((reportPath) => this.fs.exists(reportPath)));
-        const reportPath = reportPaths.find((_, i) => present[i]);
+        const reportPath = await this.firstPresent(reportPaths);
         if (reportPath === undefined) {
             return {
                 kind: 'missing',
@@ -802,22 +836,25 @@ export class CeedlingEngine {
         }
         try {
             const report = await parseCoberturaReport(await this.reads.run(() => this.fs.readFile(reportPath)));
+            // A file keeps its candidate that exists, else its first. A sole candidate needs no check.
             const files = await Promise.all(reportedFiles(report, project.absPath, this.paths).map(async ({ candidates, lines, functions }) =>
-                ({ path: await this.firstExisting(candidates), lines, functions })));
+                ({ path: (candidates.length > 1 ? await this.firstPresent(candidates) : undefined) ?? candidates[0] ?? '', lines, functions })));
+            if (files.length === 0) {
+                return {
+                    kind: 'missing',
+                    message: `The coverage report '${reportPath}' covers no source files. gcovr reports only sources beneath :gcov: ↳ :gcovr: ↳ :report_root:, ` +
+                        `the project directory by default.`,
+                };
+            }
             return { kind: 'report', path: reportPath, files };
         } catch (e) {
             return { kind: 'missing', message: `Could not read the coverage report '${reportPath}': ${util.format(e)}` };
         }
     }
 
-    // The first path that exists, else the first. A sole candidate needs no check.
-    private async firstExisting(candidates: string[]): Promise<string> {
-        const [first = ''] = candidates;
-        if (candidates.length < 2) {
-            return first;
-        }
-        const present = await Promise.all(candidates.map((candidate) => this.fs.exists(candidate)));
-        return candidates.find((_, i) => present[i]) ?? first;
+    private async firstPresent(filePaths: string[]): Promise<string | undefined> {
+        const present = await Promise.all(filePaths.map((filePath) => this.fs.exists(filePath)));
+        return filePaths.find((_, i) => present[i]);
     }
 
     // The newer report, when a run such as `test:x gcov:x` wrote both.
@@ -850,12 +887,21 @@ export class CeedlingEngine {
     // where Ceedling accepts one, which tells same-named files apart, else its name alone.
     // `testCaseFilter` appends Ceedling's --test-case flag, which enables the runner's command-line
     // arguments itself.
-    // A coverage run in a project with the gcov plugin uses `coverageCommandArgs`. Ceedling's gcov:
-    // task takes only a bare file name, whatever the Ceedling version: it prefixes test_ to what
-    // it's given. Reports deferred to the report:gcov task are generated in the same run.
+    // A coverage run in a project with the gcov plugin uses `coverageCommandArgs`. Before 1.2.1,
+    // Ceedling's gcov: task prepends the test file prefix to a name lacking it, so it takes only the
+    // bare file name, which can't tell same-named test files apart. Reports deferred to the
+    // report:gcov task are generated in the same run.
     private commandArgs(project: LoadedProject, testId: string, mode: RunMode, testCaseFilter?: string): string[] {
         const coverage = mode.kind === 'coverage' ? project.state.coverage : undefined;
-        const testFile = project.capabilities.pathQualifiedTestTasks && !coverage ? testId : testId.replace(/^.*[\\/]/, '');
+        const byPath = coverage ? project.capabilities.pathQualifiedCoverageTasks : project.capabilities.pathQualifiedTestTasks;
+        const testFile = byPath ? testId : this.paths.basename(testId.replace(/\\/g, '/'));
+        if (coverage && !byPath) {
+            const namesakes = project.files.filter((f) => f.id !== testId && this.paths.basename(f.id.replace(/\\/g, '/')) === testFile);
+            if (namesakes.length > 0) {
+                this.logger.warn(`A coverage run of '${testId}' names it '${testFile}', which Ceedling before 1.2.1 can't tell apart from ` +
+                    `${namesakes.map((f) => `'${f.id}'`).join(', ')}. Ceedling may run the other file.`);
+            }
+        }
         const args = this.getConfiguration()
             .get<string[]>(coverage ? 'coverageCommandArgs' : 'testCommandArgs', [coverage ? 'gcov:${TEST_ID}' : 'test:${TEST_ID}'])
             .map((arg) => arg.replaceAll('${TEST_ID}', testFile));

@@ -44,7 +44,7 @@ The probe's Ceedling project has `src/Calculator.c` inside it and `../lib/Clamp.
 - `filename.yml` renames gcovr's report.
 - `task.yml` defers reports to the `report:gcov` task.
 
-The output's `versions.txt` names the gcovr and ReportGenerator versions, which name the fixture directories. The first capture used gcovr 7.2 and ReportGenerator 5.5.11. With its default `:report_root: "."`, gcovr 7.2 leaves `../lib/Clamp.c` out of its report. ReportGenerator includes it.
+[`reportgenerator-5.5.11/artifacts-listing.txt`](reportgenerator-5.5.11/artifacts-listing.txt) lists the files each variant left under `build/artifacts/gcov`, showing where each tool writes its report. The output's `versions.txt` names the gcovr and ReportGenerator versions, which name the fixture directories. The first capture used gcovr 7.2 and ReportGenerator 5.5.11. With its default `:report_root: "."`, gcovr 7.2 leaves `../lib/Clamp.c` out of its report. ReportGenerator includes it.
 
 ## Golden reports
 
