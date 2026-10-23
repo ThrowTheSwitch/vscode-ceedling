@@ -38,12 +38,6 @@ export class Logger {
         this.channel.error(message);
     }
 
-    public showInfo(...args: unknown[]) {
-        const message = this.format(...args);
-        this.info(message);
-        vscode.window.showInformationMessage(message);
-    }
-
     public showWarning(...args: unknown[]) {
         const message = this.format(...args);
         this.warn(message);
