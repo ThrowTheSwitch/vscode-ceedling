@@ -110,9 +110,9 @@ export class CeedlingTestController {
         }
     }
 
-    // Whether the Testing view offers Run with Coverage for this folder.
-    get offersCoverage(): boolean {
-        return this.coverageProfile !== undefined;
+    // The Coverage profile, while the Testing view offers Run with Coverage for this folder.
+    get coverageRunProfile(): vscode.TestRunProfile | undefined {
+        return this.coverageProfile;
     }
 
     async clean(): Promise<void> {

@@ -220,3 +220,15 @@ suite('readCoberturaReport (gcovr 7.2)', () => {
             [[['/probe/project/src/Calculator.c'], [[3, 1], [5, 1], [8, 0], [10, 0]], []]]);
     });
 });
+
+suite('readCoberturaReport (incomplete data)', () => {
+    const one = (line: string) => readCoberturaReport({ coverage: { packages: { package: { classes: { class: { $: { filename: 'a.c' }, lines: { line: { $: JSON.parse(line) } } } } } } } });
+
+    test('a branch line without condition-coverage has no branch outcomes', () => {
+        assert.deepStrictEqual(one('{"number":"4","hits":"1","branch":"true"}').files[0].lines, [{ line: 4, hits: 1, branches: [] }]);
+    });
+
+    test('a line without a number or hit count is left out', () => {
+        assert.deepStrictEqual(one('{"number":"4"}').files[0].lines, []);
+    });
+});

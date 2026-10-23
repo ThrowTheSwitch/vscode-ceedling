@@ -1266,6 +1266,38 @@ suite('CeedlingEngine coverage', () => {
         assert.ok(!world.files.has(counters[0]), 'a new run clears them again');
     });
 
+    // The fallback's counters add to the first attempt's, which ran the same tests' file.
+    test("a function run's whole-file fallback keeps the counters its first attempt produced", async () => {
+        const world = coverageWorld();
+        const counter = `${WS}/build/gcov/out/test_calc/calc.gcda`;
+        world.handlers.unshift((command) => /--test-case/.test(command)
+            ? { writes: { ...world.reportWrite(cppunit({ passed: ['test/test_calc.c::test_add', 'test/test_calc.c::test_add_more'] }), 'build', 'gcov'), [counter]: '' } }
+            : undefined);
+        const { engine, file } = await discovered(world);
+        await engine.runFunction('default', file, file.functions[0], recordingReporter(), token(), coverageMode());
+        assert.deepStrictEqual(world.commandsMatching(/^ceedling gcov:/), [
+            `ceedling gcov:test_calc.c --test-case=test_add --force-test-rerun ${PROJECT_ARGS}`,
+            `ceedling gcov:test_calc.c --force-test-rerun ${PROJECT_ARGS}`,
+        ]);
+        assert.ok(world.files.has(counter));
+    });
+
+    test('each build directory has its counters cleared once per run', async () => {
+        const world = coverageWorld();
+        for (const dir of ['a', 'b']) {
+            world.directories.add(`${WS}/${dir}`);
+            world.write(`${WS}/${dir}/project.yml`, ':project: {}\n');
+            world.write(`${WS}/${dir}/build/gcov/out/test_calc/calc.gcda`, '');
+        }
+        const { engine, projects } = await discovered(world, { settings: { projects: ['a', 'b'].map((dir) => ({ path: dir, debugLaunchConfig: 'dbg' })) } });
+        const mode = coverageMode();
+        for (const project of projects) {
+            // eslint-disable-next-line no-await-in-loop -- one project after the other, as a run plan does
+            await engine.runProjectAll(project.projectKey, project.files, recordingReporter(), token(), mode);
+        }
+        assert.deepStrictEqual(['a', 'b'].filter((dir) => world.files.has(`${WS}/${dir}/build/gcov/out/test_calc/calc.gcda`)), []);
+    });
+
     test('counters accumulate across runs when the setting says so', async () => {
         const world = coverageWorld();
         const { engine, file } = await discovered(world, { settings: { coverageResetsCounters: false } });
