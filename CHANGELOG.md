@@ -9,6 +9,7 @@ This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 ## ⚠️ Changed
 
 * Project configuration is now resolved with Ceedling’s own `ceedling dumpconfig` instead of the extension parsing and merging `project.yml` (and any mixin) itself. This reflects Ceedling’s actual merge — plugin defaults included — rather than a parallel one the extension maintained on its own.
+* Dropped erroneous recognition of `:unity` ↳ `:test_prefix` from project configuration processing and the Unity compilation define sniffing that was used to select it. These were never real Ceedling options; the only supported way to change the test-case function prefix is `:test_runner` ↳ `:test_prefix`, which this extension continues to support unchanged.
 
 ## 🌟 Added
 

@@ -12,9 +12,13 @@ Project configuration is now resolved with Ceedling’s own `ceedling dumpconfig
 
 The `report_tests_log_factory` plugin’s `cppunit` report, which the Testing view depends on to read results, is now enabled automatically via a mixin bundled with the extension. Manually editing `project.yml` to enable it is no longer necessary. New `ceedlingExplorer.mixins` and `ceedlingExplorer.projects[].mixins` settings expose Ceedling’s own mixin mechanism directly, for anyone who wants to layer toolchain targets, CI overrides, or other configuration. See [Mixins](../README.md#mixins).
 
+`:unity: :test_prefix:` was never a real Ceedling setting — a misunderstanding inherited from the original extension — and is no longer read. If you want to change the recognized prefix of test-case functions, set `:test_runner: :test_prefix:`, which Ceedling actually supports.
+
 ## 🚨 Important Changes
 
-None — existing `project.yml` files that already enable `report_tests_log_factory` themselves continue to work unchanged; the extension’s mixin is additive.
+Existing `project.yml` files that already enable `report_tests_log_factory` themselves continue to work unchanged; the extension’s mixin is additive.
+
+If a `project.yml` set `:unity: :test_prefix:` *and* also passed `-UNITY_SKIP_DEFAULT_RUNNER` or `-RUN_TEST` as a Unity define expecting it to be ignored in favor of `:test_runner: :test_prefix:`, behavior is now simpler and more predictable: `:test_runner: :test_prefix:` is always what's used, with no define-sniffing. Projects using only `:test_runner: :test_prefix:` (the real, documented setting) are unaffected.
 
 ---
 
