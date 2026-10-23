@@ -1,6 +1,6 @@
 import * as assert from 'assert';
-import { buildRunPlan, PlanTarget, RunPlanEntry } from '../../src/runPlan';
-import { CeedlingFileNode, CeedlingProjectNode } from '../../src/testModel';
+import { buildRunPlan, type PlanTarget, type RunPlanEntry } from '../../src/runPlan';
+import { type CeedlingFileNode, type CeedlingProjectNode } from '../../src/testModel';
 
 function file(projectKey: string, id: string, functions: Array<string | [string, string[]]>): CeedlingFileNode {
     return {

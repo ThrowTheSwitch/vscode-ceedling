@@ -42,13 +42,22 @@ suite('SingleFlight', () => {
     test('every caller resolves only after the run that covers its request', async () => {
         const work = gatedWork();
         const flight = new SingleFlight(work.run);
-        flight.run();
+        void flight.run();
         let lateDone = false;
-        flight.run().then(() => { lateDone = true; });
+        void flight.run().then(() => { lateDone = true; });
         await work.releaseNext();
         assert.strictEqual(lateDone, false);
         await work.releaseNext();
         assert.strictEqual(lateDone, true);
+    });
+
+    // A rejection may carry any reason, undefined included, and must still reach the caller.
+    test('a run rejecting with undefined still rejects its callers', async () => {
+        // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- the case under test
+        const flight = new SingleFlight(() => Promise.reject(undefined));
+        let rejected = false;
+        await flight.run().catch(() => { rejected = true; });
+        assert.strictEqual(rejected, true);
     });
 
     test('a failed run rejects its callers, and the next request runs again', async () => {

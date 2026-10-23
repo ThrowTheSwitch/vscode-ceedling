@@ -1,6 +1,6 @@
 import util from 'util';
 import vscode from 'vscode';
-import { LogLevel, LogOutputChannel } from 'vscode';
+import { LogLevel, type LogOutputChannel } from 'vscode';
 
 // Writes to the "Ceedling Explorer" log output channel, created on first use. Its level follows
 // VS Code's own log level setting for the channel.

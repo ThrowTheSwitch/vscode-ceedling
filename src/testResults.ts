@@ -26,26 +26,31 @@ export async function parseCppUnitReport(text: string): Promise<CppUnitReport> {
 // for a category holding one <Test>, and an empty string for a self-closing empty category. Both
 // become lists here. Throws when there is no <TestRun> at all.
 export function readCppUnitReport(parsedXml: unknown): CppUnitReport {
-    const testRun = (parsedXml as { TestRun?: Record<string, unknown> } | undefined)?.TestRun;
+    const testRun = field(parsedXml, 'TestRun');
     if (typeof testRun !== 'object' || testRun === null) {
         throw new Error('The CppUnit report has no <TestRun> element.');
     }
     return {
-        passed: category(testRun, 'SuccessfulTests').map((test) => ({ name: text(test.Name) })),
+        passed: category(testRun, 'SuccessfulTests').map((test) => ({ name: text(field(test, 'Name')) })),
         failed: category(testRun, 'FailedTests').map((test) => {
-            const line = parseInt(text((test.Location as Record<string, unknown> | undefined)?.Line), 10);
-            return { name: text(test.Name), message: text(test.Message), line: Number.isFinite(line) ? line - 1 : undefined };
+            const line = parseInt(text(field(field(test, 'Location'), 'Line')), 10);
+            return { name: text(field(test, 'Name')), message: text(field(test, 'Message')), line: Number.isFinite(line) ? line - 1 : undefined };
         }),
-        ignored: category(testRun, 'IgnoredTests').map((test) => ({ name: text(test.Name) })),
+        ignored: category(testRun, 'IgnoredTests').map((test) => ({ name: text(field(test, 'Name')) })),
     };
 }
 
-function category(testRun: Record<string, unknown>, name: string): Array<Record<string, unknown>> {
-    const tests = (testRun[name] as { Test?: unknown } | undefined)?.Test;
+function category(testRun: object, name: string): unknown[] {
+    const tests = field(field(testRun, name), 'Test');
     if (tests === undefined || tests === null) {
         return [];
     }
-    return (Array.isArray(tests) ? tests : [tests]) as Array<Record<string, unknown>>;
+    return Array.isArray(tests) ? tests : [tests];
+}
+
+// The value at `key` when `value` is an object, else undefined. Parsed XML is untyped.
+function field(value: unknown, key: string): unknown {
+    return typeof value === 'object' && value !== null ? (value as Record<string, unknown>)[key] : undefined;
 }
 
 function text(value: unknown): string {

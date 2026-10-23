@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parseCppUnitReport } from '../../src/testResults';
-import { DiscoveredTest, discoverTests, expandRubyRange, rubyFloatToString } from '../../src/unityTestDiscovery';
+import { type DiscoveredTest, discoverTests, expandRubyRange, rubyFloatToString } from '../../src/unityTestDiscovery';
 
 // Ceedling names every test with Unity's runner generator (auto/generate_test_runner.rb), and
 // the Testing view can only show a result whose name matches a discovered item. These tests pin

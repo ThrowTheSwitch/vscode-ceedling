@@ -63,9 +63,11 @@ export default defineConfig(
         },
     },
     {
-        // Test doubles cast deliberately, and tests assert on values they know exist.
+        // Test doubles cast deliberately, implement async interfaces without awaiting, and tests
+        // assert on values they know exist.
         files: ['tests/**/*.ts'],
         rules: {
+            '@typescript-eslint/require-await': 'off',
             '@typescript-eslint/no-explicit-any': 'off',
             '@typescript-eslint/no-non-null-assertion': 'off',
             '@typescript-eslint/no-unsafe-argument': 'off',

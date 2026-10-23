@@ -2,7 +2,6 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as semver from 'semver';
-import * as xml2js from 'xml2js';
 import {
     buildFileLabelRegex,
     buildTestLabelRegex,
@@ -12,6 +11,7 @@ import {
     parseFileListBullets,
     testCaseFilterMatchedExactly,
 } from '../../src/ceedlingOutputParsing';
+import { parseCppUnitReport } from '../../src/testResults';
 
 // Fixtures stay in the source tree. Compiled tests run from out/tests/unit, three levels below.
 const fixturesRoot = path.resolve(__dirname, '..', '..', '..', 'tests', 'fixtures');
@@ -62,7 +62,7 @@ suite('parseCeedlingVersionString', () => {
         const stdout = readFixture('ceedling-1.1.0', 'version-stdout.txt');
         const version = parseCeedlingVersionString(stdout);
         assert.strictEqual(version, '1.1.0-5bbbc8f');
-        assert.strictEqual(semver.lt(version!, '1.0.0'), false);
+        assert.strictEqual(semver.lt(version, '1.0.0'), false);
     });
 
     test('returns undefined when no "Ceedling => x.y.z" line is present', () => {
@@ -75,7 +75,7 @@ suite('buildFileLabelRegex / buildTestLabelRegex', () => {
         const regex = buildFileLabelRegex('test_');
         const match = regex.exec('test/test_calculator.c');
         assert.ok(match);
-        assert.strictEqual(match![1], 'calculator');
+        assert.strictEqual(match[1], 'calculator');
     });
 
     test('buildFileLabelRegex labels a file at the project root and one under backslashes', () => {
@@ -94,7 +94,7 @@ suite('buildFileLabelRegex / buildTestLabelRegex', () => {
         const regex = buildTestLabelRegex('test|spec|should');
         const match = regex.exec('test_add_should_ReturnSum');
         assert.ok(match);
-        assert.strictEqual(match![1], 'add_should_ReturnSum');
+        assert.strictEqual(match[1], 'add_should_ReturnSum');
     });
 });
 
@@ -143,18 +143,11 @@ suite('testCaseFilterMatchedExactly', () => {
 });
 
 suite('extractGdbLogReference', () => {
-    function parseXml(xmlText: string): Promise<any> {
-        const parser = new xml2js.Parser({ explicitArray: false });
-        return new Promise((resolve, reject) => {
-            parser.parseString(xmlText, (error: any, result: any) => error ? reject(error) : resolve(result));
-        });
-    }
-
     // Captured from Ceedling 1.1.0 with :use_backtrace: :gdb, for a test dereferencing null.
     test('splits a real Ceedling 1.1.0 :use_backtrace: :gdb crash message', async () => {
         const xmlText = readFixture('ceedling-1.1.0', 'cppunit-report-crash.xml');
-        const parsed = await parseXml(xmlText);
-        const message = parsed.TestRun.FailedTests.Test.Message;
+        const [crash] = (await parseCppUnitReport(xmlText)).failed;
+        const message = crash.message;
 
         const { text, logPath } = extractGdbLogReference(message);
         assert.strictEqual(logPath, 'build/logs/test/test_calculator/test_should_crash.gdb.log');

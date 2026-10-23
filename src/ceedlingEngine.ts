@@ -27,24 +27,24 @@ import {
     parseFileListBullets,
     testCaseFilterMatchedExactly,
 } from './ceedlingOutputParsing';
-import { buildCommandLine, Cancellation, CeedlingResult, CeedlingRunner } from './ceedlingProcess';
+import { buildCommandLine, type Cancellation, type CeedlingResult, CeedlingRunner } from './ceedlingProcess';
 import {
     ALTERNATE_DEFAULT_PROJECT_FILE,
     capabilitiesOf,
-    CeedlingCapabilities,
+    type CeedlingCapabilities,
     CeedlingLoadError,
-    CeedlingProject,
+    type CeedlingProject,
     DEFAULT_CPPUNIT_REPORT_FILENAME,
     DEFAULT_PROJECT_FILE,
-    ProjectSetting,
-    ProjectState,
+    type ProjectSetting,
+    type ProjectState,
     projectState,
     projectsFromSettings,
 } from './ceedlingProjectConfig';
 import type { Logger } from './logger';
-import type { FileDiagnostic, ProblemMatcher, ProblemMatchingPattern } from './problemMatcher';
-import { allIds, CeedlingFileNode, CeedlingProjectNode, CeedlingTestFunction, leafIds, RunReporter } from './testModel';
-import { CppUnitReport, parseCppUnitReport, reportedNames, testResults } from './testResults';
+import type { FileDiagnostic, ProblemMatcher } from './problemMatcher';
+import { allIds, type CeedlingFileNode, type CeedlingProjectNode, type CeedlingTestFunction, leafIds, type RunReporter } from './testModel';
+import { type CppUnitReport, parseCppUnitReport, reportedNames, testResults } from './testResults';
 import { discoverTests } from './unityTestDiscovery';
 
 export { CeedlingLoadError } from './ceedlingProjectConfig';
@@ -381,8 +381,8 @@ export class CeedlingEngine {
         const result = await this.ceedling(['version'], { cwd: project.absPath });
         const reported = parseCeedlingVersionString(result.stdout);
         const version = reported === undefined ? null : semver.coerce(reported);
-        this.logger.debug(`checkCeedlingVersion(${project.key}): ${reported}`);
-        if (version === null) {
+        this.logger.debug(`checkCeedlingVersion(${project.key}): ${reported ?? 'none'}`);
+        if (reported === undefined || version === null) {
             throw new CeedlingLoadError(
                 `Could not run 'ceedling version' for project '${project.key}'. Check that Ceedling is installed and runs ` +
                 `in the configured shell (ceedlingExplorer.shellPath).\n${result.stdout}\n${result.stderr}`
@@ -394,13 +394,13 @@ export class CeedlingEngine {
                 `${MINIMUM_CEEDLING_VERSION} or higher. Please upgrade your Ceedling installation.`
             );
         }
-        return reported!;
+        return reported;
     }
 
     // The project's fully merged configuration, from Ceedling itself: project file, mixins, and
     // plugin defaults, as a real build sees them. Ceedling 1.2.0 can write it to stdout. Earlier
     // versions write only to a file, so this goes through a uniquely named temporary file.
-    private async resolveConfig(project: CeedlingProject, capabilities: CeedlingCapabilities): Promise<unknown | undefined> {
+    private async resolveConfig(project: CeedlingProject, capabilities: CeedlingCapabilities): Promise<unknown> {
         if (capabilities.dumpconfigStdout) {
             const result = await this.ceedling(['dumpconfig', '--stdout'], { project });
             if (result.error) {
@@ -461,7 +461,9 @@ export class CeedlingEngine {
         const options = { testPrefix: project.state.testPrefix, useParamTests: project.state.useParamTests };
         const testLabel = pretty.tests ? this.labelRegex(() => buildTestLabelRegex(project.state.testPrefix)) : undefined;
         const fileLabel = pretty.files ? this.labelRegex(() => buildFileLabelRegex(project.state.testFilePrefix)) : undefined;
-        const label = (regex: RegExp | undefined, text: string) => (regex && regex.exec(text)?.[1]) || text;
+        // `||`, not `??`: an empty capture, such as a file named only by its prefix, keeps the full text.
+        // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- see above
+        const label = (regex: RegExp | undefined, text: string) => regex?.exec(text)?.[1] || text;
         const nodes: CeedlingFileNode[] = [];
         for (const file of files) {
             const absPath = this.paths.resolve(project.absPath, file);
@@ -470,7 +472,7 @@ export class CeedlingEngine {
                 discovered = discoverTests(source ?? await this.fs.readFile(absPath), options);
             } catch (e) {
                 // An unreadable file, or a :test_runner: :test_prefix: that isn't a valid regex.
-                this.logger.warn(`testFileNodes: skipping '${absPath}' (test prefix '${options.testPrefix}'): ${e}`);
+                this.logger.warn(`testFileNodes: skipping '${absPath}' (test prefix '${options.testPrefix}'): ${util.format(e)}`);
                 continue;
             }
             for (const warning of discovered.warnings) {
@@ -497,7 +499,7 @@ export class CeedlingEngine {
         try {
             return build();
         } catch (e) {
-            this.logger.warn(`Pretty labels are unavailable: ${e}`);
+            this.logger.warn(`Pretty labels are unavailable: ${util.format(e)}`);
             return undefined;
         }
     }
@@ -557,7 +559,8 @@ export class CeedlingEngine {
         const diagnostics = this.problemMatcher.match(
             result.stdout, result.stderr, project.absPath,
             config.get<string>('problemMatching.mode', 'disabled'),
-            config.get<ProblemMatchingPattern[]>('problemMatching.patterns', []),
+            // Untyped user JSON. ProblemMatcher validates each pattern.
+            config.get<unknown[]>('problemMatching.patterns', []),
         );
         if (scope.kind === 'project') {
             this.problemMatcher.retainIds((id) => !id.startsWith(`${project.key}::`));
@@ -608,7 +611,7 @@ export class CeedlingEngine {
     // here, so each trailing part of the file's directory is tried, and the newest build wins.
     private executableSubpath(project: LoadedProject, file: CeedlingFileNode): string {
         const segments = file.id.split(/[\\/]/);
-        const name = segments.pop()!.replace(/\.[^.]*$/, '');
+        const name = (segments.pop() ?? file.id).replace(/\.[^.]*$/, '');
         const executable = `${name}/${name}${project.state.executableExtension}`;
         const outputDirectory = this.paths.resolve(project.absPath, project.state.buildRoot, 'test', 'out');
         const [newest] = segments
@@ -656,6 +659,7 @@ export class CeedlingEngine {
         return this.exclusive(async () => {
             let succeeded = true;
             for (const project of this.candidates) {
+                // eslint-disable-next-line no-await-in-loop -- one project at a time, under the build mutex
                 const result = await this.ceedling(args, { project, cancellation: token });
                 succeeded = succeeded && !result.error;
             }

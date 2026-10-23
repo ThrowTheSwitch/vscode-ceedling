@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as xml2js from 'xml2js';
-import { CppUnitReport, parseCppUnitReport, readCppUnitReport, reportedNames, testResults } from '../../src/testResults';
+import { type CppUnitReport, parseCppUnitReport, readCppUnitReport, reportedNames, testResults } from '../../src/testResults';
 
 const fixturesRoot = path.resolve(__dirname, '..', '..', '..', 'tests', 'fixtures');
 

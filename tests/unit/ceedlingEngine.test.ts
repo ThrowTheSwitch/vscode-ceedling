@@ -1,14 +1,14 @@
 import * as assert from 'assert';
-import * as child_process from 'child_process';
+import type * as child_process from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import type vscode from 'vscode';
-import { CeedlingEngine, EngineFileSystem } from '../../src/ceedlingEngine';
-import { Cancellation, CeedlingRunner } from '../../src/ceedlingProcess';
+import { CeedlingEngine, type EngineFileSystem } from '../../src/ceedlingEngine';
+import { type Cancellation, CeedlingRunner } from '../../src/ceedlingProcess';
 import { CeedlingLoadError } from '../../src/ceedlingProjectConfig';
 import type { Logger } from '../../src/logger';
 import type { FileDiagnostic, ProblemMatcher } from '../../src/problemMatcher';
-import { CeedlingFileNode, CeedlingProjectNode, leafIds, RunReporter } from '../../src/testModel';
+import { type CeedlingFileNode, type CeedlingProjectNode, leafIds, type RunReporter } from '../../src/testModel';
 
 // Drives CeedlingEngine against a simulated Ceedling: an in-memory filesystem, and an exec double
 // that answers each Ceedling command the way the real one does. See FakeCeedling below. Tests
@@ -65,7 +65,7 @@ class FakeCeedling {
         const exec = ((command: string, options: child_process.ExecOptions, callback: any) => {
             const cwd = String(options.cwd);
             this.commands.push({ command, cwd });
-            Promise.resolve(this.reply(command, cwd)).then((reply) => {
+            void Promise.resolve(this.reply(command, cwd)).then((reply) => {
                 for (const [file, content] of Object.entries(reply.writes ?? {})) this.write(file, content);
                 callback(reply.error ? new Error(`exit 1: ${command}`) : null, reply.stdout ?? '', reply.stderr ?? '');
             });

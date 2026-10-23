@@ -9,14 +9,14 @@ export function parseFileListBullets(stdout: string): string[] {
     return stdout.replace(/\r\n?/g, '\n').split('\n')
         .map((line) => /^\s*[-•*]\s+(.*)$/.exec(line))
         .filter((match): match is RegExpExecArray => match !== null)
-        .map((match) => match[1].trim());
+        .map((match) => (match[1] ?? '').trim());
 }
 
 // The version in `ceedling version` stdout, e.g. "1.0.0" or a build's "1.1.0-5bbbc8f". undefined
 // when there is none. The caller decides what that means.
 export function parseCeedlingVersionString(stdout: string): string | undefined {
     const match = /^\s*Ceedling\s*(?:::|=>)\s*(.*)$/m.exec(stdout);
-    return match ? match[1].trim() : undefined;
+    return match?.[1]?.trim();
 }
 
 // Captures a test file's pretty label: its name after the configured prefix, without directory or
@@ -34,7 +34,7 @@ export function buildTestLabelRegex(testPrefix: string): RegExp {
 // The function name within a reported test name, without its file or parametrized arguments:
 // "test/foo.c::test_add(2, 3)" gives "test_add".
 export function extractTestFunctionName(reportedName: string): string {
-    const afterFile = reportedName.includes('::') ? reportedName.split('::').pop()! : reportedName;
+    const afterFile = reportedName.split('::').pop() ?? reportedName;
     const parenIndex = afterFile.indexOf('(');
     return parenIndex === -1 ? afterFile : afterFile.slice(0, parenIndex);
 }
@@ -52,7 +52,7 @@ export function testCaseFilterMatchedExactly(requestedFunctionName: string, repo
 // whole. That version embeds the gdb text in the message instead of writing a log.
 export function extractGdbLogReference(message: string): { text: string, logPath: string | undefined } {
     const match = message.match(/\n?\(([^()\n]+\.gdb\.log)\)\s*$/);
-    if (!match || match.index === undefined) {
+    if (match?.index === undefined) {
         return { text: message, logPath: undefined };
     }
     return { text: message.slice(0, match.index), logPath: match[1] };
