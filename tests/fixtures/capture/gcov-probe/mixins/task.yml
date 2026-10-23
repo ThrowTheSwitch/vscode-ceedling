@@ -1,0 +1,4 @@
+:gcov:
+  :report_task: TRUE
+  :reports:
+    - Cobertura
