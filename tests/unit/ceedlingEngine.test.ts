@@ -381,6 +381,7 @@ suite('getTestFileNodes: discovered ids equal real Ceedling report names', () =>
         test(`${version}: test_whitespace.c`, async () => {
             const engine = makeEngine();
             withProject(engine, 'proj', { absPath: path.resolve(fixturesRoot, 'source'), ymlFileName: 'project.yml' });
+            (engine as any).resolvedConfig = { proj: { ':unity': { ':use_param_tests': true } } };
             const [file] = Array.from((engine as any).getTestFileNodes('proj', ['test_whitespace.c']) as Iterable<CeedlingFileNode>);
             const report = await parseXmlFixture(version, 'cppunit-report-whitespace.xml');
             const reported = getTestListFromXmlReport(report, 'SuccessfulTests')
@@ -388,4 +389,27 @@ suite('getTestFileNodes: discovered ids equal real Ceedling report names', () =>
             assert.deepStrictEqual(leafIds(file), reported);
         });
     }
+});
+
+suite('getTestFileNodes: parametrized tests follow the resolved :unity: :use_param_tests:', () => {
+    function discoverParamFixture(resolvedConfig: any): CeedlingFileNode {
+        const engine = makeEngine();
+        withProject(engine, 'proj', { absPath: path.resolve(fixturesRoot, 'source'), ymlFileName: 'project.yml' });
+        (engine as any).resolvedConfig = { proj: resolvedConfig };
+        return Array.from((engine as any).getTestFileNodes('proj', ['test_param.c']) as Iterable<CeedlingFileNode>)[0];
+    }
+
+    test('enabled: each TEST_CASE is its own case', () => {
+        const file = discoverParamFixture({ ':unity': { ':use_param_tests': true } });
+        assert.deepStrictEqual(leafIds(file), [
+            'test_param.c::test_add_ParameterizedCases(2, 3, 5)',
+            'test_param.c::test_add_ParameterizedCases(10, -4, 6)',
+        ]);
+    });
+
+    // Ceedling's default. Unity then runs the function once, under its bare name.
+    test('disabled or absent: the function is a single test', () => {
+        assert.deepStrictEqual(leafIds(discoverParamFixture({ ':unity': { ':use_param_tests': false } })), ['test_param.c::test_add_ParameterizedCases']);
+        assert.deepStrictEqual(leafIds(discoverParamFixture({})), ['test_param.c::test_add_ParameterizedCases']);
+    });
 });

@@ -107,7 +107,7 @@ Click the refresh icon to re-discover after an edit.
 Run all test cases. Each shows its state.
 
 * `test_calculator.c`: Two pass. One fails. One is ignored. `test_add_should_HandleSpaceBeforeParen` has a space before its parameter list, and it still passes.
-* `test_calculator_parametrized.c`: All parameterized test cases pass.
+* `test_calculator_parametrized.c`: All parameterized test cases pass. `test_add_MatrixCases` lists four `TEST_MATRIX` cases. The commented-out `test_add_CommentedOut` does not appear.
 
 Click a single test’s gutter icon to run just that test. Ceedling still recompiles the whole file — `--test-case` narrows what runs and gets reported, not what gets built. A parametrized function’s cases always run together; Ceedling’s filter can isolate one function, not one case within it.
 
@@ -135,7 +135,7 @@ All steps run against [`tests/manual/`](../tests/manual/), opened as its own fol
 - [ ] **Clobber.** The Clobber button does a harder reset. It also succeeds.
 - [ ] **Problem matching.** A deliberate syntax error in `test_calculator.c` surfaces in the Problems panel. It squiggles at the error line. The Testing view’s own message for the erroring test shows the same compiler message, not a bare `stdout:` label. Revert the edit after.
 - [ ] **Settings change.** Toggle `ceedlingExplorer.prettyTestLabel` to `true` in `tests/manual/.vscode/settings.json`. Refresh. Labels shorten. No full window reload was needed.
-- [ ] **Parametrized test.** All cases in `test_calculator_parametrized.c` pass, on both Ceedling 1.0.0 and 1.1.0.
+- [ ] **Parametrized test.** All cases in `test_calculator_parametrized.c` pass, on Ceedling 1.0.0, 1.1.10, and 1.2.0. `test_add_MatrixCases` shows four cases. `test_add_CommentedOut` is not listed.
 - [ ] **Crash handling.** `test_should_crash` in `test_calculator_crash.c` shows as a failed test, at the exact crashing line, on both Ceedling 1.0.0 and 1.1.0.
 - [ ] **Crash log link.** With Ceedling 1.1.0 running on a platform that supports `gdb`, set `:use_backtrace:` ⇒ `:gdb` in `project.yml` and re-run `test_should_crash`. Its failure message ends with a clickable link to the gdb log file. Revert the setting after.
 - [ ] **Diagnostics don’t go stale.** Introduce a syntax error, run just `test_add_should_ReturnSum` alone from its gutter icon. Confirm the error appears in the Problems panel. Fix the error, then run the whole file (not that same test again). Confirm the Problems panel entry is gone.

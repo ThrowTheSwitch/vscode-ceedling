@@ -1,0 +1,20 @@
+# Minimal Ceedling project for capture.sh. Every file it is given lands in test/, where Ceedling
+# also finds a source file under test. :use_param_tests: is on so parametrized markers expand.
+---
+:project:
+  :name: "Capture"
+  :use_mocks: FALSE
+  :use_test_preprocessor: :none
+  :use_backtrace: :none
+  :build_root: build
+  :test_file_prefix: test_
+:plugins:
+  :enabled: []
+:paths:
+  :test:
+    - "+:test/**"
+  :source: []
+  :include: []
+:unity:
+  :use_param_tests: true
+...

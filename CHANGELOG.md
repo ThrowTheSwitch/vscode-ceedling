@@ -16,10 +16,16 @@ This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 * The `report_tests_log_factory` plugin’s `cppunit` report — the XML report this extension depends on — is now enabled automatically via a bundled [mixin](README.md#mixins). Manually enabling it in `project.yml` is no longer required.
 * New `ceedlingExplorer.mixins` and `ceedlingExplorer.projects[].mixins` settings expose Ceedling’s own mixin mechanism, so you can layer toolchain targets, CI overrides, or other configuration without hand-editing `project.yml`. See [Mixins](README.md#mixins).
 * A one-time warning notification when `project.yml` or a configured mixin sets a non-default CppUnit XML report filename, naming the project and the resolved filename.
+* Unity’s `TEST_MATRIX()` parametrized tests and exclusive `TEST_RANGE(<start, end, step>)` ranges now appear in the _Testing_ view as individual test cases.
 
 ## 💪 Fixed
 
 * A test declared with whitespace before its parameter list, such as `void test_example (void)`, no longer stays skipped after it passes. Test discovery names each test, and each padded `TEST_CASE( … )`, exactly as Ceedling’s test runner does ([#14](https://github.com/ThrowTheSwitch/vscode-ceedling/issues/14)).
+* Test discovery now follows Ceedling’s own test runner rules. Tests inside comments no longer appear in the _Testing_ view. Floating-point `TEST_RANGE()` cases carry the same names Ceedling reports. Parametrized cases appear only when `:unity` ↳ `:use_param_tests` is enabled.
+
+## 👋 Removed
+
+* The `ceedlingExplorer.testCaseMacroAliases` and `ceedlingExplorer.testRangeMacroAliases` settings. Ceedling recognizes only the literal `TEST_CASE`, `TEST_RANGE`, and `TEST_MATRIX` markers, so an alias could never produce cases Ceedling runs. See [BreakingChanges.md](docs/BreakingChanges.md).
 
 ---
 

@@ -16,9 +16,7 @@ import type vscode from 'vscode';
 import xml2js from 'xml2js';
 import {
     buildFileLabelRegex,
-    buildTestFunctionRegex,
     buildTestLabelRegex,
-    expandParametrizedTestCases,
     extractTestFunctionName,
     parseCeedlingVersionString,
     parseFileListBullets,
@@ -26,6 +24,7 @@ import {
 } from './ceedlingOutputParsing';
 import { getTestListFromXmlReport } from './ceedlingXmlReport';
 import { buildProjectArgs, quoteIfNeeded } from './ceedlingMixinArgs';
+import { discoverTests } from './unityTestDiscovery';
 // Type-only, same reasoning as the `vscode` import above: Logger and ProblemMatcher both have
 // real runtime vscode calls of their own (an output channel, a DiagnosticCollection). Importing
 // only their types keeps this file from pulling either module's code in at require-time. Callers
@@ -127,7 +126,6 @@ export class CeedlingEngine {
     private ceedlingMutex: Mutex = new Mutex();
 
     // mapped to the project key
-    private functionRegexps: Record<string, RegExp | undefined> = {};
     private fileLabelRegexps: Record<string, RegExp | undefined> = {};
     private testLabelRegexps: Record<string, RegExp | undefined> = {};
     private buildDirectories: Record<string, string> = {};
@@ -226,7 +224,6 @@ export class CeedlingEngine {
             this.logger.debug(`discover(projectKey=${projectKey}, resolvedConfig=${util.format(resolvedConfig)})`);
             this.setBuildDirectory(projectKey, resolvedConfig);
             this.setXmlReportPath(projectKey, resolvedConfig);
-            this.setFunctionRegex(projectKey, resolvedConfig);
             this.setFileLabelRegex(projectKey, resolvedConfig);
             this.setTestLabelRegex(projectKey, resolvedConfig);
         }
@@ -598,14 +595,6 @@ export class CeedlingEngine {
         return diagnostics.slice().sort((a, b) => a.diagnostic.severity - b.diagnostic.severity)[0];
     }
 
-    private getTestCaseMacroAliases(): Array<string> {
-        return this.getConfiguration().get<Array<string>>('testCaseMacroAliases', ['TEST_CASE']);
-    }
-
-    private getTestRangeMacroAliases(): Array<string> {
-        return this.getConfiguration().get<Array<string>>('testRangeMacroAliases', ['TEST_RANGE']);
-    }
-
     private getExecutableExtension(ymlProjectData: any = undefined) {
         let ext = process.platform == 'win32' ? '.exe' : '.out';
         if (ymlProjectData) {
@@ -700,13 +689,6 @@ export class CeedlingEngine {
         return testPrefix;
     }
 
-    private setFunctionRegex(projectKey: string, ymlProjectData: any = undefined) {
-        const testPrefix = this.getTestPrefix(ymlProjectData);
-        this.functionRegexps[projectKey] = buildTestFunctionRegex(
-            testPrefix, this.getTestCaseMacroAliases(), this.getTestRangeMacroAliases()
-        );
-    }
-
     private setBuildDirectory(projectKey: string, ymlProjectData: any = undefined) {
         let buildDirectory = 'build';
         if (ymlProjectData) {
@@ -747,13 +729,6 @@ export class CeedlingEngine {
             );
         }
         this.reportFilenames[projectKey] = reportFilename;
-    }
-
-    private getTestFunctionRegex(projectKey: string): RegExp {
-        if (!this.functionRegexps[projectKey]) {
-            this.setFunctionRegex(projectKey);
-        }
-        return this.functionRegexps[projectKey] as RegExp;
     }
 
     private setFileLabelRegex(projectKey: string, ymlProjectData: any = undefined) {
@@ -814,21 +789,15 @@ export class CeedlingEngine {
         return fileLabel;
     }
 
-    // Return a list of parameters from a given TEST_CASE/TEST_RANGE token string. An empty
-    // array if the test isn't parametrized.
-    private parseParametrizedTestCases(testCases: string): Array<{ args: string, line: number }> {
-        const result = expandParametrizedTestCases(testCases, this.getTestCaseMacroAliases(), this.getTestRangeMacroAliases());
-        this.logger.trace(`parseParametrizedTestCases: parsed ${result.length} case(s) from '${testCases}'`);
-        return result;
-    }
-
     private * getTestFileNodes(projectKey: string, files: string[]): Iterable<CeedlingFileNode> {
+        const resolvedConfig = this.resolvedConfig[projectKey];
+        const options = {
+            testPrefix: this.getTestPrefix(resolvedConfig),
+            // Ceedling's own default is false, and Unity then ignores every parametrization marker.
+            useParamTests: resolvedConfig?.[':unity']?.[':use_param_tests'] === true,
+        };
         for (const file of files) {
-            const projectPath = this.projectData[projectKey].absPath;
-            const absPath = path.resolve(projectPath, file);
-            const fileLabel = this.setFileLabel(projectKey, file);
-            const functions: CeedlingTestFunction[] = [];
-            const testRegex = this.getTestFunctionRegex(projectKey);
+            const absPath = path.resolve(this.projectData[projectKey].absPath, file);
             let fileText: string;
             try {
                 fileText = fs.readFileSync(absPath, 'utf8');
@@ -836,26 +805,28 @@ export class CeedlingEngine {
                 this.logger.warn(`getTestFileNodes: failed to read '${absPath}', skipping this file: ${e}`);
                 continue;
             }
-            let match = testRegex.exec(fileText);
-            while (match != null) {
-                const testCases = this.parseParametrizedTestCases(match[1]);
-                const testName = match[2];
-                const testLabel = this.setTestLabel(projectKey, testName);
-                let line = fileText.substr(0, match.index).split('\n').length - 1;
-                line = line + match[0].substr(0, match[0].search(/\S/g)).split('\n').length - 1;
-                functions.push({
-                    id: `${file}::${testName}`,
-                    label: testLabel,
-                    line,
-                    cases: testCases.map((testCase) => ({
-                        id: `${file}::${testName}(${testCase.args})`,
-                        label: testCase.args,
-                        line: line + testCase.line,
-                    })),
-                });
-                match = testRegex.exec(fileText);
+            let discovered: ReturnType<typeof discoverTests>;
+            try {
+                discovered = discoverTests(fileText, options);
+            } catch (e) {
+                // A malformed :test_runner: :test_prefix: fails here as an invalid regular expression.
+                this.logger.warn(`getTestFileNodes: failed to discover tests in '${absPath}' (test prefix '${options.testPrefix}'): ${e}`);
+                continue;
             }
-            yield { id: file, label: fileLabel, absPath, projectKey, functions };
+            for (const warning of discovered.warnings) {
+                this.logger.warn(`getTestFileNodes: '${file}': ${warning}`);
+            }
+            const functions: CeedlingTestFunction[] = discovered.tests.map((test) => ({
+                id: `${file}::${test.name}`,
+                label: this.setTestLabel(projectKey, test.name),
+                line: test.line,
+                cases: test.cases.map((testCase) => ({
+                    id: `${file}::${test.name}(${testCase.args})`,
+                    label: testCase.args,
+                    line: testCase.line,
+                })),
+            }));
+            yield { id: file, label: this.setFileLabel(projectKey, file), absPath, projectKey, functions };
         }
     }
 

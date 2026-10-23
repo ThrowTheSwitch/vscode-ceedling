@@ -4,6 +4,20 @@ Complemented by three other documents: [../CHANGELOG.md](../CHANGELOG.md), [Rele
 
 ---
 
+# [Unreleased]
+
+## Test case marker alias settings removed
+
+The `ceedlingExplorer.testCaseMacroAliases` and `ceedlingExplorer.testRangeMacroAliases` settings no longer exist. They never worked with Ceedling.
+
+`TEST_CASE`, `TEST_RANGE`, and `TEST_MATRIX` are markers, not working C macros. Unity defines them to expand to nothing. Ceedling’s test runner generator scans your test file’s text for these exact names and builds parametrized calls from their arguments. It recognizes no other name, so a marker spelled any other way is ignored and its function runs as an ordinary test. With test preprocessing enabled, an alias macro would also expand away before the scan.
+
+**What changes for you:**
+- Remove either setting from your `settings.json`. VS Code otherwise shows it as an unknown setting. Nothing else is affected.
+- Use the literal `TEST_CASE`, `TEST_RANGE`, or `TEST_MATRIX` markers in test files.
+
+---
+
 # [2.0.0] — 2026-08-31
 
 ## Native Testing API replaces the Test Explorer UI extension dependency

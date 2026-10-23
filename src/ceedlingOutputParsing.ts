@@ -1,4 +1,4 @@
-// Pure, `vscode`-free parsing helpers for Ceedling's stdout and test source text. Kept free of
+// Pure, `vscode`-free parsing helpers for Ceedling's stdout, report names, and test labels. Kept free of
 // any `vscode`/`child_process`/`fs` dependency so they can be unit-tested directly in plain Node
 // (see tests/unit/ceedlingOutputParsing.test.ts), without a real VS Code Extension Host.
 
@@ -26,52 +26,6 @@ export function parseCeedlingVersionString(stdout: string): string | undefined {
     const regex = new RegExp('^\\s*Ceedling\\s*(?:::|=>)\\s*(.*)(?:\\n)*$', 'gm');
     const match = regex.exec(stdout);
     return match ? match[1].trim() : undefined;
-}
-
-// Both the test-function regex and the parametrized-case expansion need the same alternation of
-// configured TEST_CASE/TEST_RANGE macro aliases; build it once here instead of independently.
-export function joinMacroAliases(testCaseAliases: string[], testRangeAliases: string[]): string {
-    return [...testCaseAliases, ...testRangeAliases].join('|');
-}
-
-// Builds the regex that finds each test function in a test file's source. Group 1 captures any
-// preceding block of TEST_CASE(...)/TEST_RANGE(...) lines. Group 2 captures the function name.
-// The name is the configured prefix plus identifier characters only, as in Unity's own runner
-// generator (auto/generate_test_runner.rb). Ceedling reports each test under that generator's
-// name, so whitespace before the parameter list or a one-line body never belongs to it.
-export function buildTestFunctionRegex(testPrefix: string, testCaseAliases: string[], testRangeAliases: string[]): RegExp {
-    const macroAliases = joinMacroAliases(testCaseAliases, testRangeAliases);
-    return new RegExp(
-        `^((?:\\s*(?:${macroAliases})\\s*\\(.*?\\)\\s*)*)\\s*void\\s+((?:${testPrefix})\\w*)\\s*\\(`,
-        'gm'
-    );
-}
-
-// Expands a captured TEST_CASE/TEST_RANGE macro-block token string (group 1 from
-// buildTestFunctionRegex's match) into a list of parameter sets - one per TEST_CASE, or one per
-// value in a TEST_RANGE's [start, end, increment]. Empty array if the test isn't parametrized.
-export function expandParametrizedTestCases(
-    testCasesToken: string, testCaseAliases: string[], testRangeAliases: string[]
-): Array<{ args: string, line: number }> {
-    const macroAliases = joinMacroAliases(testCaseAliases, testRangeAliases);
-    const regex = new RegExp(`\\s*(${macroAliases})\\s*\\((.*)\\)\\s*$`, 'gm');
-    return [...testCasesToken.matchAll(regex)]
-        .flatMap((x: any, i: number) => {
-            if (testCaseAliases.includes(x[1])) {
-                // Trimmed inside the parentheses, as Unity's generator does when naming the case.
-                return [{ args: x[2].trim(), line: i }]
-            } else {
-                return [...x[2].matchAll(/\[\s*(-?\d+.?\d*),\s*(-?\d+.?\d*),\s*(-?\d+.?\d*)\s*\]/gm)]
-                    .map((y) => [parseFloat(y[1]), parseFloat(y[2]), parseFloat(y[3])])
-                    .map(([start, end, inc]) => Array.from({ length: (end - start) / inc + 1 }, (_, j) => start + j * inc))
-                    // Seed the accumulator with a single empty combination so a lone range
-                    // clause still reduces into an array of arrays (fixes issue #3's
-                    // "a.join is not a function" crash when reduce() short-circuits on a
-                    // single-element input).
-                    .reduce((acc: any, y) => acc.flatMap((u: any) => y.map((v: any) => [u, v].flat())), [[]])
-                    .map((y: any) => { return { args: y.join(', '), line: i } })
-            }
-        });
 }
 
 // Builds the regex used to strip a configured test-file prefix (e.g. "test_") from a file path
