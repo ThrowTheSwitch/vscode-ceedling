@@ -3,6 +3,8 @@
 // function and `file::function(args)` for a parametrized case, matching the names in Ceedling's
 // reports.
 
+import { type CoverageReport } from './coberturaReport';
+
 export type CeedlingTestCase = { id: string, label: string, line: number };
 
 export type CeedlingTestFunction = {
@@ -24,6 +26,11 @@ export type CeedlingFileNode = {
 
 export type CeedlingProjectNode = { projectKey: string, label: string, files: CeedlingFileNode[] };
 
+// What a coverage run found: the report read, or why there is none to show.
+export type CoverageOutcome =
+    | ({ kind: 'report' } & CoverageReport)
+    | { kind: 'missing', message: string };
+
 // A run's results for one project. The controller maps ids onto TestItems.
 export interface RunReporter {
     started(id: string): void;
@@ -35,6 +42,8 @@ export interface RunReporter {
     // may be a header or source file rather than the test file.
     errored(id: string, message: string, location?: { file: string, line: number }): void;
     appendOutput(text: string): void;
+    // Once per completed coverage build.
+    coverage(outcome: CoverageOutcome): void;
 }
 
 // The ids that receive results: each parametrized function's cases, else the function itself.

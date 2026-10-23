@@ -8,7 +8,7 @@ This document is the terse, itemized record of what changed in each release. Its
 
 ## ⚠️ Changed
 
-* Requires VS Code 1.74.0 or later.
+* Requires VS Code 1.88.0 or later, up from 1.74.0. VS Code 1.88.0 finalized the test coverage API that _Run with Coverage_ uses. See [BreakingChanges.md](docs/BreakingChanges.md).
 * Project configuration is now resolved with Ceedling’s own `ceedling dumpconfig`, instead of the extension parsing and merging `project.yml` and any mixins itself. The extension now sees exactly the configuration a real build sees, plugin defaults included.
 * `:unity` ↳ `:test_prefix` is no longer read, nor the Unity compilation defines once sniffed to select it. Neither was ever a real Ceedling option. `:test_runner` ↳ `:test_prefix` remains the way to change the test function prefix.
 * A workspace folder without a Ceedling project no longer adds an empty _Ceedling_ entry to the _Testing_ view. With several workspace folders, each entry names its folder.
@@ -18,6 +18,8 @@ This document is the terse, itemized record of what changed in each release. Its
 
 ## 🌟 Added
 
+* Code coverage in VS Code’s own coverage views, contributed by [@jake-kim-sndk](https://github.com/jake-kim-sndk) ([PR #13](https://github.com/ThrowTheSwitch/vscode-ceedling/pull/13)). _Run with Coverage_ in the _Testing_ view runs tests through Ceedling’s gcov plugin, then shows each source file’s line, branch, and function coverage. It reads the Cobertura report from gcovr or ReportGenerator. See [Code coverage](README.md#code-coverage).
+* New `ceedlingExplorer.coverageCommandArgs` and `ceedlingExplorer.coverageResetsCounters` settings, for a project’s own coverage task and for accumulating coverage across runs.
 * Support for Ceedling 1.2.0:
   * A project directory may use `ceedling.yml` instead of `project.yml`. A directory holding both is reported as an error, as Ceedling itself reports it.
   * Same-named test files in different directories (e.g. `test/unit/test_foo.c` and `test/integration/test_foo.c`) each run, report, and debug correctly.

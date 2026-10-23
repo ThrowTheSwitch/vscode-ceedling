@@ -1,0 +1,275 @@
+---
+:project:
+  :build_root: build
+  :use_test_preprocessor: :none
+  :default_tasks:
+  - test:all
+  :name: ''
+  :use_mocks: true
+  :use_exceptions: false
+  :use_partials: false
+  :compile_threads: 1
+  :test_threads: 1
+  :test_file_prefix: test_
+  :release_build: false
+  :use_backtrace: :simple
+:plugins:
+  :enabled:
+  - gcov
+  :load_paths:
+  - "/var/lib/gems/3.3.0/gems/ceedling-1.2.0/plugins"
+  :display_raw_test_results: true
+  :gcov_path: "/var/lib/gems/3.3.0/gems/ceedling-1.2.0/plugins/gcov"
+  :test_build_contexts:
+  - :gcov
+:paths:
+  :test:
+  - "+:test/**"
+  :source:
+  - src/**
+  - "../lib/**"
+  :include:
+  - src/**
+  - "../lib/**"
+  :support: []
+  :libraries: []
+  :test_toolchain_include: []
+  :release_toolchain_include: []
+:history:
+  :config:
+  - :type: :file
+    :path: "./project.yml"
+    :mechanism: :project
+:unity:
+  :vendor_path: "/var/lib/gems/3.3.0/gems/ceedling-1.2.0/vendor"
+  :defines: []
+  :use_param_tests: false
+  :shuffle_tests: false
+:cmock:
+  :vendor_path: "/var/lib/gems/3.3.0/gems/ceedling-1.2.0/vendor"
+  :includes: []
+  :defines:
+  - CMOCK_MOCK_PREFIX=Mock
+  :plugins: []
+  :unity_helper_path: []
+  :mock_prefix: Mock
+  :mock_suffix: ''
+  :mock_name_include_folder: true
+  :treat_inlines: :exclude
+  :enforce_strict_ordering: true
+  :mock_path: build/test/mocks
+  :verbosity: 1
+:cexception:
+  :vendor_path: "/var/lib/gems/3.3.0/gems/ceedling-1.2.0/vendor"
+  :defines: []
+:release_build:
+  :use_assembly: false
+  :artifacts: []
+:test_build:
+  :use_assembly: false
+  :preprocess_force_fallback: false
+  :preprocess_directives_only_available: false
+:partials:
+  :max_extraction_length: 5000
+:environment: []
+:files:
+  :test: []
+  :source: []
+  :assembly: []
+  :support: []
+  :include: []
+:defines:
+  :use_test_definition: false
+  :test: []
+  :release: []
+:flags: {}
+:libraries:
+  :flag: "-l${1}"
+  :path_flag: -L "${1}"
+  :test: []
+  :release: []
+:extension:
+  :header:
+  - ".h"
+  :source:
+  - ".c"
+  :assembly:
+  - ".s"
+  :object:
+  - ".o"
+  :libraries:
+  - ".a"
+  - ".so"
+  :executable:
+  - ".out"
+  :map:
+  - ".map"
+  :list:
+  - ".lst"
+  :testpass:
+  - ".pass"
+  :testfail:
+  - ".fail"
+  :dependencies:
+  - ".d"
+:test_runner:
+  :cmdline_args: true
+  :includes: []
+  :defines: []
+  :file_suffix: _runner
+  :mock_prefix: Mock
+  :mock_suffix: ''
+  :mock_name_include_folder: true
+  :enforce_strict_ordering: true
+  :use_param_tests: false
+  :shuffle_tests: false
+:tools:
+  :test_compiler:
+    :executable: gcc
+    :name: default_test_compiler
+    :optional: false
+    :arguments:
+    - -I"${5}"
+    - -D"${6}"
+    - "-DGNU_COMPILER"
+    - "-g"
+    - -c "${1}"
+    - -o "${2}"
+    - "-MMD"
+    - -MF "${4}"
+    :stderr_redirect: :none
+  :test_linker:
+    :executable: gcc
+    :name: default_test_linker
+    :optional: false
+    :arguments:
+    - "${1}"
+    - "${5}"
+    - -o "${2}"
+    - ''
+    - "${4}"
+    :stderr_redirect: :none
+  :test_fixture:
+    :executable: "${1}"
+    :name: default_test_fixture
+    :optional: false
+    :arguments: []
+    :stderr_redirect: :none
+  :test_fixture_simple_backtrace:
+    :executable: "${1}"
+    :name: default_test_fixture_simple_backtrace
+    :optional: false
+    :arguments:
+    - "${2}"
+    :stderr_redirect: :none
+  :gcov_compiler:
+    :executable: gcc
+    :name: default_gcov_compiler
+    :optional: false
+    :arguments:
+    - "-g"
+    - "-fprofile-arcs"
+    - "-ftest-coverage"
+    - -I"${5}"
+    - -D"${6}"
+    - "-DGCOV_COMPILER"
+    - "-DCODE_COVERAGE"
+    - -c "${1}"
+    - -o "${2}"
+    - "-MMD"
+    - -MF "${4}"
+    :stderr_redirect: :none
+  :gcov_linker:
+    :executable: gcc
+    :name: default_gcov_linker
+    :optional: false
+    :arguments:
+    - "-g"
+    - "-fprofile-arcs"
+    - "-ftest-coverage"
+    - "${1}"
+    - "${5}"
+    - -o "${2}"
+    - "${4}"
+    :stderr_redirect: :none
+  :gcov_fixture:
+    :executable: "${1}"
+    :name: default_gcov_fixture
+    :optional: false
+    :arguments: []
+    :stderr_redirect: :none
+  :gcov_summary:
+    :executable: gcov
+    :name: default_gcov_summary
+    :optional: true
+    :arguments:
+    - "-n"
+    - "-p"
+    - "-b"
+    - -o "${2}"
+    - '"${1}"'
+    :stderr_redirect: :none
+  :gcov_gcc_version:
+    :executable: gcc
+    :name: default_gcov_gcc_version
+    :optional: false
+    :arguments:
+    - "--version"
+    :stderr_redirect: :none
+  :gcov_gcovr_version:
+    :executable: gcovr
+    :name: default_gcov_gcovr_version
+    :optional: true
+    :arguments:
+    - "--version"
+    :stderr_redirect: :none
+  :gcov_report:
+    :executable: gcov
+    :name: default_gcov_report
+    :optional: true
+    :arguments:
+    - "-b"
+    - "-c"
+    - "-r"
+    - -s "${2}"
+    - "-x"
+    - "${1}"
+    :stderr_redirect: :none
+  :gcov_gcovr_report:
+    :executable: gcovr
+    :name: default_gcov_gcovr_report
+    :optional: true
+    :arguments:
+    - --root "${1}"
+    - --exclude "${2}"
+    - "${3}"
+    :stderr_redirect: :none
+  :gcov_reportgenerator_report:
+    :executable: reportgenerator
+    :name: default_gcov_reportgenerator_report
+    :optional: true
+    :arguments:
+    - '"-reports:${1}"'
+    - '"-targetdir:${2}"'
+    - '"-reporttypes:${3}"'
+    - '"-sourcedirs:${4}"'
+    - '"-filefilters:${5}"'
+    - "${6}"
+    :stderr_redirect: :none
+:gcov:
+  :summaries: true
+  :report_task: false
+  :untested_sources: :list
+  :mcdc: false
+  :utilities:
+  - gcovr
+  :reports: []
+  :gcovr:
+    :report_root: "."
+    :config_file:
+    :custom_args: []
+    :merge_mode_function: merge-use-line-max
+  :report_generator:
+    :verbosity: Warning
+    :custom_args: []
+    :gcov_exclude: []

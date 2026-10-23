@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE coverage SYSTEM "http://cobertura.sourceforge.net/xml/coverage-04.dtd">
+<coverage line-rate="0.5" branch-rate="0.25" lines-covered="5" lines-valid="10" branches-covered="1" branches-valid="4" complexity="NaN" version="0" timestamp="1792788009">
+  <sources>
+    <source>.</source>
+    <source>src</source>
+    <source>../lib</source>
+  </sources>
+  <packages>
+    <package name="Default" line-rate="0.5" branch-rate="0.25" complexity="NaN">
+      <classes>
+        <class name="./../lib/Clamp.c" filename="./../lib/Clamp.c" line-rate="0.5" branch-rate="0.25" complexity="NaN">
+          <methods>
+            <method name="clamp" signature="" line-rate="0.5" branch-rate="0.25" complexity="NaN">
+              <lines>
+                <line number="3" hits="1" branch="false" />
+                <line number="5" hits="1" branch="true" condition-coverage="50% (1/2)" />
+                <line number="6" hits="1" branch="false" />
+                <line number="7" hits="0" branch="true" condition-coverage="0% (0/2)" />
+                <line number="8" hits="0" branch="false" />
+                <line number="9" hits="0" branch="false" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="3" hits="1" branch="false" />
+            <line number="5" hits="1" branch="true" condition-coverage="50% (1/2)" />
+            <line number="6" hits="1" branch="false" />
+            <line number="7" hits="0" branch="true" condition-coverage="0% (0/2)" />
+            <line number="8" hits="0" branch="false" />
+            <line number="9" hits="0" branch="false" />
+          </lines>
+        </class>
+        <class name="./src/Calculator.c" filename="./src/Calculator.c" line-rate="0.5" branch-rate="1" complexity="NaN">
+          <methods>
+            <method name="add" signature="" line-rate="1" branch-rate="1" complexity="NaN">
+              <lines>
+                <line number="3" hits="1" branch="false" />
+                <line number="5" hits="1" branch="false" />
+              </lines>
+            </method>
+            <method name="subtract" signature="" line-rate="0" branch-rate="1" complexity="NaN">
+              <lines>
+                <line number="8" hits="0" branch="false" />
+                <line number="10" hits="0" branch="false" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="3" hits="1" branch="false" />
+            <line number="5" hits="1" branch="false" />
+            <line number="8" hits="0" branch="false" />
+            <line number="10" hits="0" branch="false" />
+          </lines>
+        </class>
+      </classes>
+    </package>
+  </packages>
+</coverage>

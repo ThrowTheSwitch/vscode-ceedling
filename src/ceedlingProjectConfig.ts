@@ -44,6 +44,19 @@ export type ProjectState = {
     executableExtension: string,
     useParamTests: boolean,
     reportPluginEnabled: boolean,
+    // undefined when the project doesn't enable Ceedling's gcov plugin.
+    coverage: CoverageState | undefined,
+};
+
+// What a coverage run leaves to read. Ceedling's gcov plugin writes a Cobertura report through
+// gcovr, ReportGenerator, or both, into fixed directories under the build root.
+export type CoverageState = {
+    // Coverage runs leave reports only through the `report:gcov` task.
+    reportTask: boolean,
+    // Where a Cobertura report may appear, relative to the build root, most preferred first.
+    // gcovr's leads. ReportGenerator nests its own in a subdirectory when it writes several report
+    // types. Empty when neither utility writes one.
+    coberturaReports: string[],
 };
 
 // Ceedling's own default name for report_tests_log_factory's CppUnit report.
@@ -61,6 +74,8 @@ export type CeedlingCapabilities = {
     forceTestRerun: boolean,
     // A `test:` task accepts a project-relative path, which tells same-named test files apart.
     pathQualifiedTestTasks: boolean,
+    // A `gcov:` task does too. Ceedling 1.2.0's gcov plugin still took a bare name.
+    pathQualifiedCoverageTasks: boolean,
     // ceedling.yml is a default project file, like project.yml.
     ceedlingYml: boolean,
 };
@@ -69,8 +84,14 @@ export type CeedlingCapabilities = {
 // its release, though semver would rank it below.
 export function capabilitiesOf(version: string): CeedlingCapabilities {
     const release = semver.coerce(version);
-    const atLeast1_2 = release !== null && semver.gte(release, '1.2.0');
-    return { dumpconfigStdout: atLeast1_2, forceTestRerun: atLeast1_2, pathQualifiedTestTasks: atLeast1_2, ceedlingYml: atLeast1_2 };
+    const atLeast = (minimum: string) => release !== null && semver.gte(release, minimum);
+    return {
+        dumpconfigStdout: atLeast('1.2.0'),
+        forceTestRerun: atLeast('1.2.0'),
+        pathQualifiedTestTasks: atLeast('1.2.0'),
+        pathQualifiedCoverageTasks: atLeast('1.2.1'),
+        ceedlingYml: atLeast('1.2.0'),
+    };
 }
 
 // Projects in settings order. With none configured, one default project sits at the workspace
@@ -172,7 +193,35 @@ export function projectState(resolved: unknown, platform: NodeJS.Platform): Proj
         executableExtension: stringSetting(resolved, platform === 'win32' ? '.exe' : '.out', ':extension', ':executable'),
         useParamTests: setting(resolved, ':unity', ':use_param_tests') === true,
         reportPluginEnabled: Array.isArray(enabledPlugins) && enabledPlugins.includes('report_tests_log_factory'),
+        coverage: coverageState(resolved),
     };
+}
+
+// Where a gcov project's Cobertura reports appear, and whether they wait for report:gcov. undefined
+// without the gcov plugin. Ceedling compares utility and report names case-insensitively, and with
+// no :utilities: listed the plugin uses gcovr.
+export function coverageState(resolved: unknown): CoverageState | undefined {
+    const enabledPlugins = setting(resolved, ':plugins', ':enabled');
+    if (!Array.isArray(enabledPlugins) || !enabledPlugins.includes('gcov')) {
+        return undefined;
+    }
+    const names = (value: unknown) => Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string').map((v) => v.toLowerCase()) : [];
+    const listed = names(setting(resolved, ':gcov', ':utilities'));
+    const utilities = listed.length > 0 ? listed : ['gcovr'];
+    const cobertura = names(setting(resolved, ':gcov', ':reports')).includes('cobertura');
+    const coberturaReports = !cobertura ? [] : [
+        ...utilities.includes('gcovr') ? [`artifacts/gcov/gcovr/${stringSetting(resolved, 'GcovCoverageCobertura.xml', ':gcov', ':gcovr', ':cobertura_artifact_filename')}`] : [],
+        ...utilities.includes('reportgenerator') ? ['artifacts/gcov/ReportGenerator/Cobertura.xml', 'artifacts/gcov/ReportGenerator/Cobertura/Cobertura.xml'] : [],
+    ];
+    return { reportTask: setting(resolved, ':gcov', ':report_task') === true, coberturaReports };
+}
+
+// What a project must configure before a coverage run can show anything, or undefined.
+export function coverageProblem(projectKey: string, coverage: CoverageState): string | undefined {
+    return coverage.coberturaReports.length > 0 ? undefined :
+        `Ceedling project '${projectKey}' writes no Cobertura coverage report, so Run with Coverage has nothing to show. ` +
+        `Add Cobertura to :gcov: ↳ :reports:, with gcovr or ReportGenerator among :gcov: ↳ :utilities:. ` +
+        `See "Code coverage" in this extension's README.`;
 }
 
 // The value at a path of YAML symbol keys, or undefined anywhere along a missing path.

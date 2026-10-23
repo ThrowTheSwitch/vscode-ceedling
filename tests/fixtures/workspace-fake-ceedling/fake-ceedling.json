@@ -14,5 +14,13 @@
         },
         "test/test_slow.c": { "hang": true },
         "test/test_unreported.c": { "results": { "test_reported": "pass" } }
+    },
+    "gcov": {
+        "reports": ["Cobertura"],
+        "coverage": {
+            "test/test_calc.c": {
+                "src/calc.c": { "lines": [[1, 3], [2, 0], [4, 1, "50% (1/2)"]], "functions": [["add", 1, 3]] }
+            }
+        }
     }
 }

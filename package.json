@@ -16,7 +16,7 @@
     }
   ],
   "publisher": "throw-the-switch",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "license": "MIT",
   "homepage": "https://github.com/throwtheswitch/vscode-ceedling",
   "repository": {
@@ -71,7 +71,7 @@
     "@types/js-yaml": "^3.12.0",
     "@types/mocha": "^8.2.0",
     "@types/semver": "^7.5.4",
-    "@types/vscode": "~1.74.0",
+    "@types/vscode": "~1.88.0",
     "@types/xml2js": "^0.4.3",
     "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^3.9.2",
@@ -86,7 +86,7 @@
     "typescript-eslint": "^8.72.0"
   },
   "engines": {
-    "vscode": "^1.74.0",
+    "vscode": "^1.88.0",
     "node": ">=22"
   },
   "activationEvents": [
@@ -180,6 +180,23 @@
           "items": {
             "type": "string"
           }
+        },
+        "ceedlingExplorer.coverageCommandArgs": {
+          "markdownDescription": "The command line arguments that run a test file with coverage, from the Testing view's **Run with Coverage**. Each `${TEST_ID}` becomes the test file: its project-relative path with Ceedling 1.2.1 and later, and its name alone before, as earlier `gcov:` tasks require. Requires Ceedling's gcov plugin with a Cobertura report.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "gcov:${TEST_ID}"
+          ],
+          "scope": "resource"
+        },
+        "ceedlingExplorer.coverageResetsCounters": {
+          "markdownDescription": "Whether **Run with Coverage** clears the coverage counters earlier runs left in each project's build directory, so its results show only what that run executed. Turn it off to accumulate coverage across runs, as Ceedling itself does until `ceedling clobber`.",
+          "type": "boolean",
+          "default": true,
+          "scope": "resource"
         },
         "ceedlingExplorer.problemMatching": {
           "markdownDescription": "Configuration of mechanism that scans Ceedling output text for known error/warning/info strings and reports these inline in the editor and in the Problems panel.&nbsp;The mechanism tries to resemble the one used in VSCode Tasks problemMatchers.",

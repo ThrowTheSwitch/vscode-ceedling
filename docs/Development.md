@@ -70,6 +70,7 @@ The code has two layers. Most modules have no `vscode` dependency and are unit-t
 | `src/ceedlingOutputParsing.ts` | Pure | Ceedling stdout, report names, and pretty labels |
 | `src/ceedlingMixinArgs.ts` | Pure | The `--project`/`--mixin` flags for a project |
 | `src/problemMatching.ts` | Pure | Compiler-output patterns and their matches |
+| `src/coberturaReport.ts` | Pure | Cobertura coverage reports, each file’s candidate paths, and merging a run’s reports |
 
 Two Ceedling constraints shape everything else. Ceedling always compiles a whole test file, and its `--test-case` filter narrows a run to one function, never to one parametrized case. Every Ceedling call for a project carries `--project project.yml`, any alternate project file and configured mixins, and last the bundled mixin [`assets/mixins/report-tests-log-factory.yml`](../assets/mixins/report-tests-log-factory.yml). That mixin enables the CppUnit report the extension reads.
 
@@ -115,6 +116,15 @@ Diagnostics are keyed by run scope: the project key for a project run, `projectK
 
 `handleDebug()` debugs one test file. `compileForDebug()` runs the file exactly as a run does and reports its real results. It then returns the executable’s path relative to Ceedling’s test output directory. Before 1.2.0 that is `name/name<executableExtension>`. Ceedling 1.2.0 nests it under the test file’s directory within its test path, e.g. `unit/name/name<executableExtension>` for `test/unit/name.c`. That test path isn’t known, so `executableSubpath()` tries each trailing part of the file’s directory and takes the newest build. `resolveLaunchConfig()` in `debugLaunch.ts` splices that path into every `${command:ceedlingExplorer.debugTestExecutable}` in a copy of the named launch configuration. A unique `__ceedlingDebugRequest` value in that configuration identifies its debug session among any others.
 
+### Coverage
+
+A coverage run is an ordinary run with a `RunMode` of `coverage`. The controller creates a fresh one per request with `coverageMode()`. The Coverage profile exists while `CeedlingEngine.coverageEnabled()` is true, i.e. while some project enables Ceedling’s gcov plugin. `syncCoverageProfile()` creates or disposes it after each discovery.
+
+- **Configuration.** `coverageState()` reads the resolved configuration. It says whether reports wait for `report:gcov`. It also lists where each enabled utility writes its Cobertura report, relative to the build root, gcovr’s first. ReportGenerator writes `ReportGenerator/Cobertura.xml`, or `ReportGenerator/Cobertura/Cobertura.xml` with several report types. `coverageProblem()` explains a project that writes no Cobertura report.
+- **Building.** `commandArgs()` uses `coverageCommandArgs`. Before Ceedling 1.2.1 it passes the bare file name, since the `gcov:` task prepends the test file prefix to a name lacking it. From 1.2.1 it passes the path (`capabilitiesOf().pathQualifiedCoverageTasks`). It appends `report:gcov` when reports wait for that task. Under the directory lock, `prepareCoverage()` deletes stale Cobertura reports. Once per build directory per request, it also deletes the `.gcda` counters, and the `.gcov` files gcov writes from them, under `<build>/gcov/out`, unless `coverageResetsCounters` is off. A `--test-case` collision clears only its test’s own counters before the whole-file fallback. `readCoverage()` reads the first report present before the lock is released.
+- **Paths.** Cobertura names files relative to one of its `<source>` roots, or absolutely. `reportedFiles()` gives each file a candidate per source, resolved against the project directory, where Ceedling runs the tools. The engine keeps the first candidate that exists.
+- **Showing.** Each build that produced test results reports a `CoverageOutcome` through `RunReporter.coverage()`. A failed build reports one only for a configuration that can’t give coverage. `mergeCoverage()` keeps the last report per report path, and adds up reports from separate build directories. The controller adds a `FileCoverage` per file, and keeps its details in a `WeakMap` that `loadDetailedCoverage` reads. A `missing` outcome becomes a notification and a line in the run’s output.
+
 ### Test seams
 
 `CeedlingEngine` takes its collaborators through its constructor’s `deps`. Unit tests replace each one.
@@ -132,7 +142,8 @@ The integration tests run the built extension in a real VS Code, on two workspac
 - results and failure locations in the Testing view;
 - compiler errors in the Problems panel;
 - cancellation;
-- watchers and unsaved edits.
+- watchers and unsaved edits;
+- the Coverage profile, and file coverage and its details reaching VS Code.
 
 On Windows they also run the engine with Windows paths. VS Code’s API can’t read another extension’s TestItems or run results, so `activate()` returns a small handle for the tests, `CeedlingExplorerApi`. See [`tests/integration/main.ts`](../tests/integration/main.ts).
 
@@ -264,6 +275,10 @@ Every step runs against [`tests/manual/`](../tests/manual/), opened as its own f
 - [ ] **No manual plugin setup.** `tests/manual/project.yml` deliberately leaves `report_tests_log_factory` disabled. Discovery and results still work, because the bundled mixin enables it. Every pass through this checklist confirms it.
 - [ ] **Configured mixin.** Add `"ceedlingExplorer.mixins": ["gcc"]`, or another [built-in toolchain target](https://throwtheswitch.github.io/Ceedling/1.1.0/configuration/mixins/#built-in-toolchain-mixins), to `tests/manual/.vscode/settings.json`. The tree rediscovers on its own. Run all, and the run still succeeds. The Ceedling Explorer log (Trace level) shows the extra `--mixin` flag, before the extension’s own bundled mixin. Revert the setting after.
 - [ ] **Missing header.** On Ceedling 1.0.0, add `#include "missing.h"` to `test_calculator.c` and run it. The Problems panel shows the error at that `#include` line, in `test_calculator.c`. Revert after.
+- [ ] **Coverage with gcovr.** Without a coverage mixin, the Testing view offers no Run with Coverage. Add `"ceedlingExplorer.mixins": ["mixins/coverage-gcovr.yml"]` to `tests/manual/.vscode/settings.json`, and Run with Coverage appears. Run `test_calculator.c` with coverage. Its results match a plain run. The Test Coverage panel lists `src/Calculator.c` with a percentage. Inline coverage marks its executed and unexecuted lines. Keep the setting for the next checks.
+- [ ] **Coverage of one run.** Run with coverage a single test of `test_calculator.c`, then the whole file. Each run’s hit counts reflect only that run. Set `"ceedlingExplorer.coverageResetsCounters": false`, and repeat the file run twice. The hit counts grow. Revert the setting after.
+- [ ] **Coverage with ReportGenerator.** With ReportGenerator installed, use `mixins/coverage-reportgenerator.yml` in place of the gcovr mixin. Coverage shows as with gcovr, including function rows in the Test Coverage panel.
+- [ ] **No Cobertura report.** Use `mixins/coverage-no-cobertura.yml` in place of the gcovr mixin. Run with Coverage still runs the tests. A notification says to add `Cobertura` to `:gcov:` ↳ `:reports:`. Remove the mixin setting after, and Run with Coverage disappears.
 
 ## 6. The Sidecar
 

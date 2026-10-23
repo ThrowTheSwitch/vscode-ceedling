@@ -5,7 +5,7 @@
 
 import path from 'path';
 import { extractGdbLogReference } from './ceedlingOutputParsing';
-import { type RunReporter } from './testModel';
+import { type CoverageOutcome, type RunReporter } from './testModel';
 
 export type ReportMessage = {
     text: string,
@@ -23,6 +23,7 @@ export interface RunSink<Item> {
     skipped(item: Item): void;
     errored(item: Item, message: ReportMessage): void;
     appendOutput(text: string): void;
+    coverage(outcome: CoverageOutcome): void;
 }
 
 export type RunReporterOptions<Item> = {
@@ -67,5 +68,6 @@ export function createRunReporter<Item>(options: RunReporterOptions<Item>): RunR
             withItem('errored', id, (item) => { sink.errored(item, { text: message, ...(location && { location }) }); });
         },
         appendOutput: (text) => { sink.appendOutput(text); },
+        coverage: (outcome) => { sink.coverage(outcome); },
     };
 }

@@ -8,3 +8,5 @@ Each test file plays one part:
 - `test_unreported.c` has a test the report leaves out.
 - `test_broken.c` fails to compile, with the compiler output captured from Ceedling 1.0.0 in [`ceedling-1.0.0/compile-failure-stderr.txt`](../ceedling-1.0.0/compile-failure-stderr.txt). Its line 9 is where that output places the error.
 - `test_slow.c` never finishes, so a run can be cancelled.
+
+The scenario's `gcov` section enables Ceedling's gcov plugin with a Cobertura report. A coverage run of `test_calc.c` covers `src/calc.c`: three lines, one of them a half-taken branch, and the function `add`.

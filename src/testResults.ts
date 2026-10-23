@@ -3,6 +3,7 @@
 // It has no `vscode` or filesystem dependency, so it is unit-tested in plain Node.
 
 import xml2js from 'xml2js';
+import { field, list, text } from './parsedXml';
 
 export type ReportedTest = { name: string };
 // `line` is 0-based. A failure Ceedling reports without a location has none.
@@ -22,9 +23,8 @@ export async function parseCppUnitReport(text: string): Promise<CppUnitReport> {
     return readCppUnitReport(await new xml2js.Parser({ explicitArray: false }).parseStringPromise(text));
 }
 
-// Reads a report as xml2js parses it with `explicitArray: false`. That option yields a bare object
-// for a category holding one <Test>, and an empty string for a self-closing empty category. Both
-// become lists here. Throws when there is no <TestRun> at all.
+// Reads a report as xml2js parses it with `explicitArray: false`. Throws when there is no <TestRun>
+// at all.
 export function readCppUnitReport(parsedXml: unknown): CppUnitReport {
     const testRun = field(parsedXml, 'TestRun');
     if (typeof testRun !== 'object' || testRun === null) {
@@ -41,20 +41,7 @@ export function readCppUnitReport(parsedXml: unknown): CppUnitReport {
 }
 
 function category(testRun: object, name: string): unknown[] {
-    const tests = field(field(testRun, name), 'Test');
-    if (tests === undefined || tests === null) {
-        return [];
-    }
-    return Array.isArray(tests) ? tests : [tests];
-}
-
-// The value at `key` when `value` is an object, else undefined. Parsed XML is untyped.
-function field(value: unknown, key: string): unknown {
-    return typeof value === 'object' && value !== null ? (value as Record<string, unknown>)[key] : undefined;
-}
-
-function text(value: unknown): string {
-    return typeof value === 'string' ? value : '';
+    return list(field(field(testRun, name), 'Test'));
 }
 
 export function reportedNames(report: CppUnitReport): string[] {

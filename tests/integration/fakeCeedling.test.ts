@@ -52,12 +52,12 @@ suite('Extension against a fake Ceedling', function () {
         .split('\n').filter((line) => line !== '').map((line) => JSON.parse(line) as string[]);
 
     // Runs the items, recording each result by item id. `whileRunning` may cancel the run.
-    async function run(ids: string[], whileRunning?: (cancel: () => void) => Promise<void>): Promise<Map<string, ReportedResult[]>> {
+    async function run(ids: string[], whileRunning?: (cancel: () => void) => Promise<void>, coverage = false): Promise<Map<string, ReportedResult[]>> {
         const results = new Map<string, ReportedResult[]>();
         const listener = controller.onDidReport((result) => { results.set(result.item.id, [...(results.get(result.item.id) ?? []), result]); });
         const source = new vscode.CancellationTokenSource();
         try {
-            const running = controller.run(new vscode.TestRunRequest(ids.map(item)), source.token);
+            const running = controller.run(new vscode.TestRunRequest(ids.map(item)), source.token, coverage);
             await whileRunning?.(() => { source.cancel(); });
             await running;
         } finally {
@@ -167,6 +167,80 @@ suite('Extension against a fake Ceedling', function () {
         });
         assert.deepStrictEqual(outcome(results, 'test/test_slow.c::test_never_finishes'), ['skipped']);
         assert.ok(Date.now() - started < 30000, 'the run ended soon after cancellation');
+    });
+
+    // A profile of its own kind, so a plain run never pays for instrumentation.
+    test('a project with the gcov plugin offers Run with Coverage', () => {
+        assert.strictEqual(controller.coverageRunProfile?.kind, vscode.TestRunProfileKind.Coverage);
+    });
+
+    test("a coverage run reports its tests and each covered file, whose details load on request", async () => {
+        const covered: vscode.FileCoverage[] = [];
+        const listener = controller.onDidReportCoverage((fileCoverage) => covered.push(fileCoverage));
+        let results: Map<string, ReportedResult[]>;
+        try {
+            results = await run(['test/test_calc.c'], undefined, true);
+        } finally {
+            listener.dispose();
+        }
+        assert.deepStrictEqual(outcome(results, 'test/test_calc.c::test_add'), ['passed']);
+        const [task, ...rest] = invocations().filter((args) => args[0]?.startsWith('gcov:')).pop() ?? [];
+        assert.deepStrictEqual([task, rest[0]], ['gcov:test_calc.c', '--force-test-rerun']);
+        assert.deepStrictEqual(covered.map((c) => c.uri.toString()), [fileUri('src', 'calc.c').toString()]);
+        const [calc] = covered;
+        assert.deepStrictEqual([calc.statementCoverage.covered, calc.statementCoverage.total], [2, 3]);
+        assert.deepStrictEqual([calc.branchCoverage?.covered, calc.branchCoverage?.total], [1, 2]);
+        assert.deepStrictEqual([calc.declarationCoverage?.covered, calc.declarationCoverage?.total], [1, 1]);
+        const testRun = controller.testController!.createTestRun(new vscode.TestRunRequest());
+        const source = new vscode.CancellationTokenSource();
+        try {
+            const details = await controller.coverageRunProfile!.loadDetailedCoverage!(testRun, calc, source.token);
+            assert.deepStrictEqual(details.map((d) => d instanceof vscode.DeclarationCoverage ? `${d.name}@${(d.location as vscode.Position).line}` : `${String(d.executed)}@${(d.location as vscode.Position).line}`),
+                ['3@0', '0@1', '1@3', 'add@0']);
+        } finally {
+            testRun.end();
+            source.dispose();
+        }
+    });
+
+    // Run with Coverage still runs the tests, and says what the project must configure.
+    test('a coverage run in a project writing no Cobertura report explains what to add', async () => {
+        const scenarioFile = fileUri('fake-ceedling.json').fsPath;
+        const original = fs.readFileSync(scenarioFile, 'utf8');
+        const problems: string[] = [];
+        const covered: vscode.FileCoverage[] = [];
+        const listeners = [controller.onDidReportCoverageProblem((p) => problems.push(p)), controller.onDidReportCoverage((c) => covered.push(c))];
+        try {
+            const scenario = JSON.parse(original) as { gcov: { reports: string[] } };
+            scenario.gcov.reports = [];
+            fs.writeFileSync(scenarioFile, JSON.stringify(scenario));
+            await controller.whenDiscovered();
+            const results = await run(['test/test_calc.c'], undefined, true);
+            assert.deepStrictEqual(outcome(results, 'test/test_calc.c::test_add'), ['passed']);
+            assert.deepStrictEqual(covered, []);
+            assert.strictEqual(problems.length, 1);
+            assert.match(problems[0] ?? '', /Cobertura[\s\S]*:reports:/);
+        } finally {
+            listeners.forEach((l) => { l.dispose(); });
+            fs.writeFileSync(scenarioFile, original);
+            await controller.whenDiscovered();
+        }
+    });
+
+    test('the Coverage profile follows the gcov plugin across rediscovery', async () => {
+        const scenarioFile = fileUri('fake-ceedling.json').fsPath;
+        const original = fs.readFileSync(scenarioFile, 'utf8');
+        try {
+            const scenario = JSON.parse(original) as Record<string, unknown>;
+            delete scenario.gcov;
+            fs.writeFileSync(scenarioFile, JSON.stringify(scenario));
+            await controller.whenDiscovered();
+            assert.strictEqual(controller.coverageRunProfile, undefined);
+        } finally {
+            fs.writeFileSync(scenarioFile, original);
+            await controller.whenDiscovered();
+        }
+        assert.ok(controller.coverageRunProfile);
     });
 
     test('a new test file on disk is discovered, and a deleted one goes', async () => {

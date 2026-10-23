@@ -1,0 +1,5 @@
+:gcov:
+  :reports:
+    - Cobertura
+  :gcovr:
+    :cobertura_artifact_filename: Custom.xml
