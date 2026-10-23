@@ -19,8 +19,8 @@ const path = require('path');
 
 const args = process.argv.slice(2);
 const cwd = process.cwd();
-const scenario = JSON.parse(fs.readFileSync(path.join(cwd, 'fake-ceedling.json'), 'utf8'));
 fs.appendFileSync(path.join(cwd, 'fake-ceedling.log'), `${JSON.stringify(args)}\n`);
+const scenario = JSON.parse(fs.readFileSync(path.join(cwd, 'fake-ceedling.json'), 'utf8'));
 
 const task = args[0] ?? '';
 const option = (name) => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
@@ -78,10 +78,11 @@ function test(target) {
         process.exitCode = 1;
         return;
     }
-    // Ceedling's --test-case filter selects a function, with all its cases if parametrized.
+    // Ceedling's --test-case filter selects every function whose name contains it, with all their
+    // cases if parametrized.
     const testCase = option('test-case');
     const results = entries.flatMap(([file, entry]) => Object.entries(entry.results)
-        .filter(([name]) => testCase === undefined || name.replace(/\(.*$/, '') === testCase)
+        .filter(([name]) => testCase === undefined || name.replace(/\(.*$/, '').includes(testCase))
         .map(([name, outcome]) => ({ file, name: `${file}::${name}`, outcome })));
     writeReport(results);
     const failed = results.filter((r) => r.outcome.fail !== undefined).length;

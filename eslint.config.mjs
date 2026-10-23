@@ -54,7 +54,9 @@ export default defineConfig(
         files: ['src/**/*.ts'],
         rules: {
             'no-restricted-properties': ['warn',
-                ...['existsSync', 'readFileSync', 'statSync', 'lstatSync', 'readdirSync', 'writeFileSync'].map((property) => ({
+                ...['accessSync', 'appendFileSync', 'chmodSync', 'copyFileSync', 'cpSync', 'existsSync', 'lstatSync', 'mkdirSync',
+                    'mkdtempSync', 'openSync', 'readdirSync', 'readFileSync', 'readSync', 'realpathSync', 'renameSync', 'rmdirSync',
+                    'rmSync', 'statSync', 'unlinkSync', 'writeFileSync', 'writeSync'].map((property) => ({
                     object: 'fs',
                     property,
                     message: 'Synchronous file I/O blocks the extension host thread. Use fs.promises.',

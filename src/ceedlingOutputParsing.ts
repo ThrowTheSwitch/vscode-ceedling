@@ -32,9 +32,11 @@ export function buildTestLabelRegex(testPrefix: string): RegExp {
 }
 
 // The function name within a reported test name, without its file or parametrized arguments:
-// "test/foo.c::test_add(2, 3)" gives "test_add".
+// "test/foo.c::test_add(2, 3)" gives "test_add". The file ends at the first `::`, since a case's
+// arguments may contain one, e.g. a string.
 export function extractTestFunctionName(reportedName: string): string {
-    const afterFile = reportedName.split('::').pop() ?? reportedName;
+    const separator = reportedName.indexOf('::');
+    const afterFile = separator === -1 ? reportedName : reportedName.slice(separator + 2);
     const parenIndex = afterFile.indexOf('(');
     return parenIndex === -1 ? afterFile : afterFile.slice(0, parenIndex);
 }

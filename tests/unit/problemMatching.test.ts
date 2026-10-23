@@ -161,6 +161,13 @@ suite('matchToProblem', () => {
         assert.deepStrictEqual(problem && [problem.startLine, problem.startColumn, problem.endLine, problem.endColumn], [2, 1, 4, 6]);
     });
 
+    // GCC 7 and earlier report `<command-line>:0:0:` for a redefined command-line macro.
+    test('a line or column of 0 places the problem at the start, rather than before it', () => {
+        const matches = exec('^(.*):(\\d+):(\\d+): (.*)$', '<command-line>:0:0: "FOO" redefined');
+        const problem = matchToProblem(matches, 1, 4, 'warning', '', 2, null, 3, null);
+        assert.deepStrictEqual(problem && [problem.startLine, problem.startColumn, problem.endLine], [0, 0, 0]);
+    });
+
     test('a pattern without a line group places the problem at the top of the file', () => {
         const matches = exec('^(.*): (.*)$', 'src/a.c: somewhere');
         const problem = matchToProblem(matches, 1, 2, 'info', '', null, null, null, null);

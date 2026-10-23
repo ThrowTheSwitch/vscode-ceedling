@@ -113,7 +113,7 @@ Diagnostics are keyed by run scope: the project key for a project run, `projectK
 
 ### Debugging
 
-`handleDebug()` debugs one test file. `compileForDebug()` runs the file exactly as a run does and reports its real results. It then returns the executable’s path relative to Ceedling’s test output directory, `name/name<executableExtension>`. `resolveLaunchConfig()` in `debugLaunch.ts` splices that path into every `${command:ceedlingExplorer.debugTestExecutable}` in a copy of the named launch configuration. A unique `__ceedlingDebugRequest` value in that configuration identifies its debug session among any others.
+`handleDebug()` debugs one test file. `compileForDebug()` runs the file exactly as a run does and reports its real results. It then returns the executable’s path relative to Ceedling’s test output directory. Before 1.2.0 that is `name/name<executableExtension>`. Ceedling 1.2.0 nests it under the test file’s directory within its test path, e.g. `unit/name/name<executableExtension>` for `test/unit/name.c`. That test path isn’t known, so `executableSubpath()` tries each trailing part of the file’s directory and takes the newest build. `resolveLaunchConfig()` in `debugLaunch.ts` splices that path into every `${command:ceedlingExplorer.debugTestExecutable}` in a copy of the named launch configuration. A unique `__ceedlingDebugRequest` value in that configuration identifies its debug session among any others.
 
 ### Test seams
 
@@ -310,7 +310,7 @@ There are two modes.
 | `just package` | Produces a `.vsix` |
 | `just publish` | Publishes to the Marketplace. Requires `VSCE_PAT` |
 | `just shell` | Opens an interactive container session |
-| `just clean` | Removes build output |
+| `just clean` | Removes build output, the test build, and coverage reports |
 
 ---
 

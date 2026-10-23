@@ -4,7 +4,7 @@ The integration tests open this project in VS Code, alongside [`workspace-withou
 
 Each test file plays one part:
 
-- `test_calc.c` passes, fails at its assertion's line, is ignored, and has parametrized cases.
+- `test_calc.c` passes, fails at its assertion's line, is ignored, and has parametrized cases. Ceedling's `--test-case=test_add` filter also selects `test_add_more`, as its substring match does.
 - `test_unreported.c` has a test the report leaves out.
 - `test_broken.c` fails to compile, with the compiler output captured from Ceedling 1.0.0 in [`ceedling-1.0.0/compile-failure-stderr.txt`](../ceedling-1.0.0/compile-failure-stderr.txt). Its line 9 is where that output places the error.
 - `test_slow.c` never finishes, so a run can be cancelled.

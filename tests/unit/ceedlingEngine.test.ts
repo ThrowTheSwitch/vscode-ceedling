@@ -182,10 +182,11 @@ function token(): Cancellation & { fire(): void } {
     return t;
 }
 
-function makeEngine(world: FakeCeedling, options: { settings?: Record<string, unknown>, logs?: LogCall[], problems?: FakeProblemMatcher, developmentMode?: boolean } = {}) {
+function makeEngine(world: FakeCeedling, options: { settings?: Record<string, unknown>, logs?: LogCall[], problems?: FakeProblemMatcher, developmentMode?: boolean, folder?: string, platform?: NodeJS.Platform } = {}) {
     const settings = options.settings ?? {};
+    const folder = options.folder ?? WS;
     return new CeedlingEngine(
-        { uri: { fsPath: WS, toString: () => `file://${WS}` }, name: 'ws', index: 0 } as unknown as vscode.WorkspaceFolder,
+        { uri: { fsPath: folder, toString: () => `file://${folder}` }, name: 'ws', index: 0 } as unknown as vscode.WorkspaceFolder,
         fakeLogger(options.logs),
         options.developmentMode ?? false,
         {
@@ -194,7 +195,7 @@ function makeEngine(world: FakeCeedling, options: { settings?: Record<string, un
             bundledMixinPath: BUNDLED_MIXIN,
             runner: world.runner,
             fileSystem: world.fileSystem,
-            platform: 'linux',
+            platform: options.platform ?? 'linux',
             tmpdir: '/tmp',
         },
     );
@@ -790,6 +791,18 @@ suite('CeedlingEngine clean and clobber', () => {
         assert.deepStrictEqual(world.commandsMatching(/^ceedling clean/), [`ceedling clean ${PROJECT_ARGS}`]);
     });
 
+    // The user asked it to stop, so stopping is no failure to report.
+    test('a cancelled clean is not a failure', async () => {
+        const world = new FakeCeedling();
+        const { engine } = await discovered(world);
+        const cancel = token();
+        world.handlers.push((command) => /^ceedling clean/.test(command)
+            ? new Promise<Reply>((resolve) => setImmediate(() => { cancel.fire(); resolve({ error: true }); }))
+            : undefined);
+        assert.strictEqual(await engine.clean(cancel), true);
+        assert.strictEqual(world.killed.length, 1);
+    });
+
     test('clobber reports a failure', async () => {
         const world = new FakeCeedling();
         const { engine } = await discovered(world);
@@ -860,6 +873,18 @@ suite('CeedlingEngine for watchers and editing', () => {
         world.write(`${WS}/test/test_calc.c`, 'void test_saved(void) {}\n');
         const file = await engine.rediscoverFile('default', 'test/test_calc.c');
         assert.deepStrictEqual(file!.functions.map((f) => f.id), ['test/test_calc.c::test_saved']);
+    });
+
+    // VS Code reports `c:\…` paths, while discovery uppercases the drive letter for gcov.
+    test('on Windows, a discovered test file is found whatever the case of its path', async () => {
+        const world = new FakeCeedling();
+        world.write('C:\\ws\\project.yml', ':project: {}\n');
+        world.write('C:\\ws\\test\\test_calc.c', 'void test_add(void) {}\n');
+        const engine = makeEngine(world, { folder: 'c:\\ws', platform: 'win32' });
+        const [project] = await engine.discover();
+        assert.strictEqual(project.files[0].absPath, 'C:\\ws\\test\\test_calc.c');
+        assert.deepStrictEqual(engine.testFileAt('c:\\ws\\test\\test_calc.c'), { projectKey: 'default', fileId: 'test/test_calc.c' });
+        assert.deepStrictEqual(engine.testFileAt('C:\\WS\\Test\\TEST_CALC.c'), { projectKey: 'default', fileId: 'test/test_calc.c' });
     });
 
     test('rediscovering an unknown file finds nothing', async () => {

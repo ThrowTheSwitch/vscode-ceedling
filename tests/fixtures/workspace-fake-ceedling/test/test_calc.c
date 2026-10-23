@@ -20,3 +20,7 @@ void test_param(int x)
 {
     (void)x;
 }
+
+void test_add_more(void)
+{
+}

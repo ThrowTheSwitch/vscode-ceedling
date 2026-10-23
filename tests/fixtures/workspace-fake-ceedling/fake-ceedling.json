@@ -8,7 +8,8 @@
                 "test_sub": { "fail": "Expected 1 Was 2", "line": 9 },
                 "test_skip": "ignore",
                 "test_param(1)": "pass",
-                "test_param(2)": "pass"
+                "test_param(2)": "pass",
+                "test_add_more": "pass"
             }
         },
         "test/test_slow.c": { "hang": true },

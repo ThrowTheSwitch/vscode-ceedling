@@ -51,7 +51,7 @@ suite('Extension against a fake Ceedling', function () {
     const invocations = (): string[][] => fs.readFileSync(fileUri('fake-ceedling.log').fsPath, 'utf8')
         .split('\n').filter((line) => line !== '').map((line) => JSON.parse(line) as string[]);
 
-    // Runs the items, recording each result by item id. `whileRunning` sees the run's token.
+    // Runs the items, recording each result by item id. `whileRunning` may cancel the run.
     async function run(ids: string[], whileRunning?: (cancel: () => void) => Promise<void>): Promise<Map<string, ReportedResult[]>> {
         const results = new Map<string, ReportedResult[]>();
         const listener = controller.onDidReport((result) => { results.set(result.item.id, [...(results.get(result.item.id) ?? []), result]); });
@@ -71,7 +71,8 @@ suite('Extension against a fake Ceedling', function () {
     const text = (message: vscode.TestMessage | undefined) => typeof message?.message === 'string' ? message.message : message?.message.value ?? '';
 
     suiteSetup(async () => {
-        const api = await vscode.extensions.getExtension<CeedlingExplorerApi>(EXTENSION_ID)!.activate();
+        const api = await vscode.extensions.getExtension<CeedlingExplorerApi | undefined>(EXTENSION_ID)!.activate();
+        assert.ok(api, 'the extension returns its test API in test mode');
         const found = api.controllerFor(project().uri);
         assert.ok(found, 'a controller for the fake project');
         controller = found;
@@ -79,9 +80,11 @@ suite('Extension against a fake Ceedling', function () {
     });
 
     test('a folder without a Ceedling project adds nothing to the Testing view', async () => {
-        const api = await vscode.extensions.getExtension<CeedlingExplorerApi>(EXTENSION_ID)!.activate();
+        const api = await vscode.extensions.getExtension<CeedlingExplorerApi | undefined>(EXTENSION_ID)!.activate();
+        assert.ok(api);
         const without = api.controllerFor(folderNamed('without-project').uri);
         await without?.whenDiscovered();
+        assert.ok(!fs.existsSync(vscode.Uri.joinPath(folderNamed('without-project').uri, 'fake-ceedling.log').fsPath), 'Ceedling never ran there');
         assert.strictEqual(without?.testController, undefined);
     });
 
@@ -100,6 +103,7 @@ suite('Extension against a fake Ceedling', function () {
             ['test/test_calc.c::test_sub', 'sub', 6],
             ['test/test_calc.c::test_skip', 'skip', 11],
             ['test/test_calc.c::test_param', 'param', 18],
+            ['test/test_calc.c::test_add_more', 'add_more', 23],
         ]);
         const cases: Array<[string, number | undefined]> = [];
         item('test/test_calc.c::test_param').children.forEach((c) => cases.push([c.id, c.range?.start.line]));
@@ -127,6 +131,16 @@ suite('Extension against a fake Ceedling', function () {
         assert.deepStrictEqual(outcome(results, 'test/test_calc.c::test_sub'), ['failed']);
         assert.strictEqual(results.get('test/test_calc.c::test_add'), undefined);
         assert.ok(invocations().some((args) => args[0] === 'test:test/test_calc.c' && args.includes('--test-case=test_sub')));
+    });
+
+    // Ceedling's filter is a substring match, so --test-case=test_add also runs test_add_more.
+    test('a function run whose filter also selects another function reruns the whole file', async () => {
+        const before = invocations().length;
+        const results = await run(['test/test_calc.c::test_add']);
+        assert.deepStrictEqual(invocations().slice(before).filter((args) => args[0]?.startsWith('test:')).map((args) => args.filter((a) => /^(test:|--test-case)/.test(a))),
+            [['test:test/test_calc.c', '--test-case=test_add'], ['test:test/test_calc.c']]);
+        assert.ok(outcome(results, 'test/test_calc.c::test_add')?.includes('passed'));
+        assert.ok(outcome(results, 'test/test_calc.c::test_sub')?.includes('failed'));
     });
 
     test('a test missing from the report errors, saying Ceedling reported no result', async () => {

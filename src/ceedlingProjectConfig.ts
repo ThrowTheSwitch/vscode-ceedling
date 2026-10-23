@@ -85,10 +85,9 @@ export async function projectsFromSettings(
     exists: (absPath: string) => Promise<boolean>,
 ): Promise<CeedlingProject[]> {
     // Path rules follow the given platform rather than the host's, so Windows paths resolve as
-    // Windows paths wherever this runs. Gcov's XML report generation fails on Windows unless the
-    // drive letter is uppercase.
+    // Windows paths wherever this runs.
     const paths = platform === 'win32' ? path.win32 : path.posix;
-    const root = platform === 'win32' ? workspacePath.charAt(0).toUpperCase() + workspacePath.slice(1) : workspacePath;
+    const root = platform === 'win32' ? withUppercaseDrive(workspacePath) : workspacePath;
     if (settings.projects.length === 0) {
         const absPath = paths.resolve(root);
         return [{ key: 'default', absPath, ...(await projectFiles(absPath, undefined, paths, exists)), debugLaunchConfig: 'ceedling', mixins: [...settings.mixins] }];
@@ -107,6 +106,17 @@ export async function projectsFromSettings(
     return [...projects.values()];
 }
 
+// Gcov's XML report generation fails on Windows unless the drive letter is uppercase.
+function withUppercaseDrive(windowsPath: string): string {
+    return windowsPath.replace(/^[a-z](?=:)/, (drive) => drive.toUpperCase());
+}
+
+// One key per file or directory, for comparing paths and for grouping and locking work by
+// project directory. Windows paths are case-insensitive, so every spelling of one shares a key.
+export function pathKey(absPath: string, platform: NodeJS.Platform): string {
+    return platform === 'win32' ? absPath.toLowerCase() : absPath;
+}
+
 // A path ending in .yml names a project file. Any other path names a directory holding a default
 // project file. The key is the configured name, else an alternate file's base name, else the path.
 async function projectFromSetting(
@@ -123,7 +133,8 @@ async function projectFromSetting(
             key = configuredFile.slice(0, -'.yml'.length);
         }
     }
-    const absPath = paths.resolve(root, directory);
+    const resolved = paths.resolve(root, directory);
+    const absPath = paths === path.win32 ? withUppercaseDrive(resolved) : resolved;
     return {
         key: setting.name ?? key,
         absPath,

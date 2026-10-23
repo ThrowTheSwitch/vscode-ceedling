@@ -50,6 +50,8 @@ jobs:
     # The coverage table goes to the job summary. The full HTML report is a downloadable artifact.
     - name: Coverage
       if: runner.os == 'Linux'
+      # bash, so pipefail keeps a failed run from hiding behind tee.
+      shell: bash
       run: |
         npm run -s test:coverage | tee coverage-console.txt
         {

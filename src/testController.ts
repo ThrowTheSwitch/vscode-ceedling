@@ -10,7 +10,7 @@ import { buildRunPlan, type PlanTarget, type RunPlanEntry } from './runPlan';
 import { SingleFlight } from './singleFlight';
 import { type CeedlingFileNode, type CeedlingProjectNode, type CeedlingTestFunction, type RunReporter } from './testModel';
 import { createRunReporter, type ReportMessage } from './testReporting';
-import { Debouncer, settingsChangeEffects, sourceEventEffect, watcherChanges } from './watchPolicy';
+import { Debouncer, settingsChangeEffects, type SourceEvent, sourceEventEffect, watcherChanges } from './watchPolicy';
 
 // Names the launch configuration of one debug request, so its debug session can be told apart
 // from any other session VS Code starts meanwhile.
@@ -45,6 +45,8 @@ export class CeedlingTestController {
     private projects: CeedlingProjectNode[] = [];
     private readonly reported = new vscode.EventEmitter<ReportedResult>();
     readonly onDidReport = this.reported.event;
+    // A discovery in flight at disposal must not build a TestController or watchers afterwards.
+    private disposed = false;
 
     constructor(
         public readonly workspaceFolder: vscode.WorkspaceFolder,
@@ -90,9 +92,11 @@ export class CeedlingTestController {
         return this.refresh();
     }
 
-    // Runs a request as the Run profile does.
-    run(request: vscode.TestRunRequest, token: vscode.CancellationToken): Promise<void> {
-        return this.handleRun(request, token);
+    // Runs a request as the Run profile does. A folder without a TestController has nothing to run.
+    async run(request: vscode.TestRunRequest, token: vscode.CancellationToken): Promise<void> {
+        if (this.controller) {
+            await this.handleRun(request, token);
+        }
     }
 
     async clean(): Promise<void> {
@@ -104,6 +108,7 @@ export class CeedlingTestController {
     }
 
     dispose(): void {
+        this.disposed = true;
         this.logger.debug(`CeedlingTestController disposed for ${this.workspaceFolder.uri.toString()}`);
         this.editReparses.dispose();
         [...this.configurationWatchers.values(), ...this.sourceWatchers.values(), ...this.disposables].forEach((d) => { d.dispose(); });
@@ -174,14 +179,26 @@ export class CeedlingTestController {
     // keeps it, emptied, until the next discovery.
     private async discover(): Promise<void> {
         this.logger.trace(`discover()`);
+        if (this.disposed) {
+            return;
+        }
         try {
             this.projects = await this.engine.discover();
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- dispose() may run during the await
+            if (this.disposed) {
+                return;
+            }
             if (this.projects.length > 0) {
                 this.ensureController();
             } else {
                 this.disposeController();
             }
         } catch (e) {
+            // Disposal stops the engine, which fails a discovery in flight. Nobody is waiting on it.
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- dispose() may run during the await
+            if (this.disposed) {
+                return;
+            }
             const message = e instanceof CeedlingLoadError ? e.message : `Failed to load Ceedling project: ${util.format(e)}`;
             this.logger.error(message);
             vscode.window.showErrorMessage(message);
@@ -195,6 +212,9 @@ export class CeedlingTestController {
     // sourceEventEffect.
     private async updateWatchers(): Promise<void> {
         const configurationFiles = new Set(await this.engine.configurationFiles());
+        if (this.disposed) {
+            return;
+        }
         const projectDirectories = new Set(this.projects.map((p) => this.engine.getProjectAbsPath(p.projectKey)));
         this.syncWatchers(this.configurationWatchers, configurationFiles,
             (file) => new vscode.RelativePattern(vscode.Uri.file(path.dirname(file)), path.basename(file)),
@@ -208,7 +228,7 @@ export class CeedlingTestController {
         this.syncWatchers(this.sourceWatchers, projectDirectories,
             (directory) => new vscode.RelativePattern(vscode.Uri.file(directory), '**/*.c'),
             (watcher) => {
-                const onSource = (event: 'changed' | 'created' | 'deleted') => (uri: vscode.Uri) => {
+                const onSource = (event: SourceEvent) => (uri: vscode.Uri) => {
                     const effect = sourceEventEffect(event, {
                         isTestFile: () => this.engine.testFileAt(uri.fsPath) !== undefined,
                         mayBeTestFile: () => this.engine.mayBeTestFile(uri.fsPath),
@@ -407,7 +427,8 @@ export class CeedlingTestController {
             for (const item of plan.flatMap((entry) => this.itemsOf(entry))) {
                 if (!excluded.has(item)) run.enqueued(item);
             }
-            // Entries run one at a time, in tree order. The engine serializes Ceedling runs anyway.
+            // Entries run one at a time, in tree order, so results arrive in a predictable order. The
+            // engine alone would let runs in separate project directories overlap.
             /* eslint-disable no-await-in-loop -- sequential by design, see above */
             for (const entry of plan) {
                 if (token.isCancellationRequested) break;

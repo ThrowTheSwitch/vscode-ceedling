@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
+import type { CeedlingExplorerApi } from '../../src/main';
 
 // Runs inside a real VS Code with the built extension loaded (see main.ts). It checks what unit
 // tests can't: that the bundle loads, activates, and wires its commands into VS Code.
@@ -9,7 +10,10 @@ const EXTENSION_ID = 'throw-the-switch.vscode-ceedling';
 
 suite('Extension in VS Code', () => {
     suiteSetup(async () => {
-        await vscode.extensions.getExtension(EXTENSION_ID)!.activate();
+        const api = await vscode.extensions.getExtension<CeedlingExplorerApi | undefined>(EXTENSION_ID)!.activate();
+        // Clean acts on discovered projects, so discovery must have finished first.
+        assert.ok(api, 'the extension returns its test API in test mode');
+        await Promise.all((vscode.workspace.workspaceFolders ?? []).map((folder) => api.controllerFor(folder.uri)?.whenDiscovered() ?? Promise.resolve()));
     });
 
     test('activates', () => {
@@ -28,12 +32,15 @@ suite('Extension in VS Code', () => {
         await assert.rejects(Promise.resolve(vscode.commands.executeCommand('ceedlingExplorer.debugTestExecutable')), /Testing view/);
     });
 
-    // The folder without a project has nothing to clean, and runs no Ceedling.
-    test('Clean runs in each folder with a Ceedling project', async () => {
+    test('Clean runs in each folder with a Ceedling project, and only there', async () => {
         await vscode.commands.executeCommand('ceedlingExplorer.clean');
-        const project = vscode.workspace.workspaceFolders?.find((f) => f.name === 'fake-project');
-        assert.ok(project);
-        const log = fs.readFileSync(vscode.Uri.joinPath(project.uri, 'fake-ceedling.log').fsPath, 'utf8');
-        assert.ok(log.split('\n').some((line) => line.startsWith('["clean"')));
+        const log = (name: string) => {
+            const folder = vscode.workspace.workspaceFolders?.find((f) => f.name === name);
+            assert.ok(folder, name);
+            const file = vscode.Uri.joinPath(folder.uri, 'fake-ceedling.log').fsPath;
+            return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+        };
+        assert.ok(log('fake-project').split('\n').some((line) => line.startsWith('["clean"')));
+        assert.strictEqual(log('without-project'), '');
     });
 });
