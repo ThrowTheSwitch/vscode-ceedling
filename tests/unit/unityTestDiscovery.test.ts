@@ -38,6 +38,14 @@ suite('discoverTests: golden parity with real Ceedling reports', () => {
     }
 });
 
+// A test file saved on Windows usually has CRLF line endings, and Ceedling reads it as is.
+suite('discoverTests: CRLF line endings', () => {
+    test('CRLF source yields the same names and lines as LF source', () => {
+        const lf = readFixture('source', 'test_unity_parity.c').replace(/\r\n/g, '\n');
+        assert.deepStrictEqual(discoverTests(lf.replace(/\n/g, '\r\n'), PARAMS_ON), discoverTests(lf, PARAMS_ON));
+    });
+});
+
 suite('discoverTests: test names', () => {
     test('a conventional signature yields its bare name', () => {
         assert.deepStrictEqual(namesIn('void test_a(void)\n{\n}\n'), ['test_a']);
