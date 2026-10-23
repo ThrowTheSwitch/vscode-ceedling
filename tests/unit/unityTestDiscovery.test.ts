@@ -1,8 +1,7 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as xml2js from 'xml2js';
-import { getTestListFromXmlReport } from '../../src/ceedlingXmlReport';
+import { parseCppUnitReport } from '../../src/testResults';
 import { DiscoveredTest, discoverTests, expandRubyRange, rubyFloatToString } from '../../src/unityTestDiscovery';
 
 // Ceedling names every test with Unity's runner generator (auto/generate_test_runner.rb), and
@@ -29,10 +28,8 @@ function namesIn(source: string, options = PARAMS_ON): string[] {
 suite('discoverTests: golden parity with real Ceedling reports', () => {
     for (const version of ['ceedling-1.0.0', 'ceedling-1.1.10', 'ceedling-1.2.0']) {
         test(`${version}: test_unity_parity.c`, async () => {
-            const report = await new xml2js.Parser({ explicitArray: false })
-                .parseStringPromise(readFixture(version, 'cppunit-report-unity-parity.xml'));
-            const expected = getTestListFromXmlReport(report, 'SuccessfulTests')
-                .map((t: any) => (t['Name'] as string).replace(/^test\/test_unity_parity\.c::/, ''));
+            const report = await parseCppUnitReport(readFixture(version, 'cppunit-report-unity-parity.xml'));
+            const expected = report.passed.map((t) => t.name.replace(/^test\/test_unity_parity\.c::/, ''));
             assert.deepStrictEqual(namesIn(readFixture('source', 'test_unity_parity.c')), expected);
         });
     }

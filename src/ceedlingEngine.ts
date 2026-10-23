@@ -1,19 +1,24 @@
+// Orchestrates Ceedling for one workspace folder: discovering its projects and tests, running
+// them, building a test for the debugger, and cleaning. Each concern lives in its own module. This
+// class sequences them and owns the per-folder state.
+//
+// - ceedlingProjectConfig: settings → projects, and resolved configuration → ProjectState
+// - ceedlingProcess: running Ceedling, with per-run cancellation
+// - unityTestDiscovery: test functions and cases in source, named as Ceedling names them
+// - testResults: the CppUnit report mapped onto discovered ids
+//
+// It has no runtime `vscode` dependency. Workspace configuration, the problem matcher, the
+// runner, and the filesystem come in through `deps`, so the unit tests drive it with fakes.
+
 import { Mutex } from 'async-mutex';
-import child_process from 'child_process';
 import fs from 'fs';
 import yaml from 'js-yaml';
 import os from 'os';
 import path from 'path';
 import semver from 'semver';
-import stripAnsi from 'strip-ansi';
-import tree_kill from 'tree-kill';
 import util from 'util';
-// Type-only. This file has no runtime dependency on the `vscode` module - the one real call it
-// used to make, resolving workspace configuration, is now supplied by the caller (see
-// `configProvider` below). That keeps this file loadable in a plain Node test process, where the
-// `vscode` module the Extension Host normally injects does not exist.
 import type vscode from 'vscode';
-import xml2js from 'xml2js';
+import { buildProjectArgs } from './ceedlingMixinArgs';
 import {
     buildFileLabelRegex,
     buildTestLabelRegex,
@@ -22,158 +27,109 @@ import {
     parseFileListBullets,
     testCaseFilterMatchedExactly,
 } from './ceedlingOutputParsing';
-import { getTestListFromXmlReport } from './ceedlingXmlReport';
-import { buildProjectArgs, quoteIfNeeded } from './ceedlingMixinArgs';
-import { discoverTests } from './unityTestDiscovery';
-// Type-only, same reasoning as the `vscode` import above: Logger and ProblemMatcher both have
-// real runtime vscode calls of their own (an output channel, a DiagnosticCollection). Importing
-// only their types keeps this file from pulling either module's code in at require-time. Callers
-// construct both and hand this file the instances (see `configProvider`/`deps.problemMatcher`).
+import { buildCommandLine, Cancellation, CeedlingResult, CeedlingRunner } from './ceedlingProcess';
+import {
+    CeedlingLoadError,
+    CeedlingProject,
+    DEFAULT_CPPUNIT_REPORT_FILENAME,
+    ProjectSetting,
+    ProjectState,
+    projectState,
+    projectsFromSettings,
+} from './ceedlingProjectConfig';
 import type { Logger } from './logger';
 import type { FileDiagnostic, ProblemMatcher, ProblemMatchingPattern } from './problemMatcher';
+import { allIds, CeedlingFileNode, CeedlingProjectNode, CeedlingTestFunction, leafIds, RunReporter } from './testModel';
+import { CppUnitReport, parseCppUnitReport, reportedNames, testResults } from './testResults';
+import { discoverTests } from './unityTestDiscovery';
+
+export { CeedlingLoadError } from './ceedlingProjectConfig';
 
 const MINIMUM_CEEDLING_VERSION = '1.0.0';
-const TEST_VERBOSITY_FLAG = '--verbosity debug';
-// Ceedling's own default for report_tests_log_factory's cppunit report. Also this extension's
-// fallback when nothing in the resolved config overrides it - see setXmlReportPath.
-const DEFAULT_CPPUNIT_REPORT_FILENAME = 'cppunit_tests_report.xml';
+const CEEDLING_COMMAND = 'ceedling';
+// Added to test runs and debug builds in development mode only, for the extension's own logs.
+const DEBUG_VERBOSITY = ['--verbosity', 'debug'];
+const UNREPORTED_MESSAGE =
+    "Ceedling reported no result for this test. Its name as found in the source may not match the name Ceedling's test runner gave it.";
 
-export type ProjectData = {
-    projectPath: string,
-    ymlFileName: string,
-    absPath: string,
-    debugLaunchConfig: string,
-    // Resolved once in loadProjectPaths(): this project's own ceedlingExplorer.projects[].mixins
-    // when set, else the workspace-wide ceedlingExplorer.mixins. Lowest to highest priority.
-    mixins: string[],
-    files: {
-        assembly?: string[],
-        header?: string[],
-        source?: string[],
-        test?: string[],
-    }
+// The filesystem operations the engine needs. Tests substitute an in-memory implementation.
+export interface EngineFileSystem {
+    exists(filePath: string): boolean;
+    isDirectory(filePath: string): boolean;
+    readFile(filePath: string): Promise<string>;
+    unlink(filePath: string): Promise<void>;
+    // undefined when the file doesn't exist.
+    mtimeMs(filePath: string): number | undefined;
 }
 
-export type ProjectConfig = {
-    path: string,
-    debugLaunchConfig: string,
-    name?: string,
-    // Absent (not merely []) means "use the workspace-wide ceedlingExplorer.mixins instead" -
-    // see loadProjectPaths(). An explicit [] opts this project out of the global list entirely.
-    mixins?: string[],
-}
+export const nodeFileSystem: EngineFileSystem = {
+    exists: (filePath) => fs.existsSync(filePath),
+    isDirectory: (filePath) => fs.statSync(filePath, { throwIfNoEntry: false })?.isDirectory() ?? false,
+    readFile: (filePath) => fs.promises.readFile(filePath, 'utf8'),
+    unlink: (filePath) => fs.promises.unlink(filePath),
+    mtimeMs: (filePath) => fs.statSync(filePath, { throwIfNoEntry: false })?.mtimeMs,
+};
 
-export type CeedlingTestCase = {
-    id: string,
-    label: string,
-    line: number,
-}
+export type EngineDeps = {
+    configProvider: (uri: vscode.Uri) => vscode.WorkspaceConfiguration,
+    problemMatcher: ProblemMatcher,
+    // The extension's own mixin enabling the CppUnit report. It is always the last --mixin flag.
+    bundledMixinPath: string,
+    runner?: CeedlingRunner,
+    fileSystem?: EngineFileSystem,
+    platform?: NodeJS.Platform,
+    tmpdir?: string,
+};
 
-export type CeedlingTestFunction = {
-    id: string,
-    label: string,
-    line: number,
-    cases: CeedlingTestCase[],
-}
+type LoadedProject = CeedlingProject & { state: ProjectState, files: CeedlingFileNode[] };
 
-export type CeedlingFileNode = {
-    id: string,
-    label: string,
-    absPath: string,
-    projectKey: string,
-    functions: CeedlingTestFunction[],
-}
+// What a run compiled. A file run's diagnostics replace only that file's, a project run's all.
+type RunScope = { kind: 'project' } | { kind: 'file', file: CeedlingFileNode };
 
-export type CeedlingProjectNode = {
-    projectKey: string,
-    label: string,
-    files: CeedlingFileNode[],
-}
+type BuildOutcome =
+    | { cancelled: true }
+    | { cancelled: false, transcript: string, diagnostics: FileDiagnostic[], report: CppUnitReport | undefined };
 
-// Thrown when discovery cannot proceed (bad Ceedling version, sanity check failure).
-// A workspace folder with no Ceedling project at all is *not* an error - see discover().
-export class CeedlingLoadError extends Error { }
-
-export interface RunReporter {
-    started(id: string): void;
-    passed(id: string, message?: string): void;
-    failed(id: string, message: string, line?: number): void;
-    skipped(id: string, message?: string): void;
-    // `location`, when given, is the compiler diagnostic that best explains why no XML report
-    // was produced. It names its own file, not necessarily the file being tested (e.g. a bad
-    // header).
-    errored(id: string, message: string, location?: { file: string, line: number }): void;
-    appendOutput(text: string): void;
-}
-
-// Every id (file, parametrized-function group, and case) contained in a file, used to mark
-// everything as started before a run and as errored if Ceedling never produced a report.
-function getAllIds(file: CeedlingFileNode): string[] {
-    const ids = [file.id];
-    for (const fn of file.functions) {
-        ids.push(fn.id);
-        for (const testCase of fn.cases) {
-            ids.push(testCase.id);
-        }
-    }
-    return ids;
+// Diagnostics are kept per project for project runs, and per file for file and function runs.
+function fileDiagnosticsId(projectKey: string, fileId: string): string {
+    return `${projectKey}::${fileId}`;
 }
 
 export class CeedlingEngine {
 
-    private ceedlingVersionChecked = false;
-    private ceedlingProcess: child_process.ChildProcess | undefined;
-    private ceedlingMutex: Mutex = new Mutex();
-
-    // mapped to the project key
-    private fileLabelRegexps: Record<string, RegExp | undefined> = {};
-    private testLabelRegexps: Record<string, RegExp | undefined> = {};
-    private buildDirectories: Record<string, string> = {};
-    private reportFilenames: Record<string, string> = {};
-    // Warned about at most once per project per activation, not once per discover() cycle - the
-    // project.yml file watch re-runs discover() on every save, and this would otherwise pop up a
-    // notification on every single one.
-    private warnedNonDefaultReportFilename: Set<string> = new Set();
-
-    private isPrettyTestLabelEnable: boolean = false;
-    private isPrettyTestFileLabelEnable: boolean = false;
-
-    private projectData: Record<string, ProjectData> = {};
-    // Populated once per discover() cycle - see the comment in discover() itself.
-    private resolvedConfig: Record<string, any> = {};
-
     readonly problemMatcher: ProblemMatcher;
 
-    // Process spawning and YAML file reads go through these fields instead of the
-    // child_process/fs modules directly. Tests substitute fakes here to exercise
-    // Ceedling-invocation and config-parsing logic without a real Ceedling install or disk I/O.
-    private readonly exec: typeof child_process.exec;
-    private readonly readFile: typeof fs.readFile;
-    // Resolves workspace configuration. Required, no in-file default - the only real
-    // implementation needs the `vscode` module, and this file otherwise has none.
     private readonly configProvider: (uri: vscode.Uri) => vscode.WorkspaceConfiguration;
-    // Absolute path to the extension's bundled mixin that force-enables the CppUnit XML report.
-    // Always the last, highest-priority --mixin flag on every invocation - see buildProjectArgs.
     private readonly bundledMixinPath: string;
+    private readonly runner: CeedlingRunner;
+    private readonly fs: EngineFileSystem;
+    private readonly platform: NodeJS.Platform;
+    private readonly tmpdir: string;
+    // Serializes every Ceedling invocation that builds or deletes in a project's build directory.
+    private readonly mutex = new Mutex();
+
+    // The last successful discovery. A failed discovery leaves it in place, so runs already under
+    // way, and runs of the tree still on screen, keep their project arguments and directory.
+    private projects = new Map<string, LoadedProject>();
+    // Projects whose project file exists, as of the latest discovery attempt, failed or not. Their
+    // files are watched, so fixing a broken configuration triggers the next discovery.
+    private candidates: CeedlingProject[] = [];
+    // One notification per project per session. A project.yml save rediscovers every time.
+    private readonly warnedNonDefaultReportFilename = new Set<string>();
 
     constructor(
         public readonly workspaceFolder: vscode.WorkspaceFolder,
         private readonly logger: Logger,
         private readonly isDevelopmentMode: boolean,
-        deps: {
-            configProvider: (uri: vscode.Uri) => vscode.WorkspaceConfiguration,
-            // Constructed by the caller, not here - see the type-only problemMatcher import above.
-            problemMatcher: ProblemMatcher,
-            bundledMixinPath: string,
-            exec?: typeof child_process.exec,
-            readFile?: typeof fs.readFile,
-        },
+        deps: EngineDeps,
     ) {
-        this.problemMatcher = deps.problemMatcher;
-        this.exec = deps.exec ?? child_process.exec;
-        this.readFile = deps.readFile ?? fs.readFile;
         this.configProvider = deps.configProvider;
+        this.problemMatcher = deps.problemMatcher;
         this.bundledMixinPath = deps.bundledMixinPath;
+        this.runner = deps.runner ?? new CeedlingRunner();
+        this.fs = deps.fileSystem ?? nodeFileSystem;
+        this.platform = deps.platform ?? process.platform;
+        this.tmpdir = deps.tmpdir ?? os.tmpdir();
     }
 
     dispose(): void {
@@ -186,749 +142,451 @@ export class CeedlingEngine {
     }
 
     getDebugLaunchConfig(projectKey: string): string {
-        return this.projectData[projectKey].debugLaunchConfig;
+        return this.project(projectKey).debugLaunchConfig;
     }
 
-    // A gdb log file reference in a crash message is relative to the project directory. A
-    // caller turning that reference into a clickable link needs this to resolve it.
+    // A gdb log reference in a crash message is relative to the project directory.
     getProjectAbsPath(projectKey: string): string {
-        return this.projectData[projectKey].absPath;
-    }
-
-    // Discover every configured project and its test files/functions.
-    // Throws CeedlingLoadError if Ceedling itself can't be used at all (bad version, no
-    // project.yml can be read for any configured project, missing cppunit report plugin).
-    // A workspace folder with no Ceedling project present is reported as zero projects,
-    // not an error - see loadProjectPaths().
-    async discover(): Promise<CeedlingProjectNode[]> {
-        this.ceedlingVersionChecked = false;
-        // Cleared here, not per-call: loadResolvedConfig spins up a real `ceedling dumpconfig`
-        // process, so each project's config is resolved once per discover() cycle and reused by
-        // every call within it (checkYmlProjectData below, and compileForDebug later). The
-        // existing project.yml file watch already forces a fresh discover() on any config change,
-        // which is all the invalidation this cache needs.
-        this.resolvedConfig = {};
-        this.loadProjectPaths();
-
-        const projectKeys = this.getExistingProjectKeys();
-        if (projectKeys.length === 0) {
-            this.logger.debug(`No Ceedling project.yml found under ${this.workspaceFolder.uri.fsPath}, skipping`);
-            return [];
-        }
-
-        await this.checkCeedlingVersion();
-
-        for (const projectKey of projectKeys) {
-            const resolvedConfig = await this.loadResolvedConfig(projectKey);
-            this.resolvedConfig[projectKey] = resolvedConfig;
-            this.logger.debug(`discover(projectKey=${projectKey}, resolvedConfig=${util.format(resolvedConfig)})`);
-            this.setBuildDirectory(projectKey, resolvedConfig);
-            this.setXmlReportPath(projectKey, resolvedConfig);
-            this.setFileLabelRegex(projectKey, resolvedConfig);
-            this.setTestLabelRegex(projectKey, resolvedConfig);
-        }
-
-        const errorMessage = await this.sanityCheck(projectKeys);
-        if (errorMessage) {
-            throw new CeedlingLoadError(errorMessage);
-        }
-
-        this.isPrettyTestFileLabelEnable = this.getConfiguration().get<boolean>('prettyTestFileLabel', false);
-        this.isPrettyTestLabelEnable = this.getConfiguration().get<boolean>('prettyTestLabel', false);
-
-        const projects: CeedlingProjectNode[] = [];
-        for (const projectKey of projectKeys) {
-            const testFiles = await this.getFileListFromProject('test', projectKey);
-            this.projectData[projectKey].files.test = testFiles;
-            projects.push({
-                projectKey,
-                label: projectKey,
-                files: Array.from(this.getTestFileNodes(projectKey, testFiles)),
-            });
-        }
-        return projects;
+        return this.project(projectKey).absPath;
     }
 
     getYmlProjectPaths(): string[] {
-        return this.getExistingProjectKeys().map((projectKey) => this.getYmlProjectPath(projectKey));
+        return this.candidates.map((project) => path.resolve(project.absPath, project.ymlFileName));
     }
 
-    async runFile(projectKey: string, file: CeedlingFileNode, reporter: RunReporter, token: vscode.CancellationToken): Promise<void> {
-        await this.runInternal(projectKey, file.id, this.getTestCommandArgs(file.id), getAllIds(file), reporter, token);
-    }
-
-    async runProjectAll(projectKey: string, files: CeedlingFileNode[], reporter: RunReporter, token: vscode.CancellationToken): Promise<void> {
-        const allIds = files.flatMap((file) => getAllIds(file));
-        await this.runInternal(projectKey, projectKey, this.getTestCommandArgs('all'), allIds, reporter, token);
-    }
-
-    // Runs a single test function (and, if parametrized, all its cases together - Ceedling's
-    // --test-case filter has function-level granularity only, it cannot isolate one case from
-    // its siblings) instead of every test in the file. Ceedling still recompiles the whole file
-    // regardless - --test-case narrows what runs and gets reported, not what gets built.
-    async runFunction(
-        projectKey: string, file: CeedlingFileNode, fn: CeedlingTestFunction, reporter: RunReporter, token: vscode.CancellationToken
-    ): Promise<void> {
-        const functionName = extractTestFunctionName(fn.id);
-        const ids = [fn.id, ...fn.cases.map((c) => c.id)];
-        // file.id, not fn.id - a compile diagnostic belongs to the file being compiled, the same
-        // file runFile itself uses as this id. Two different ids for the same file would let a
-        // diagnostic found during a single-function run go stale: nothing ever prunes an id once
-        // it stops being used, so a since-fixed error would linger under fn.id after a later
-        // whole-file run replaced only file.id's own entry.
-        const collided = await this.runInternal(
-            projectKey, file.id, this.getTestCommandArgs(file.id, functionName), ids, reporter, token, functionName
+    // Discovers every configured project and its tests. Throws CeedlingLoadError when Ceedling or
+    // a project's configuration is unusable. A folder without a project file is zero projects.
+    async discover(): Promise<CeedlingProjectNode[]> {
+        const config = this.getConfiguration();
+        const settings = projectsFromSettings(
+            { projects: config.get<ProjectSetting[]>('projects', []), mixins: config.get<string[]>('mixins', []) },
+            this.workspaceFolder.uri.fsPath, this.platform, (p) => this.fs.isDirectory(p),
         );
-        if (collided) {
+        this.candidates = settings.filter((project) => {
+            const projectFile = path.resolve(project.absPath, project.ymlFileName);
+            const exists = this.fs.exists(projectFile);
+            this.logger.debug(
+                `discover: project '${project.key}' -> ${projectFile}${exists ? '' : ' (absent, skipped)'}, mixins=${util.format(project.mixins)}`
+            );
+            return exists;
+        });
+        if (this.candidates.length === 0) {
+            this.projects = new Map();
+            return [];
+        }
+
+        const loaded = new Map<string, LoadedProject>();
+        const errors: string[] = [];
+        for (const project of this.candidates) {
+            await this.checkCeedlingVersion(project);
+            const resolved = await this.resolveConfig(project);
+            if (resolved === undefined) {
+                errors.push(
+                    `Failed to resolve Ceedling's configuration for project '${project.key}' with 'ceedling dumpconfig'. ` +
+                    `Check that Ceedling runs in the configured shell (ceedlingExplorer.shellPath), and that ` +
+                    `ceedlingExplorer.projects, ceedlingExplorer.mixins, and any projects[].mixins name valid files and mixins.`
+                );
+                continue;
+            }
+            const state = projectState(resolved, this.platform);
+            this.logger.debug(`discover: project '${project.key}' state=${util.format(state)}`);
+            if (!state.reportPluginEnabled) {
+                // The bundled mixin always enables the plugin, so the mixin itself didn't apply.
+                errors.push(
+                    `The required Ceedling plugin 'report_tests_log_factory' did not take effect for project '${project.key}', ` +
+                    `even though this extension's own mixin always enables it. Check that ceedlingExplorer.mixins and ` +
+                    `projects[].mixins don't reference an invalid mixin.`
+                );
+                continue;
+            }
+            this.warnIfNonDefaultReportFilename(project.key, state.reportFilename);
+            loaded.set(project.key, { ...project, state, files: [] });
+        }
+        if (errors.length > 0) {
+            throw new CeedlingLoadError(errors.join('\n'));
+        }
+
+        const labels = { tests: config.get<boolean>('prettyTestLabel', true), files: config.get<boolean>('prettyTestFileLabel', true) };
+        for (const project of loaded.values()) {
+            project.files = await this.testFileNodes(project, await this.listTestFiles(project), labels);
+        }
+        this.projects = loaded;
+        const diagnosticsIds = new Set([...loaded.values()].flatMap((p) => [p.key, ...p.files.map((f) => fileDiagnosticsId(p.key, f.id))]));
+        this.problemMatcher.retainIds((id) => diagnosticsIds.has(id));
+        return [...loaded.values()].map((project) => ({ projectKey: project.key, label: project.key, files: project.files }));
+    }
+
+    async runFile(projectKey: string, file: CeedlingFileNode, reporter: RunReporter, token: Cancellation): Promise<void> {
+        await this.runTests(this.project(projectKey), { kind: 'file', file }, this.testCommandArgs(file.id), allIds(file), leafIds(file.functions), reporter, token);
+    }
+
+    async runProjectAll(projectKey: string, files: CeedlingFileNode[], reporter: RunReporter, token: Cancellation): Promise<void> {
+        await this.runTests(
+            this.project(projectKey), { kind: 'project' }, this.testCommandArgs('all'),
+            files.flatMap(allIds), files.flatMap((file) => leafIds(file.functions)), reporter, token,
+        );
+    }
+
+    // Runs one function, and all its cases if parametrized, via Ceedling's --test-case filter.
+    // The filter narrows what runs and gets reported. Ceedling still compiles the whole file.
+    async runFunction(projectKey: string, file: CeedlingFileNode, fn: CeedlingTestFunction, reporter: RunReporter, token: Cancellation): Promise<void> {
+        const name = extractTestFunctionName(fn.id);
+        const outcome = await this.runTests(
+            this.project(projectKey), { kind: 'file', file }, this.testCommandArgs(file.id, name),
+            [fn.id, ...fn.cases.map((c) => c.id)], leafIds([fn]), reporter, token, name,
+        );
+        if (outcome === 'collision') {
             this.logger.warn(
-                `runFunction: --test-case=${functionName} also matched an unrelated test in '${file.id}' - ` +
+                `runFunction: --test-case=${name} also matched an unrelated test in '${file.id}'. ` +
                 `Ceedling's filter is a substring match, not exact. Falling back to a full-file run.`
             );
             await this.runFile(projectKey, file, reporter, token);
         }
     }
 
-    // Returns true when a `testCaseFilter` run's results include a test that doesn't actually
-    // belong to the requested function - Ceedling's --test-case filter matches by substring, so
-    // a short function name can accidentally also match a longer, unrelated one. The caller
-    // decides what to do about it; this makes no reporter calls in that case.
-    private async runInternal(
-        projectKey: string, diagnosticsId: string, args: string[], allIds: string[], reporter: RunReporter, token: vscode.CancellationToken,
-        testCaseFilter?: string
-    ): Promise<boolean> {
-        for (const id of allIds) {
+    // Builds and runs the file's tests, reporting their results, then returns the executable's
+    // path relative to Ceedling's test output directory (e.g. `test_foo/test_foo.out`). The
+    // caller splices it into the user's launch configuration. undefined when the build failed or
+    // was cancelled, already reported through `reporter`.
+    async compileForDebug(projectKey: string, file: CeedlingFileNode, reporter: RunReporter, token: Cancellation): Promise<string | undefined> {
+        const project = this.project(projectKey);
+        const ids = allIds(file);
+        const leaves = leafIds(file.functions);
+        for (const id of ids) {
             reporter.started(id);
         }
-        const release = await this.ceedlingMutex.acquire();
+        return this.exclusive(async () => {
+            const outcome = await this.buildAndRun(project, { kind: 'file', file }, this.testCommandArgs(file.id), reporter, token);
+            if (outcome.cancelled) {
+                leaves.forEach((id) => reporter.skipped(id));
+                return undefined;
+            }
+            if (!outcome.report) {
+                this.reportMissingReport(ids, outcome.transcript, outcome.diagnostics, reporter);
+                return undefined;
+            }
+            this.reportResults(outcome.report, leaves, outcome.transcript, reporter);
+            const name = file.id.split(/[\\/]/).pop()!.replace(/\.[^.]*$/, '');
+            return `${name}/${name}${project.state.executableExtension}`;
+        });
+    }
+
+    // True when the command succeeded in every project.
+    clean(token?: Cancellation): Promise<boolean> {
+        return this.runInEveryProject(['clean'], token);
+    }
+
+    clobber(token?: Cancellation): Promise<boolean> {
+        return this.runInEveryProject(['clobber'], token);
+    }
+
+    cancel(): void {
+        this.runner.cancelAll();
+    }
+
+    private project(projectKey: string): LoadedProject {
+        const project = this.projects.get(projectKey);
+        if (!project) {
+            throw new Error(`Unknown Ceedling project '${projectKey}'.`);
+        }
+        return project;
+    }
+
+    private async exclusive<T>(work: () => Promise<T>): Promise<T> {
+        const release = await this.mutex.acquire();
         try {
-            if (token.isCancellationRequested) {
-                return false;
-            }
-            await this.deleteXmlReport(projectKey);
-            const result = await this.execCeedling(args, projectKey, TEST_VERBOSITY_FLAG);
-            // Each section only appears when it has content. An empty stdout (e.g. a compile
-            // failure that only wrote to stderr) otherwise left a bare, empty "stdout:" line
-            // leading every message. That empty line showed as an empty label wherever this
-            // message was previewed, not as a real error.
-            const message = [
-                result.stdout.length != 0 ? `stdout:\n${result.stdout}` : undefined,
-                result.stderr.length != 0 ? `stderr:\n${result.stderr}` : undefined,
-            ].filter((section): section is string => section !== undefined).join('\n');
-            reporter.appendOutput(message.replace(/\n/g, '\r\n'));
-
-            // absPath, not projectPath - compiler diagnostics report a path relative to the
-            // project directory, and Uri.file() needs an absolute path to match the actually
-            // open document. A relative prefix here left diagnostics visible in the Problems
-            // panel but never as inline editor squiggles.
-            const diagnostics = this.problemMatcher.scan(diagnosticsId, result.stdout, result.stderr, this.projectData[projectKey].absPath,
-                this.getConfiguration().get<string>('problemMatching.mode', ""),
-                this.getConfiguration().get<ProblemMatchingPattern[]>('problemMatching.patterns', []));
-
-            const xmlReportData = await this.getXmlReportData(projectKey);
-            this.logger.debug(`xmlReportData=${util.format(xmlReportData)}`);
-            if (xmlReportData === undefined) {
-                // The report was never produced. Lead with the compiler's own diagnostic, when
-                // problem matching found one. reporter.failed already gives a real test failure
-                // this same treatment, below. The full stdout/stderr transcript still follows
-                // either way. Problem matching's patterns are compiler-oriented. They find no
-                // diagnostic for a Ruby/Ceedling encoding exception. That case falls back to the
-                // raw transcript alone.
-                const leadDiagnostic = this.mostSevereDiagnostic(diagnostics);
-                const erroredMessage = leadDiagnostic ? `${leadDiagnostic.diagnostic.message}\n\n${message}` : message;
-                const location = leadDiagnostic
-                    ? { file: leadDiagnostic.file, line: leadDiagnostic.diagnostic.range.start.line }
-                    : undefined;
-                for (const id of allIds) {
-                    reporter.errored(id, erroredMessage, location);
-                }
-                return false;
-            }
-
-            const ignoredTests = this.getTestListDataFromXmlReport(xmlReportData, "IgnoredTests");
-            const successfulTests = this.getTestListDataFromXmlReport(xmlReportData, "SuccessfulTests");
-            const failedTests = this.getTestListDataFromXmlReport(xmlReportData, "FailedTests");
-
-            if (testCaseFilter !== undefined) {
-                const reportedNames = [...ignoredTests, ...successfulTests, ...failedTests].map((t) => t["Name"]);
-                if (!testCaseFilterMatchedExactly(testCaseFilter, reportedNames)) {
-                    return true;
-                }
-            }
-
-            for (const ignoredTest of ignoredTests) {
-                reporter.skipped(ignoredTest["Name"], message);
-            }
-            for (const successfulTest of successfulTests) {
-                reporter.passed(successfulTest["Name"], message);
-            }
-            for (const failedTest of failedTests) {
-                reporter.failed(
-                    failedTest["Name"],
-                    `${failedTest["Message"]}\n\n${message}`,
-                    parseInt(failedTest["Location"]["Line"]) - 1,
-                );
-            }
-            return false;
+            return await work();
         } finally {
             release();
         }
     }
 
-    // Compiles the test file and resolves the relative path to its built executable
-    // (e.g. "test_foo/test_foo.out"), for the caller to splice into the user's debug launch
-    // config. Returns undefined if compilation failed (message already reported via `reporter`).
-    async compileForDebug(projectKey: string, file: CeedlingFileNode, reporter: RunReporter): Promise<string | undefined> {
-        this.logger.debug(`compileForDebug(${projectKey}, ${file.id})`);
-        reporter.started(file.id);
-        const args = this.getTestCommandArgs(file.id);
-        // Same signal runInternal already relies on: a real compile/link failure means Ceedling
-        // never got far enough to produce a report, regardless of exit code - `ceedling
-        // test:<file>` builds *and executes* the test, so a build that succeeds but has a failing
-        // assertion also exits non-zero, and its executable is still fine to debug. Delete any
-        // stale report first so a leftover report from a prior run can't be mistaken for this one.
-        await this.deleteXmlReport(projectKey);
-        const result = await this.execCeedling(args, projectKey, TEST_VERBOSITY_FLAG);
-        const xmlReportData = await this.getXmlReportData(projectKey);
-        if (xmlReportData === undefined) {
-            reporter.failed(file.id, `${result.stdout}\n${result.stderr}`);
-            return undefined;
+    // Runs in the project's own directory, so `:project: :which_ceedling:` selects the Ceedling
+    // checked. A build suffix such as `1.2.0-13a540f` counts as its release.
+    private async checkCeedlingVersion(project: CeedlingProject): Promise<void> {
+        const result = await this.ceedling(['version'], { cwd: project.absPath });
+        const reported = parseCeedlingVersionString(result.stdout);
+        const version = reported === undefined ? null : semver.coerce(reported);
+        this.logger.debug(`checkCeedlingVersion(${project.key}): ${reported}`);
+        if (version === null) {
+            throw new CeedlingLoadError(
+                `Could not run 'ceedling version' for project '${project.key}'. Check that Ceedling is installed and runs ` +
+                `in the configured shell (ceedlingExplorer.shellPath).\n${result.stdout}\n${result.stderr}`
+            );
         }
-        // Reads the same resolvedConfig cache discover() populated for this project - debugging
-        // is only reachable after a file has already been discovered, so it's already there.
-        const ext = this.getExecutableExtension(this.resolvedConfig[projectKey]);
-        const testFileName = `${/([^/]*).c$/.exec(file.id)![1]}`;
-        return `${testFileName}/${testFileName}${ext}`;
-    }
-
-    async clean(): Promise<{ error: any }[]> {
-        return Promise.all(this.execCeedlingAllProjects(["clean"]));
-    }
-
-    async clobber(): Promise<{ error: any }[]> {
-        return Promise.all(this.execCeedlingAllProjects(["clobber"]));
-    }
-
-    cancel(): void {
-        this.logger.trace(`cancel()`);
-        if (this.ceedlingProcess !== undefined) {
-            if (this.ceedlingProcess.pid) {
-                tree_kill(this.ceedlingProcess.pid);
-            }
-        }
-    }
-
-    private async checkCeedlingVersion(): Promise<void> {
-        const version = await this.getCeedlingVersion();
-        this.logger.debug(`checkCeedlingVersion()=${version}`);
-        this.ceedlingVersionChecked = true;
         if (semver.lt(version, MINIMUM_CEEDLING_VERSION)) {
             throw new CeedlingLoadError(
-                `Ceedling version ${version} is not supported. This extension requires Ceedling version ` +
+                `Ceedling version ${reported} is not supported. This extension requires Ceedling version ` +
                 `${MINIMUM_CEEDLING_VERSION} or higher. Please upgrade your Ceedling installation.`
             );
         }
     }
 
-    private async sanityCheck(projectKeys: string[]): Promise<string | void> {
-        const sanityCheckErrors: string[] = [];
-        const release = await this.ceedlingMutex.acquire();
-        try {
-            const result = await this.execCeedling([`summary`], projectKeys[0]);
-            if (result.error) {
-                return `Ceedling failed to run in the configured shell. ` +
-                    'Please check if you can run `ceedling summary` in your shell.\n' +
-                    `Please check the ceedlingExplorer.shellPath option.\n` +
-                    `${result.stdout}\n${result.stderr}`
-            }
-        } finally {
-            release();
-        }
-        for (const key of projectKeys) {
-            const error = await this.checkYmlProjectData(key);
-            if (error) {
-                sanityCheckErrors.push(error);
-            }
-        }
-        if (sanityCheckErrors.length > 0) {
-            return sanityCheckErrors.join('\n');
-        }
-    }
-
-    // Reads the config discover() already resolved this cycle - see resolvedConfig's own comment.
-    // A missing entry here means loadResolvedConfig() itself failed (dumpconfig errored, or its
-    // output couldn't be read/parsed), not that a mixin didn't apply.
-    private async checkYmlProjectData(projectKey: string): Promise<string | void> {
-        const resolvedConfig = this.resolvedConfig[projectKey];
-        if (!resolvedConfig) {
-            return `Failed to resolve Ceedling's configuration for ${projectKey} via 'ceedling dumpconfig'. ` +
-                `Please check the ceedlingExplorer.projects option.`;
+    // The project's fully merged configuration, from Ceedling itself: project file, mixins, and
+    // plugin defaults, as a real build sees them. dumpconfig writes only to a file, so this goes
+    // through a uniquely named temporary file.
+    private async resolveConfig(project: CeedlingProject): Promise<unknown | undefined> {
+        const outputPath = path.join(this.tmpdir, `ceedling-dumpconfig-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.yml`);
+        const result = await this.ceedling(['dumpconfig', outputPath], { project });
+        if (result.error) {
+            this.logger.error(`resolveConfig(${project.key}): 'ceedling dumpconfig' failed: ${util.format(result)}`);
+            return undefined;
         }
         try {
-            if (!resolvedConfig[':plugins'][':enabled'].includes('report_tests_log_factory')) {
-                throw 'Report tests log factory plugin not enabled';
-            }
+            return yaml.safeLoad(await this.fs.readFile(outputPath));
         } catch (e) {
-            // The bundled mixin (assets/mixins/report-tests-log-factory.yml) always enables this
-            // plugin, so reaching here means that mixin itself didn't take effect - not that the
-            // user needs to edit anything by hand.
-            return `The required Ceedling plugin 'report_tests_log_factory' did not take effect for ${projectKey}, ` +
-                `even though this extension's own mixin always enables it. Check that 'ceedling dumpconfig' ` +
-                `ran successfully and that ceedlingExplorer.mixins/projects[].mixins don't reference an invalid mixin.`;
-        }
-    }
-
-    private getShellPath(): string | undefined {
-        const shellPath = this.getConfiguration().get<string>('shellPath', 'null');
-        return shellPath !== "null" ? shellPath : undefined;
-    }
-
-    // Returns the configured project keys whose project.yml actually exists on disk, skipping
-    // (quietly, at debug level) any that don't - e.g. a multi-root workspace folder that isn't
-    // itself a Ceedling project. A folder with none of its configured projects present yields [].
-    private getExistingProjectKeys(): string[] {
-        return Object.keys(this.projectData).filter((projectKey) => {
-            const ymlPath = this.getYmlProjectPath(projectKey);
-            if (!fs.existsSync(ymlPath)) {
-                this.logger.debug(`No project.yml at '${ymlPath}' for project '${projectKey}', skipping`);
-                return false;
-            }
-            return true;
-        });
-    }
-
-    private loadProjectPaths(): void {
-        const projectConfigs = this.getConfiguration().get<object>('projects', []) as Array<ProjectConfig>;
-        // The workspace-wide fallback. A project's own `mixins` is used only when it's genuinely
-        // absent from settings (`undefined`) - an explicit `mixins: []` opts a project out of
-        // this list rather than falling back to it.
-        const globalMixins = this.getConfiguration().get<string[]>('mixins', []);
-        this.projectData = {};
-        let workspacePath = this.workspaceFolder.uri.fsPath;
-        projectConfigs.forEach(projectConfig => {
-            let ymlName = 'project.yml';
-            let key = projectConfig.path;
-            if (projectConfig.path.endsWith('.yml')) {
-                const split = projectConfig.path.split('/');
-                ymlName = split[split.length - 1];
-                if (ymlName != 'project.yml') {
-                    key = ymlName.replace('.yml', '');
-                }
-                projectConfig.path = projectConfig.path.replace(ymlName, '');
-                if (projectConfig.path == '') {
-                    projectConfig.path = '.';
-                }
-            }
-            if (projectConfig.name) {
-                key = projectConfig.name;
-            }
-            // Workaround: Uppercase disk letters are required on windows to be able to generate xml gcov reports
-            if (process.platform == 'win32') {
-                workspacePath = workspacePath.charAt(0).toUpperCase() + workspacePath.slice(1);
-            }
-            const absolutePath = path.resolve(workspacePath, projectConfig.path);
-            if (!(fs.existsSync(absolutePath) && fs.lstatSync(absolutePath).isDirectory())) {
-                throw new CeedlingLoadError(`The project path ${absolutePath} does not exist or is not a directory.`);
-            } else {
-                const mixins = projectConfig.mixins !== undefined ? projectConfig.mixins : globalMixins;
-                this.logger.debug(
-                    `loadProjectPaths: resolved project '${key}' -> path='${absolutePath}', ymlFileName='${ymlName}', ` +
-                    `mixins=${util.format(mixins)}`
-                );
-                this.projectData[key] = {
-                    debugLaunchConfig: projectConfig.debugLaunchConfig,
-                    projectPath: projectConfig.path,
-                    ymlFileName: ymlName,
-                    absPath: absolutePath,
-                    mixins,
-                    files: {}
-                };
-            }
-        });
-        if (Object.keys(this.projectData).length == 0) {
-            this.projectData['default'] = {
-                debugLaunchConfig: 'ceedling',
-                projectPath: ".",
-                ymlFileName: 'project.yml',
-                absPath: path.resolve(workspacePath, "."),
-                mixins: globalMixins,
-                files: {}
-            };
-        }
-    }
-
-    private async getFileListFromProject(fileType: string, projectKey: string): Promise<string[]> {
-        const release = await this.ceedlingMutex.acquire();
-        try {
-            const result = await this.execCeedling([`files:${fileType}`], projectKey);
-            if (result.error) {
-                this.logger.error(`Failed to get the list of ${fileType} files: ${util.format(result)}`);
-                return [];
-            } else {
-                return parseFileListBullets(result.stdout);
-            }
+            this.logger.error(`resolveConfig(${project.key}): could not read dumpconfig output '${outputPath}': ${util.format(e)}`);
+            return undefined;
         } finally {
-            release();
+            this.fs.unlink(outputPath).catch(() => { /* a leftover temporary file is harmless */ });
         }
     }
 
-    private getCeedlingCommand(args: ReadonlyArray<string>) {
-        return `ceedling ${args.join(" ")}`;
+    private warnIfNonDefaultReportFilename(projectKey: string, reportFilename: string): void {
+        if (reportFilename === DEFAULT_CPPUNIT_REPORT_FILENAME || this.warnedNonDefaultReportFilename.has(projectKey)) {
+            return;
+        }
+        this.warnedNonDefaultReportFilename.add(projectKey);
+        this.logger.showWarning(
+            `Ceedling project '${projectKey}': the CppUnit XML report filename resolves to '${reportFilename}', ` +
+            `not the default '${DEFAULT_CPPUNIT_REPORT_FILENAME}' - project.yml or a configured mixin sets ` +
+            `':report_tests_log_factory' ↳ ':cppunit' ↳ ':filename'. This extension will use the resolved name; ` +
+            `if that's unexpected, check ceedlingExplorer.mixins/projects[].mixins and project.yml.`
+        );
     }
 
-    // `testCaseFilter`, when given, appends Ceedling's --test-case flag to narrow the run to one
-    // function (and, if parametrized, all its cases - see runFunction). Ceedling auto-enables
-    // :test_runner: :cmdline_args itself when this flag is present; nothing here needs to.
-    private getTestCommandArgs(testToExec: string, testCaseFilter?: string): Array<string> {
-        // Keep only the filename of the test 'test/test_foo.c' -> 'test_foo.c'
-        const testSuiteFilename = testToExec.replace(/^.*[\\/]/, "");
-        const defaultTestCommandArgs = ["test:${TEST_ID}"];
-        const args = this.getConfiguration()
-            .get<Array<string>>('testCommandArgs', defaultTestCommandArgs)
-            .map(x => x.replace("${TEST_ID}", testSuiteFilename));
-        return testCaseFilter === undefined ? args : [...args, `--test-case=${testCaseFilter}`];
+    private listTestFiles(project: CeedlingProject): Promise<string[]> {
+        return this.exclusive(async () => {
+            const result = await this.ceedling(['files:test'], { project });
+            if (result.error) {
+                this.logger.error(`listTestFiles(${project.key}): 'ceedling files:test' failed: ${util.format(result)}`);
+                return [];
+            }
+            return parseFileListBullets(result.stdout);
+        });
     }
 
-    // Picks the diagnostic that best explains a compile failure. Patterns are evaluated
-    // warning-then-error-then-catchall. The first entry in `diagnostics` is not reliably the
-    // most severe one. An early warning can otherwise outrank the actual fatal error.
+    private async testFileNodes(project: LoadedProject, files: string[], pretty: { tests: boolean, files: boolean }): Promise<CeedlingFileNode[]> {
+        const options = { testPrefix: project.state.testPrefix, useParamTests: project.state.useParamTests };
+        const testLabel = pretty.tests ? this.labelRegex(() => buildTestLabelRegex(project.state.testPrefix)) : undefined;
+        const fileLabel = pretty.files ? this.labelRegex(() => buildFileLabelRegex(project.state.testFilePrefix)) : undefined;
+        const label = (regex: RegExp | undefined, text: string) => (regex && regex.exec(text)?.[1]) || text;
+        const nodes: CeedlingFileNode[] = [];
+        for (const file of files) {
+            const absPath = path.resolve(project.absPath, file);
+            let discovered: ReturnType<typeof discoverTests>;
+            try {
+                discovered = discoverTests(await this.fs.readFile(absPath), options);
+            } catch (e) {
+                // An unreadable file, or a :test_runner: :test_prefix: that isn't a valid regex.
+                this.logger.warn(`testFileNodes: skipping '${absPath}' (test prefix '${options.testPrefix}'): ${e}`);
+                continue;
+            }
+            for (const warning of discovered.warnings) {
+                this.logger.warn(`testFileNodes: '${file}': ${warning}`);
+            }
+            nodes.push({
+                id: file,
+                label: label(fileLabel, file),
+                absPath,
+                projectKey: project.key,
+                functions: discovered.tests.map((test) => ({
+                    id: `${file}::${test.name}`,
+                    label: label(testLabel, test.name),
+                    line: test.line,
+                    cases: test.cases.map((testCase) => ({ id: `${file}::${test.name}(${testCase.args})`, label: testCase.args, line: testCase.line })),
+                })),
+            });
+        }
+        return nodes;
+    }
+
+    // A pretty-label pattern built from a configured prefix, or none if the prefix is invalid.
+    private labelRegex(build: () => RegExp): RegExp | undefined {
+        try {
+            return build();
+        } catch (e) {
+            this.logger.warn(`Pretty labels are unavailable: ${e}`);
+            return undefined;
+        }
+    }
+
+    // Reports a test run's results. Returns 'collision' instead, reporting nothing, when a
+    // --test-case run also reported a test from another function, for the caller to rerun.
+    private async runTests(
+        project: LoadedProject, scope: RunScope, args: string[], ids: string[], leaves: string[],
+        reporter: RunReporter, token: Cancellation, testCaseFilter?: string,
+    ): Promise<'done' | 'collision'> {
+        for (const id of ids) {
+            reporter.started(id);
+        }
+        return this.exclusive(async () => {
+            const outcome = await this.buildAndRun(project, scope, args, reporter, token);
+            if (outcome.cancelled) {
+                leaves.forEach((id) => reporter.skipped(id));
+                return 'done';
+            }
+            if (!outcome.report) {
+                this.reportMissingReport(ids, outcome.transcript, outcome.diagnostics, reporter);
+                return 'done';
+            }
+            if (testCaseFilter !== undefined && !testCaseFilterMatchedExactly(testCaseFilter, reportedNames(outcome.report))) {
+                return 'collision';
+            }
+            this.reportResults(outcome.report, leaves, outcome.transcript, reporter);
+            return 'done';
+        });
+    }
+
+    // Runs Ceedling and gathers everything a run reports from. Stale reports are deleted first, so
+    // a report left by an earlier run can't pass as this one's.
+    private async buildAndRun(project: LoadedProject, scope: RunScope, args: string[], reporter: RunReporter, token: Cancellation): Promise<BuildOutcome> {
+        await this.deleteReports(project);
+        const result = await this.ceedling(args, { project, verbose: true, cancellation: token });
+        if (result.cancelled || token.isCancellationRequested) {
+            return { cancelled: true };
+        }
+        const transcript = [
+            result.stdout.length > 0 ? `stdout:\n${result.stdout}` : undefined,
+            result.stderr.length > 0 ? `stderr:\n${result.stderr}` : undefined,
+        ].filter((section): section is string => section !== undefined).join('\n');
+        reporter.appendOutput(transcript.replace(/\n/g, '\r\n'));
+        const diagnostics = this.updateDiagnostics(project, scope, result);
+        return { cancelled: false, transcript, diagnostics, report: await this.readReport(project) };
+    }
+
+    // A project run supersedes every per-file entry in the project. A file run replaces its own
+    // entry and drops the project entry's diagnostics in that file, which it just rebuilt.
+    private updateDiagnostics(project: LoadedProject, scope: RunScope, result: CeedlingResult): FileDiagnostic[] {
+        const config = this.getConfiguration();
+        const diagnostics = this.problemMatcher.match(
+            result.stdout, result.stderr, project.absPath,
+            config.get<string>('problemMatching.mode', 'disabled'),
+            config.get<ProblemMatchingPattern[]>('problemMatching.patterns', []),
+        );
+        if (scope.kind === 'project') {
+            this.problemMatcher.retainIds((id) => !id.startsWith(`${project.key}::`));
+            this.problemMatcher.set(project.key, diagnostics);
+        } else {
+            const testFile = path.resolve(scope.file.absPath);
+            this.problemMatcher.set(fileDiagnosticsId(project.key, scope.file.id), diagnostics);
+            this.problemMatcher.retain(project.key, (d) => path.resolve(d.file) !== testFile);
+        }
+        return diagnostics;
+    }
+
+    // No report means Ceedling stopped before running tests, usually a build failure. The most
+    // severe compiler diagnostic leads each message, when problem matching found one.
+    private reportMissingReport(ids: string[], transcript: string, diagnostics: FileDiagnostic[], reporter: RunReporter): void {
+        const lead = this.mostSevereDiagnostic(diagnostics);
+        const message = lead ? `${lead.diagnostic.message}\n\n${transcript}` : transcript;
+        const location = lead ? { file: lead.file, line: lead.diagnostic.range.start.line } : undefined;
+        for (const id of ids) {
+            reporter.errored(id, message, location);
+        }
+    }
+
+    private reportResults(report: CppUnitReport, leaves: string[], transcript: string, reporter: RunReporter): void {
+        const { results, unmapped } = testResults(report, leaves);
+        if (unmapped.length > 0) {
+            this.logger.warn(`Ceedling reported results matching no discovered test: ${unmapped.join(', ')}`);
+        }
+        for (const result of results) {
+            switch (result.kind) {
+                case 'passed': reporter.passed(result.id); break;
+                case 'skipped': reporter.skipped(result.id); break;
+                case 'failed': reporter.failed(result.id, `${result.message}\n\n${transcript}`, result.line); break;
+                case 'unreported': reporter.errored(result.id, `${UNREPORTED_MESSAGE}\n\n${transcript}`); break;
+            }
+        }
+    }
+
+    // Patterns run warning, error, then catch-all, so the first diagnostic found is not reliably
+    // the most severe. vscode's DiagnosticSeverity ranks Error lowest.
     private mostSevereDiagnostic(diagnostics: FileDiagnostic[]): FileDiagnostic | undefined {
         return diagnostics.slice().sort((a, b) => a.diagnostic.severity - b.diagnostic.severity)[0];
     }
 
-    private getExecutableExtension(ymlProjectData: any = undefined) {
-        let ext = process.platform == 'win32' ? '.exe' : '.out';
-        if (ymlProjectData) {
-            try {
-                const ymlProjectExt = ymlProjectData[':extension'][':executable'];
-                if (ymlProjectExt != undefined) {
-                    ext = ymlProjectExt;
-                }
-            } catch (e) {
-                this.logger.debug(`getExecutableExtension: no ':extension'/':executable' in project.yml, using default '${ext}': ${e}`);
-            }
-        }
-        return ext;
+    // A test run writes its report under artifacts/test, a gcov run under artifacts/gcov.
+    private reportPaths(project: LoadedProject): string[] {
+        return ['test', 'gcov'].map((dir) => path.resolve(project.absPath, project.state.buildRoot, 'artifacts', dir, project.state.reportFilename));
     }
 
-    private async getCeedlingVersion(): Promise<string> {
-        const result = await this.execCeedling(['version']);
-        const version = parseCeedlingVersionString(result.stdout);
-        if (version === undefined) {
-            this.logger.error(`fail to get the ceedling version: ${util.format(result)}`);
-            return '0.0.0';
-        }
-        return version;
-    }
-
-    private execCeedlingAllProjects(args: ReadonlyArray<string>): Promise<{ error: any }>[] {
-        return this.getExistingProjectKeys().map((projectKey) => this.execCeedling(args, projectKey));
-    }
-
-    // `verbosity`, when non-empty, is literal flag text (e.g. '--verbosity debug') a call site
-    // opts into splicing onto the command; it only takes effect in development mode (see
-    // isDevelopmentMode below), so it never ships to users of a Marketplace install.
-    private execCeedling(args: ReadonlyArray<string>, projectKey = Object.keys(this.projectData)[0], verbosity = ''): Promise<any> {
-        let cwd = ".";
-        if (this.ceedlingVersionChecked && projectKey in this.projectData) {
-            const project = this.projectData[projectKey];
-            args = [...args, ...buildProjectArgs(project.ymlFileName, project.mixins, this.bundledMixinPath)];
-            cwd = project.absPath;
-        }
-        if (this.isDevelopmentMode && verbosity) {
-            args = [...args, verbosity];
-        }
-        let command = this.getCeedlingCommand(args);
-        const shell = this.getShellPath();
-        this.logger.debug(`execCeedling(args=${util.format(args)}) \ncommand=${command} \ncwd=${cwd} \nshell=${shell}`);
-        return new Promise<any>((resolve) => {
-            this.ceedlingProcess = this.exec(
-                command,
-                {
-                    cwd: cwd,
-                    shell: shell,
-                    // Ceedling's emoji/decorator output is unparseable-friendly noise for us and
-                    // varies across versions (see CEEDLING_DECORATORS in Ceedling's own docs);
-                    // force plain ASCII output so our parsing has a stable, version-independent
-                    // surface to work against.
-                    //
-                    // Ceedling 1.0.0 crashes (a Ruby encoding exception) parsing non-ASCII source
-                    // under a non-UTF-8 locale - confirmed empirically, and confirmed this forced
-                    // override fixes it without needing any specific locale installed on the host.
-                    // Ceedling 1.1.0 already handles this correctly regardless, so this is purely
-                    // defensive for 1.0.0 users and has no effect on newer versions.
-                    env: { ...process.env, CEEDLING_DECORATORS: 'false', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
-                },
-                (error, stdout, stderr) => {
-                    const ansiEscapeSequencesRemoved = this.getConfiguration().get<boolean>('ansiEscapeSequencesRemoved', true);
-                    if (ansiEscapeSequencesRemoved) {
-                        stdout = stripAnsi(stdout);
-                        stderr = stripAnsi(stderr);
-                    }
-                    if (this.isDevelopmentMode && verbosity) {
-                        this.logger.debug(`stdout:\n${stdout}` + (stderr.length != 0 ? `\nstderr:\n${stderr}` : ``));
-                    }
-                    this.logger.debug(`exec done`);
-                    resolve({ error, stdout, stderr });
-                },
-            )
-        })
-    }
-
-    private getTestPrefix(ymlProjectData: any = undefined): string {
-        let testPrefix = 'test|spec|should';
-        if (ymlProjectData) {
-            try {
-                const ymlProjectTestPrefix = ymlProjectData[':test_runner'][':test_prefix'];
-                if (ymlProjectTestPrefix != undefined) {
-                    testPrefix = ymlProjectTestPrefix;
-                }
-            } catch (e) {
-                this.logger.debug(`getTestPrefix: no ':test_runner'/':test_prefix' in project.yml, using default '${testPrefix}': ${e}`);
-            }
-        }
-        return testPrefix;
-    }
-
-    private setBuildDirectory(projectKey: string, ymlProjectData: any = undefined) {
-        let buildDirectory = 'build';
-        if (ymlProjectData) {
-            try {
-                const ymlProjectBuildDirectory = ymlProjectData[':project'][':build_root'];
-                if (ymlProjectBuildDirectory != undefined) {
-                    buildDirectory = ymlProjectBuildDirectory;
-                }
-            } catch (e) {
-                this.logger.debug(`setBuildDirectory(${projectKey}): no ':project'/':build_root' in project.yml, using default '${buildDirectory}': ${e}`);
-            }
-        }
-        this.buildDirectories[projectKey] = buildDirectory;
-    }
-
-    private setXmlReportPath(projectKey: string, ymlProjectData: any = undefined) {
-        let reportFilename = DEFAULT_CPPUNIT_REPORT_FILENAME;
-        if (ymlProjectData) {
-            try {
-                const ymlProjectReportFilename = ymlProjectData[':report_tests_log_factory'][':cppunit'][':filename'];
-                if (ymlProjectReportFilename != undefined) {
-                    reportFilename = ymlProjectReportFilename;
-                }
-            } catch (e) {
-                this.logger.debug(`setXmlReportPath(${projectKey}): no ':report_tests_log_factory'/':cppunit'/':filename' in project.yml, using default '${reportFilename}': ${e}`);
-            }
-        }
-        // A mixin or project.yml setting a non-default filename changes where this extension looks
-        // for the report (getXmlReportPath), silently as far as the user is concerned - surface it
-        // once per project so an unexpected report location doesn't look like a mystery failure.
-        if (reportFilename !== DEFAULT_CPPUNIT_REPORT_FILENAME && !this.warnedNonDefaultReportFilename.has(projectKey)) {
-            this.warnedNonDefaultReportFilename.add(projectKey);
-            this.logger.showWarning(
-                `Ceedling project '${projectKey}': the CppUnit XML report filename resolves to '${reportFilename}', ` +
-                `not the default '${DEFAULT_CPPUNIT_REPORT_FILENAME}' - project.yml or a configured mixin sets ` +
-                `':report_tests_log_factory' ↳ ':cppunit' ↳ ':filename'. This extension will use the resolved name; ` +
-                `if that's unexpected, check ceedlingExplorer.mixins/projects[].mixins and project.yml.`
-            );
-        }
-        this.reportFilenames[projectKey] = reportFilename;
-    }
-
-    private setFileLabelRegex(projectKey: string, ymlProjectData: any = undefined) {
-        let filePrefix = 'test_';
-        if (ymlProjectData) {
-            try {
-                const ymlProjectTestPrefix = ymlProjectData[':project'][':test_file_prefix'];
-                if (ymlProjectTestPrefix != undefined) {
-                    filePrefix = ymlProjectTestPrefix;
-                }
-            } catch (e) {
-                this.logger.debug(`setFileLabelRegex(${projectKey}): no ':project'/':test_file_prefix' in project.yml, using default '${filePrefix}': ${e}`);
-            }
-        }
-        this.fileLabelRegexps[projectKey] = buildFileLabelRegex(filePrefix);
-    }
-
-    private getFileLabelRegex(projectKey: string): RegExp {
-        if (!this.fileLabelRegexps[projectKey]) {
-            this.setFileLabelRegex(projectKey);
-        }
-        return this.fileLabelRegexps[projectKey] as RegExp;
-    }
-
-    private setTestLabelRegex(projectKey: string, ymlProjectData: any = undefined) {
-        const testPrefix = this.getTestPrefix(ymlProjectData);
-        this.testLabelRegexps[projectKey] = buildTestLabelRegex(testPrefix);
-    }
-
-    private getTestLabelRegex(projectKey: string): RegExp {
-        if (!this.testLabelRegexps[projectKey]) {
-            this.setTestLabelRegex(projectKey);
-        }
-        return this.testLabelRegexps[projectKey] as RegExp;
-    }
-
-    private setTestLabel(projectKey: string, testName: string): string {
-        let testLabel = testName;
-        if (this.isPrettyTestLabelEnable) {
-            const labelFunctionRegex = this.getTestLabelRegex(projectKey);
-            let testLabelMatches = labelFunctionRegex.exec(testName);
-            if (testLabelMatches != null) {
-                testLabel = testLabelMatches[1];
-            }
-        }
-        return testLabel;
-    }
-
-    private setFileLabel(projectKey: string, fileName: string): string {
-        let fileLabel = fileName;
-        if (this.isPrettyTestFileLabelEnable) {
-            const labelFileRegex = this.getFileLabelRegex(projectKey);
-            let labelMatches = labelFileRegex.exec(fileName);
-            if (labelMatches != null) {
-                fileLabel = labelMatches[1];
-            }
-        }
-        return fileLabel;
-    }
-
-    private * getTestFileNodes(projectKey: string, files: string[]): Iterable<CeedlingFileNode> {
-        const resolvedConfig = this.resolvedConfig[projectKey];
-        const options = {
-            testPrefix: this.getTestPrefix(resolvedConfig),
-            // Ceedling's own default is false, and Unity then ignores every parametrization marker.
-            useParamTests: resolvedConfig?.[':unity']?.[':use_param_tests'] === true,
-        };
-        for (const file of files) {
-            const absPath = path.resolve(this.projectData[projectKey].absPath, file);
-            let fileText: string;
-            try {
-                fileText = fs.readFileSync(absPath, 'utf8');
-            } catch (e) {
-                this.logger.warn(`getTestFileNodes: failed to read '${absPath}', skipping this file: ${e}`);
-                continue;
-            }
-            let discovered: ReturnType<typeof discoverTests>;
-            try {
-                discovered = discoverTests(fileText, options);
-            } catch (e) {
-                // A malformed :test_runner: :test_prefix: fails here as an invalid regular expression.
-                this.logger.warn(`getTestFileNodes: failed to discover tests in '${absPath}' (test prefix '${options.testPrefix}'): ${e}`);
-                continue;
-            }
-            for (const warning of discovered.warnings) {
-                this.logger.warn(`getTestFileNodes: '${file}': ${warning}`);
-            }
-            const functions: CeedlingTestFunction[] = discovered.tests.map((test) => ({
-                id: `${file}::${test.name}`,
-                label: this.setTestLabel(projectKey, test.name),
-                line: test.line,
-                cases: test.cases.map((testCase) => ({
-                    id: `${file}::${test.name}(${testCase.args})`,
-                    label: testCase.args,
-                    line: testCase.line,
-                })),
-            }));
-            yield { id: file, label: this.setFileLabel(projectKey, file), absPath, projectKey, functions };
+    private async deleteReports(project: LoadedProject): Promise<void> {
+        for (const reportPath of this.reportPaths(project).filter((p) => this.fs.exists(p))) {
+            await this.fs.unlink(reportPath).catch((e) => this.logger.warn(`Failed to delete stale report '${reportPath}': ${e}`));
         }
     }
 
-    private getYmlProjectPath(projectKey: string): string {
-        return path.resolve(
-            this.projectData[projectKey].absPath,
-            this.projectData[projectKey].ymlFileName
-        );
-    }
-
-    // Resolves a project's fully-merged Ceedling configuration via `ceedling dumpconfig`, rather
-    // than parsing project.yml (and its mixin, if any) by hand. dumpconfig applies Ceedling's own
-    // multi-file overlay, plugin defaults, and mixin-merge rules - see buildProjectArgs - so this
-    // reflects exactly what a real build would see, not just what's literally typed in one file.
-    // dumpconfig only writes to a file, never stdout, so this drives it through a throwaway
-    // temp file and reads that back.
-    private async loadResolvedConfig(projectKey: string): Promise<any | undefined> {
-        const tmpPath = path.join(
-            os.tmpdir(),
-            `ceedling-dumpconfig-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.yml`,
-        );
-        this.logger.debug(`loadResolvedConfig(${projectKey}): resolving via 'ceedling dumpconfig' -> '${tmpPath}'`);
-        const result = await this.execCeedling(['dumpconfig', quoteIfNeeded(tmpPath)], projectKey);
-        if (result.error) {
-            this.logger.error(`loadResolvedConfig(${projectKey}): 'ceedling dumpconfig' failed: ${util.format(result)}`);
+    // The newer report, when a run such as `test:x gcov:x` wrote both.
+    private async readReport(project: LoadedProject): Promise<CppUnitReport | undefined> {
+        const [newest] = this.reportPaths(project)
+            .map((reportPath) => ({ reportPath, mtime: this.fs.mtimeMs(reportPath) }))
+            .filter((r): r is { reportPath: string, mtime: number } => r.mtime !== undefined)
+            .sort((a, b) => b.mtime - a.mtime);
+        if (!newest) {
+            this.logger.debug(`readReport(${project.key}): Ceedling produced no CppUnit report`);
             return undefined;
         }
-        return new Promise<any | undefined>((resolve) => {
-            this.readFile(tmpPath, 'utf8', (error, data) => {
-                if (error) {
-                    this.logger.error(`loadResolvedConfig(${projectKey}): failed to read dumpconfig output '${tmpPath}': ${util.format(error)}`);
-                    resolve(undefined);
-                    return;
-                }
-                fs.unlink(tmpPath, () => { }); // best-effort cleanup; a leftover temp file is harmless
-                try {
-                    resolve(yaml.safeLoad(data));
-                } catch (e) {
-                    this.logger.error(`loadResolvedConfig(${projectKey}): failed to parse dumpconfig output: ${util.format(e)}`);
-                    resolve(undefined);
-                }
-            });
-        });
-    }
-
-    private getXmlReportPath(projectKey: string): string {
-        // Return the latest updated file between artifacts/test/report.xml and artifacts/gcov/report.xml
-        // The report is generated in one of these directories based on the command used: ceedling test:* or gcov:*
-        const paths: Array<[string, Date]> = ['test', 'gcov']
-            .map((x) => path.resolve(
-                this.projectData[projectKey].absPath,
-                this.buildDirectories[projectKey], 'artifacts', x, this.reportFilenames[projectKey]
-            ))
-            .map((x) => [x, fs.existsSync(x) ? fs.statSync(x).mtime : new Date(0)]);
-        paths.sort((lhs, rhs) => (rhs[1].getTime() - lhs[1].getTime()));
-        this.logger.debug(`getXmlReportPath()=${paths}`);
-        return paths[0][0];
-    }
-
-    private deleteXmlReport(projectKey: string): Promise<void> {
-        return new Promise<void>((resolve) => {
-            const xmlReportPath = this.getXmlReportPath(projectKey);
-            if (fs.existsSync(xmlReportPath)) {
-                fs.unlink(xmlReportPath, (error) => {
-                    if (error) {
-                        this.logger.error(`Failed to delete XML report: ${util.format(error)}`);
-                    }
-                    resolve();
-                });
-            } else {
-                resolve();
-            }
-        });
-    }
-
-    private getXmlReportData(projectKey: string): Promise<any | undefined> {
-        const parser = new xml2js.Parser({ explicitArray: false });
-        return new Promise<any | undefined>((resolve) => {
-            fs.readFile(this.getXmlReportPath(projectKey), 'utf8', (error, data) => {
-                if (error) {
-                    this.logger.error(`Failed to read XML report: ${util.format(error)}`);
-                    resolve(undefined);
-                    return;
-                }
-                parser.parseString(data, (error: any, result: any) => {
-                    if (error) {
-                        this.logger.error(`Failed to parse XML report: ${util.format(error)}`);
-                        resolve(undefined);
-                        return;
-                    }
-                    resolve(result);
-                });
-            });
-        });
-    }
-
-    private getTestListDataFromXmlReport(xmlReportData: any, testType: string) {
         try {
-            return getTestListFromXmlReport(xmlReportData, testType);
+            return await parseCppUnitReport(await this.fs.readFile(newest.reportPath));
         } catch (e) {
-            this.logger.error(`getTestListDataFromXmlReport(${testType}): unexpected XML report shape: ${e}`);
-            return [];
+            this.logger.warn(`readReport(${project.key}): could not read '${newest.reportPath}': ${util.format(e)}`);
+            return undefined;
         }
+    }
+
+    private async runInEveryProject(args: string[], token?: Cancellation): Promise<boolean> {
+        return this.exclusive(async () => {
+            let succeeded = true;
+            for (const project of this.candidates) {
+                const result = await this.ceedling(args, { project, cancellation: token });
+                succeeded = succeeded && !result.error;
+            }
+            return succeeded;
+        });
+    }
+
+    // `${TEST_ID}` in each configured argument becomes the test file's name. `testCaseFilter`
+    // appends Ceedling's --test-case flag, which enables the runner's command-line arguments itself.
+    private testCommandArgs(testId: string, testCaseFilter?: string): string[] {
+        const fileName = testId.replace(/^.*[\\/]/, '');
+        const args = this.getConfiguration()
+            .get<string[]>('testCommandArgs', ['test:${TEST_ID}'])
+            .map((arg) => arg.replaceAll('${TEST_ID}', fileName));
+        return testCaseFilter === undefined ? args : [...args, `--test-case=${testCaseFilter}`];
+    }
+
+    // `project` adds its --project/--mixin flags and runs in its directory. `verbose` adds
+    // DEBUG_VERBOSITY in development mode only, so it never ships to a Marketplace install.
+    private async ceedling(
+        args: string[],
+        options: { project?: CeedlingProject, cwd?: string, verbose?: boolean, cancellation?: Cancellation },
+    ): Promise<CeedlingResult> {
+        const config = this.getConfiguration();
+        const fullArgs = [...args];
+        if (options.project) {
+            fullArgs.push(...buildProjectArgs(options.project.ymlFileName, options.project.mixins, this.bundledMixinPath));
+        }
+        const verbose = this.isDevelopmentMode && options.verbose === true;
+        if (verbose) {
+            fullArgs.push(...DEBUG_VERBOSITY);
+        }
+        const cwd = options.cwd ?? options.project?.absPath ?? this.workspaceFolder.uri.fsPath;
+        const shellSetting = config.get<string | null>('shellPath', null);
+        const shell = shellSetting && shellSetting !== 'null' ? shellSetting : undefined;
+        this.logger.debug(`ceedling: ${buildCommandLine(CEEDLING_COMMAND, fullArgs)} (cwd=${cwd}, shell=${shell ?? 'default'})`);
+        const result = await this.runner.run({
+            command: CEEDLING_COMMAND,
+            args: fullArgs,
+            cwd,
+            shell,
+            stripAnsi: config.get<boolean>('ansiEscapeSequencesRemoved', true),
+            cancellation: options.cancellation,
+        });
+        if (verbose) {
+            this.logger.debug(`stdout:\n${result.stdout}` + (result.stderr.length > 0 ? `\nstderr:\n${result.stderr}` : ''));
+        }
+        return result;
     }
 }

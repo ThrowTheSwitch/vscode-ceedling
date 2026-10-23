@@ -38,57 +38,20 @@ function toFileDiagnostic(problem: MatchedProblem): FileDiagnostic {
     return { file: problem.file, diagnostic };
 }
 
-// Thin wrapper around problemMatching.ts's pure regex-matching and path-resolution logic. Holds
-// the actual VS Code state - the Problems panel's DiagnosticCollection, and which diagnostics
-// belong to which run - none of which the pure module touches.
+// The Problems panel side of problem matching. Pattern matching itself lives in the pure
+// problemMatching.ts. This class holds the vscode state: the DiagnosticCollection, and each id's
+// diagnostics. An id is whatever a run keys its diagnostics under, a project or one of its files.
+// The panel shows the union of every id's diagnostics, without duplicates.
 export class ProblemMatcher {
-    private suitsDiagnostics: Map<string, Array<FileDiagnostic>>;
+    private readonly entries = new Map<string, FileDiagnostic[]>();
     private readonly diagnosticCollection: DiagnosticCollection;
 
     constructor(private readonly logger: Logger) {
-        this.suitsDiagnostics = new Map<string, Array<FileDiagnostic>>();
         this.diagnosticCollection = languages.createDiagnosticCollection('Ceedling');
     }
 
-    private compareDiagnostics(a: Diagnostic, b: Diagnostic): boolean {
-        if ((a.message !== b.message) ||
-            (a.severity !== b.severity) ||
-            (a.range.start.line !== b.range.start.line) ||
-            (a.range.start.character !== b.range.start.character) ||
-            (a.range.end.line !== b.range.end.line) ||
-            (a.range.end.character !== b.range.end.character) ||
-            (a.source !== b.source)) {
-            return false;
-        }
-
-        return true;
-    }
-
-    private updateDiagnosticsCollection() {
-        let fileDiagnosticsSets: Map<string, Array<Diagnostic>> = new Map<string, Array<Diagnostic>>();
-        this.suitsDiagnostics.forEach((value: Array<FileDiagnostic>, key: string) => {
-            for (const fileDiagnostic of value) {
-                if (!fileDiagnosticsSets.has(fileDiagnostic.file)) {
-                    fileDiagnosticsSets.set(fileDiagnostic.file, new Array<Diagnostic>());
-                }
-                const diagnostics = fileDiagnosticsSets.get(fileDiagnostic.file)!;
-                if (!diagnostics.some((value) => {
-                    return this.compareDiagnostics(value, fileDiagnostic.diagnostic);
-                })) {
-                    diagnostics.push(fileDiagnostic.diagnostic);
-                }
-            }
-        });
-        this.diagnosticCollection.clear();
-        fileDiagnosticsSets.forEach((value: Array<Diagnostic>, key: string) => {
-            this.diagnosticCollection.set(Uri.file(key), value);
-        });
-    }
-
-    // Also returns everything it found, alongside its usual side effect of updating the Problems
-    // panel. A caller with a specific failure to explain (e.g. a compile failure with no XML test
-    // report) can reuse this same parse instead of re-deriving it.
-    scan(id: string, stdout: string, stderr: string, projectPath: string, mode: string, patterns: ProblemMatchingPattern[]): FileDiagnostic[] {
+    // Every problem the configured patterns find in a run's output. No state changes.
+    match(stdout: string, stderr: string, projectPath: string, mode: string, patterns: ProblemMatchingPattern[]): FileDiagnostic[] {
         let normalizedPatterns: ProblemMatchingPattern[];
         if (mode === "patterns") {
             const { valid, invalid } = normalizePatterns(patterns);
@@ -100,34 +63,44 @@ export class ProblemMatcher {
             normalizedPatterns = getPatternsPreset(mode);
         }
 
-        const allFileDiagnostics: FileDiagnostic[] = [];
+        const fileDiagnostics: FileDiagnostic[] = [];
         for (const pattern of normalizedPatterns) {
             try {
-                const problems = getPatternProblems(stdout, stderr, projectPath, pattern);
-                allFileDiagnostics.push(...problems.map(toFileDiagnostic));
+                fileDiagnostics.push(...getPatternProblems(stdout, stderr, projectPath, pattern).map(toFileDiagnostic));
             } catch (e) {
-                this.logger.warn(`scan: pattern threw, likely an invalid regexp (${pattern.regexp}): ${e}`);
+                this.logger.warn(`match: pattern threw, likely an invalid regexp (${pattern.regexp}): ${e}`);
             }
         }
-
-        this.logger.debug(`scan(id=${id}): mode=${mode}, patterns=${normalizedPatterns.length}, diagnostics=${allFileDiagnostics.length}`);
-        this.suitsDiagnostics.set(id, allFileDiagnostics);
-        this.updateDiagnosticsCollection();
-        return allFileDiagnostics;
+        this.logger.debug(`match: mode=${mode}, patterns=${normalizedPatterns.length}, diagnostics=${fileDiagnostics.length}`);
+        return fileDiagnostics;
     }
 
-    setActualIds(actualIds: string[]) {
-        const currentIds = this.suitsDiagnostics.keys();
-        for (const id of currentIds) {
-            if (!actualIds.includes(id)) {
-                this.suitsDiagnostics.delete(id);
+    set(id: string, diagnostics: FileDiagnostic[]): void {
+        this.entries.set(id, diagnostics);
+        this.publish();
+    }
+
+    // Keeps only the diagnostics under `id` that `keep` accepts.
+    retain(id: string, keep: (diagnostic: FileDiagnostic) => boolean): void {
+        const current = this.entries.get(id);
+        if (current) {
+            this.entries.set(id, current.filter(keep));
+            this.publish();
+        }
+    }
+
+    // Keeps only the ids `keep` accepts, e.g. dropping a deleted test file's entry.
+    retainIds(keep: (id: string) => boolean): void {
+        for (const id of [...this.entries.keys()]) {
+            if (!keep(id)) {
+                this.entries.delete(id);
             }
         }
-        this.updateDiagnosticsCollection();
+        this.publish();
     }
 
-    clear() {
-        this.suitsDiagnostics.clear();
+    clear(): void {
+        this.entries.clear();
         this.diagnosticCollection.clear();
     }
 
@@ -135,4 +108,25 @@ export class ProblemMatcher {
         this.clear();
         this.diagnosticCollection.dispose();
     }
+
+    private publish(): void {
+        const byFile = new Map<string, Diagnostic[]>();
+        for (const fileDiagnostics of this.entries.values()) {
+            for (const { file, diagnostic } of fileDiagnostics) {
+                const diagnostics = byFile.get(file) ?? [];
+                if (!diagnostics.some((existing) => sameDiagnostic(existing, diagnostic))) {
+                    diagnostics.push(diagnostic);
+                }
+                byFile.set(file, diagnostics);
+            }
+        }
+        this.diagnosticCollection.clear();
+        for (const [file, diagnostics] of byFile) {
+            this.diagnosticCollection.set(Uri.file(file), diagnostics);
+        }
+    }
+}
+
+function sameDiagnostic(a: Diagnostic, b: Diagnostic): boolean {
+    return a.message === b.message && a.severity === b.severity && a.source === b.source && a.range.isEqual(b.range);
 }
