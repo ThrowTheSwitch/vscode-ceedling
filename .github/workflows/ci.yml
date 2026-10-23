@@ -39,3 +39,29 @@ jobs:
     - name: Run the tests
       if: runner.os != 'Linux'
       run: npm test
+
+    # Lint and coverage report findings without failing the job, on one OS only. setup-node's
+    # eslint-stylish problem matcher turns ESLint's output into annotations on the PR diff.
+    - name: Lint
+      if: runner.os == 'Linux'
+      continue-on-error: true
+      run: npm run lint
+
+    # The coverage table goes to the job summary. The full HTML report is a downloadable artifact.
+    - name: Coverage
+      if: runner.os == 'Linux'
+      run: |
+        npm run -s test:coverage | tee coverage-console.txt
+        {
+          echo '## Unit test coverage'
+          echo '```'
+          sed -n '/^-----/,$p' coverage-console.txt
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload coverage report
+      if: runner.os == 'Linux'
+      uses: actions/upload-artifact@v7
+      with:
+        name: coverage-report
+        path: coverage/

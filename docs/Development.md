@@ -18,6 +18,28 @@ First time: run `just install`. Then press F5.
 
 Ongoing: run `just watch` in one terminal. Press F5 to try a change. Run `just test` before committing.
 
+### Linting and coverage
+
+Two reports point at what to fix next: lint findings and unit-test coverage gaps. Both are report-only for now. Neither fails a build, locally or in CI.
+
+**Linting** uses ESLint with typescript-eslint’s type-checked rules. [`eslint.config.mjs`](../eslint.config.mjs) adds rules for this codebase’s real risks. Those are unhandled promises in the extension host, needless type escapes and assertions, and synchronous `fs` calls in `src/`, which block the extension host’s thread. Tests may use `any` and unsafe casts for their test doubles.
+
+- Run `just lint`, or `npm run lint` in `just shell`. It lists each finding with its file, line, and rule.
+- A justified exception is marked where it occurs, with its reason: `// eslint-disable-next-line <rule> -- <reason>`.
+
+**Coverage** uses c8, which reads Node’s built-in V8 coverage during the unit tests and maps it back to the TypeScript through source maps. [`.c8rc.json`](../.c8rc.json) configures it.
+
+- Run `just coverage`, or `npm run test:coverage`. It prints a table per `src/*.ts` file: statement, branch, function, and line coverage, plus the uncovered line numbers.
+- `coverage/index.html` shows each file with its uncovered lines highlighted. `coverage/lcov.info` and `coverage/coverage-summary.json` serve other tools.
+- Only unit tests are measured. VS Code adapters such as `testController.ts` and `main.ts` show 0% until their logic moves into tested modules or integration tests cover it.
+
+The unit tests compile into `out-test/`, apart from the extension bundle in `out/`. The test build compiles every file in `src/`, so a file no test touches still appears in the coverage table.
+
+**In CI**, the Linux job runs both after the tests.
+- Lint findings appear as annotations on the pull request’s changed lines. `setup-node`’s ESLint problem matcher turns ESLint’s output into annotations.
+- The coverage table appears in the job’s summary.
+- The full HTML report downloads as the `coverage-report` artifact.
+
 ## 2. Architecture
 
 The extension connects Ceedling’s command line to VS Code’s native Testing API. It reads nothing from `project.yml` itself. Ceedling resolves the configuration, builds and runs the tests, and writes a CppUnit XML report. The extension finds tests in source exactly as Ceedling’s test runner generator does, so every reported result lands on a discovered item.
@@ -265,6 +287,8 @@ There are two modes.
 | `just build` | One-shot build |
 | `just watch` | Continuous rebuild on save |
 | `just test` | Runs the unit suite, then the integration suite, headless via Xvfb |
+| `just lint` | Reports lint findings |
+| `just coverage` | Runs the unit suite with coverage, writing `coverage/index.html` |
 | `just package` | Produces a `.vsix` |
 | `just publish` | Publishes to the Marketplace. Requires `VSCE_PAT` |
 | `just shell` | Opens an interactive container session |

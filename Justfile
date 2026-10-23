@@ -48,6 +48,14 @@ watch: image
 test: image
     just _run "xvfb-run -a npm test"
 
+# Lint the TypeScript sources and tests (findings only, for now)
+lint: image
+    just _run "npm run lint"
+
+# Run the unit tests with coverage; the HTML report lands in coverage/index.html
+coverage: image
+    just _run "npm run test:coverage"
+
 # Package the extension into a .vsix
 package: image
     just _run "npm run package"
