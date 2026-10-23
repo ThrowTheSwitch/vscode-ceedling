@@ -29,6 +29,8 @@ import {
 } from './ceedlingOutputParsing';
 import { buildCommandLine, Cancellation, CeedlingResult, CeedlingRunner } from './ceedlingProcess';
 import {
+    capabilitiesOf,
+    CeedlingCapabilities,
     CeedlingLoadError,
     CeedlingProject,
     DEFAULT_CPPUNIT_REPORT_FILENAME,
@@ -81,7 +83,7 @@ export type EngineDeps = {
     tmpdir?: string,
 };
 
-type LoadedProject = CeedlingProject & { state: ProjectState, files: CeedlingFileNode[] };
+type LoadedProject = CeedlingProject & { capabilities: CeedlingCapabilities, state: ProjectState, files: CeedlingFileNode[] };
 
 // What a run compiled. A file run's diagnostics replace only that file's, a project run's all.
 type RunScope = { kind: 'project' } | { kind: 'file', file: CeedlingFileNode };
@@ -153,8 +155,11 @@ export class CeedlingEngine {
         return this.project(projectKey).absPath;
     }
 
+    // Every file a project's configuration comes from: its base project file, and the configured
+    // alternate applied over it, if any.
     getYmlProjectPaths(): string[] {
-        return this.candidates.map((project) => this.paths.resolve(project.absPath, project.ymlFileName));
+        return [...new Set(this.candidates.flatMap((project) =>
+            [project.ymlFileName, project.projectFileName].map((file) => this.paths.resolve(project.absPath, file))))];
     }
 
     // Discovers every configured project and its tests. Throws CeedlingLoadError when Ceedling or
@@ -163,7 +168,7 @@ export class CeedlingEngine {
         const config = this.getConfiguration();
         const settings = projectsFromSettings(
             { projects: config.get<ProjectSetting[]>('projects', []), mixins: config.get<string[]>('mixins', []) },
-            this.workspaceFolder.uri.fsPath, this.platform, (p) => this.fs.isDirectory(p),
+            this.workspaceFolder.uri.fsPath, this.platform, (p) => this.fs.isDirectory(p), (p) => this.fs.exists(p),
         );
         this.candidates = settings.filter((project) => {
             const projectFile = this.paths.resolve(project.absPath, project.ymlFileName);
@@ -181,8 +186,15 @@ export class CeedlingEngine {
         const loaded = new Map<string, LoadedProject>();
         const errors: string[] = [];
         for (const project of this.candidates) {
-            await this.checkCeedlingVersion(project);
-            const resolved = await this.resolveConfig(project);
+            const capabilities = capabilitiesOf(await this.checkCeedlingVersion(project));
+            if (project.ambiguousProjectFile && capabilities.ceedlingYml) {
+                errors.push(
+                    `Both project.yml and ceedling.yml exist in ${project.absPath}, so Ceedling can't tell which is project '${project.key}'. ` +
+                    `Remove or rename one, or name the one to use in ceedlingExplorer.projects[].path.`
+                );
+                continue;
+            }
+            const resolved = await this.resolveConfig(project, capabilities);
             if (resolved === undefined) {
                 errors.push(
                     `Failed to resolve Ceedling's configuration for project '${project.key}' with 'ceedling dumpconfig'. ` +
@@ -203,7 +215,7 @@ export class CeedlingEngine {
                 continue;
             }
             this.warnIfNonDefaultReportFilename(project.key, state.reportFilename);
-            loaded.set(project.key, { ...project, state, files: [] });
+            loaded.set(project.key, { ...project, capabilities, state, files: [] });
         }
         if (errors.length > 0) {
             throw new CeedlingLoadError(errors.join('\n'));
@@ -220,12 +232,14 @@ export class CeedlingEngine {
     }
 
     async runFile(projectKey: string, file: CeedlingFileNode, reporter: RunReporter, token: Cancellation): Promise<void> {
-        await this.runTests(this.project(projectKey), { kind: 'file', file }, this.testCommandArgs(file.id), allIds(file), leafIds(file.functions), reporter, token);
+        const project = this.project(projectKey);
+        await this.runTests(project, { kind: 'file', file }, this.testCommandArgs(project, file.id), allIds(file), leafIds(file.functions), reporter, token);
     }
 
     async runProjectAll(projectKey: string, files: CeedlingFileNode[], reporter: RunReporter, token: Cancellation): Promise<void> {
+        const project = this.project(projectKey);
         await this.runTests(
-            this.project(projectKey), { kind: 'project' }, this.testCommandArgs('all'),
+            project, { kind: 'project' }, this.testCommandArgs(project, 'all'),
             files.flatMap(allIds), files.flatMap((file) => leafIds(file.functions)), reporter, token,
         );
     }
@@ -234,8 +248,9 @@ export class CeedlingEngine {
     // The filter narrows what runs and gets reported. Ceedling still compiles the whole file.
     async runFunction(projectKey: string, file: CeedlingFileNode, fn: CeedlingTestFunction, reporter: RunReporter, token: Cancellation): Promise<void> {
         const name = extractTestFunctionName(fn.id);
+        const project = this.project(projectKey);
         const outcome = await this.runTests(
-            this.project(projectKey), { kind: 'file', file }, this.testCommandArgs(file.id, name),
+            project, { kind: 'file', file }, this.testCommandArgs(project, file.id, name),
             [fn.id, ...fn.cases.map((c) => c.id)], leafIds([fn]), reporter, token, name,
         );
         if (outcome === 'collision') {
@@ -248,9 +263,9 @@ export class CeedlingEngine {
     }
 
     // Builds and runs the file's tests, reporting their results, then returns the executable's
-    // path relative to Ceedling's test output directory (e.g. `test_foo/test_foo.out`). The
-    // caller splices it into the user's launch configuration. undefined when the build failed or
-    // was cancelled, already reported through `reporter`.
+    // path relative to Ceedling's test output directory, e.g. `test_foo/test_foo.out`. The caller
+    // splices it into the user's launch configuration. undefined when the build failed or was
+    // cancelled, already reported through `reporter`.
     async compileForDebug(projectKey: string, file: CeedlingFileNode, reporter: RunReporter, token: Cancellation): Promise<string | undefined> {
         const project = this.project(projectKey);
         const ids = allIds(file);
@@ -259,7 +274,7 @@ export class CeedlingEngine {
             reporter.started(id);
         }
         return this.exclusive(async () => {
-            const outcome = await this.buildAndRun(project, { kind: 'file', file }, this.testCommandArgs(file.id), reporter, token);
+            const outcome = await this.buildAndRun(project, { kind: 'file', file }, this.testCommandArgs(project, file.id), reporter, token);
             if (outcome.cancelled) {
                 leaves.forEach((id) => reporter.skipped(id));
                 return undefined;
@@ -269,8 +284,7 @@ export class CeedlingEngine {
                 return undefined;
             }
             this.reportResults(outcome.report, leaves, outcome.transcript, reporter);
-            const name = file.id.split(/[\\/]/).pop()!.replace(/\.[^.]*$/, '');
-            return `${name}/${name}${project.state.executableExtension}`;
+            return this.executableSubpath(project, file);
         });
     }
 
@@ -305,8 +319,8 @@ export class CeedlingEngine {
     }
 
     // Runs in the project's own directory, so `:project: :which_ceedling:` selects the Ceedling
-    // checked. A build suffix such as `1.2.0-13a540f` counts as its release.
-    private async checkCeedlingVersion(project: CeedlingProject): Promise<void> {
+    // checked. A build suffix such as `1.2.0-13a540f` counts as its release. Returns the version.
+    private async checkCeedlingVersion(project: CeedlingProject): Promise<string> {
         const result = await this.ceedling(['version'], { cwd: project.absPath });
         const reported = parseCeedlingVersionString(result.stdout);
         const version = reported === undefined ? null : semver.coerce(reported);
@@ -323,12 +337,28 @@ export class CeedlingEngine {
                 `${MINIMUM_CEEDLING_VERSION} or higher. Please upgrade your Ceedling installation.`
             );
         }
+        return reported!;
     }
 
     // The project's fully merged configuration, from Ceedling itself: project file, mixins, and
-    // plugin defaults, as a real build sees them. dumpconfig writes only to a file, so this goes
-    // through a uniquely named temporary file.
-    private async resolveConfig(project: CeedlingProject): Promise<unknown | undefined> {
+    // plugin defaults, as a real build sees them. Ceedling 1.2.0 can write it to stdout. Earlier
+    // versions write only to a file, so this goes through a uniquely named temporary file.
+    private async resolveConfig(project: CeedlingProject, capabilities: CeedlingCapabilities): Promise<unknown | undefined> {
+        if (capabilities.dumpconfigStdout) {
+            const result = await this.ceedling(['dumpconfig', '--stdout'], { project });
+            if (result.error) {
+                this.logger.error(`resolveConfig(${project.key}): 'ceedling dumpconfig --stdout' failed: ${util.format(result)}`);
+                return undefined;
+            }
+            // The YAML starts at its `---` document marker. Anything Ceedling logs before it is skipped.
+            const start = result.stdout.search(/^---\s*$/m);
+            try {
+                return yaml.safeLoad(start >= 0 ? result.stdout.slice(start) : result.stdout);
+            } catch (e) {
+                this.logger.error(`resolveConfig(${project.key}): could not parse dumpconfig output: ${util.format(e)}`);
+                return undefined;
+            }
+        }
         const outputPath = this.paths.join(this.tmpdir, `ceedling-dumpconfig-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.yml`);
         const result = await this.ceedling(['dumpconfig', outputPath], { project });
         if (result.error) {
@@ -445,7 +475,11 @@ export class CeedlingEngine {
     // a report left by an earlier run can't pass as this one's.
     private async buildAndRun(project: LoadedProject, scope: RunScope, args: string[], reporter: RunReporter, token: Cancellation): Promise<BuildOutcome> {
         await this.deleteReports(project);
-        const result = await this.ceedling(args, { project, verbose: true, cancellation: token });
+        // Delta builds reuse cached results keyed without the --test-case filter. A filtered run
+        // could then report another run's tests, and a full run only a filtered run's. Rerunning
+        // the executable avoids both, while compilation stays incremental.
+        const runArgs = project.capabilities.forceTestRerun ? [...args, '--force-test-rerun'] : args;
+        const result = await this.ceedling(runArgs, { project, verbose: true, cancellation: token });
         if (result.cancelled || token.isCancellationRequested) {
             return { cancelled: true };
         }
@@ -510,6 +544,27 @@ export class CeedlingEngine {
         return diagnostics.slice().sort((a, b) => a.diagnostic.severity - b.diagnostic.severity)[0];
     }
 
+    // The executable's path under Ceedling's test output directory. Ceedling before 1.2.0 builds
+    // `name/name<ext>`. Ceedling 1.2.0 nests that under the test file's directory relative to its
+    // test path, e.g. `unit/name/name<ext>` for `test/unit/name.c`. That test path isn't known
+    // here, so each trailing part of the file's directory is tried, and the newest build wins.
+    private executableSubpath(project: LoadedProject, file: CeedlingFileNode): string {
+        const segments = file.id.split(/[\\/]/);
+        const name = segments.pop()!.replace(/\.[^.]*$/, '');
+        const executable = `${name}/${name}${project.state.executableExtension}`;
+        const outputDirectory = this.paths.resolve(project.absPath, project.state.buildRoot, 'test', 'out');
+        const [newest] = segments
+            .map((_, i) => [...segments.slice(i), executable].join('/'))
+            .concat(executable)
+            .map((subpath) => ({ subpath, mtime: this.fs.mtimeMs(this.paths.resolve(outputDirectory, subpath)) }))
+            .filter((candidate): candidate is { subpath: string, mtime: number } => candidate.mtime !== undefined)
+            .sort((a, b) => b.mtime - a.mtime);
+        if (!newest) {
+            this.logger.warn(`executableSubpath: no built executable for '${file.id}' under ${outputDirectory}, assuming '${executable}'`);
+        }
+        return newest?.subpath ?? executable;
+    }
+
     // A test run writes its report under artifacts/test, a gcov run under artifacts/gcov.
     private reportPaths(project: LoadedProject): string[] {
         return ['test', 'gcov'].map((dir) => this.paths.resolve(project.absPath, project.state.buildRoot, 'artifacts', dir, project.state.reportFilename));
@@ -550,13 +605,15 @@ export class CeedlingEngine {
         });
     }
 
-    // `${TEST_ID}` in each configured argument becomes the test file's name. `testCaseFilter`
-    // appends Ceedling's --test-case flag, which enables the runner's command-line arguments itself.
-    private testCommandArgs(testId: string, testCaseFilter?: string): string[] {
-        const fileName = testId.replace(/^.*[\\/]/, '');
+    // `${TEST_ID}` in each configured argument becomes the test file: its project-relative path
+    // where Ceedling accepts one, which tells same-named files apart, else its name alone.
+    // `testCaseFilter` appends Ceedling's --test-case flag, which enables the runner's command-line
+    // arguments itself.
+    private testCommandArgs(project: LoadedProject, testId: string, testCaseFilter?: string): string[] {
+        const testFile = project.capabilities.pathQualifiedTestTasks ? testId : testId.replace(/^.*[\\/]/, '');
         const args = this.getConfiguration()
             .get<string[]>('testCommandArgs', ['test:${TEST_ID}'])
-            .map((arg) => arg.replaceAll('${TEST_ID}', fileName));
+            .map((arg) => arg.replaceAll('${TEST_ID}', testFile));
         return testCaseFilter === undefined ? args : [...args, `--test-case=${testCaseFilter}`];
     }
 
@@ -569,7 +626,7 @@ export class CeedlingEngine {
         const config = this.getConfiguration();
         const fullArgs = [...args];
         if (options.project) {
-            fullArgs.push(...buildProjectArgs(options.project.ymlFileName, options.project.mixins, this.bundledMixinPath));
+            fullArgs.push(...buildProjectArgs(options.project.projectFileName, options.project.ymlFileName, options.project.mixins, this.bundledMixinPath));
         }
         const verbose = this.isDevelopmentMode && options.verbose === true;
         if (verbose) {

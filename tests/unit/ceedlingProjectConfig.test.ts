@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import yaml from 'js-yaml';
 import * as path from 'path';
-import { CeedlingLoadError, projectState, projectsFromSettings } from '../../src/ceedlingProjectConfig';
+import { capabilitiesOf, CeedlingLoadError, projectState, projectsFromSettings } from '../../src/ceedlingProjectConfig';
 
 const fixturesRoot = path.resolve(__dirname, '..', '..', '..', 'tests', 'fixtures');
 
@@ -11,47 +11,54 @@ function dumpconfigFixture(name: string): unknown {
 }
 
 const anyDirectory = () => true;
+const noFiles = () => false;
+// A filesystem where exactly the listed files exist.
+const filesAt = (...files: string[]) => (p: string) => files.includes(p);
 
 suite('projectsFromSettings', () => {
     test('with no projects configured, one default project sits at the workspace root', () => {
-        const projects = projectsFromSettings({ projects: [], mixins: ['gcc'] }, '/ws', 'linux', anyDirectory);
-        assert.deepStrictEqual(projects, [
-            { key: 'default', absPath: '/ws', ymlFileName: 'project.yml', debugLaunchConfig: 'ceedling', mixins: ['gcc'] },
-        ]);
+        const projects = projectsFromSettings({ projects: [], mixins: ['gcc'] }, '/ws', 'linux', anyDirectory, noFiles);
+        assert.deepStrictEqual(projects, [{
+            key: 'default', absPath: '/ws', projectFileName: 'project.yml', ymlFileName: 'project.yml',
+            ambiguousProjectFile: false, debugLaunchConfig: 'ceedling', mixins: ['gcc'],
+        }]);
     });
 
     test('a directory path is keyed by that path and uses project.yml', () => {
-        const [project] = projectsFromSettings({ projects: [{ path: 'fw/app', debugLaunchConfig: 'dbg' }], mixins: [] }, '/ws', 'linux', anyDirectory);
-        assert.deepStrictEqual(project, { key: 'fw/app', absPath: '/ws/fw/app', ymlFileName: 'project.yml', debugLaunchConfig: 'dbg', mixins: [] });
+        const [project] = projectsFromSettings({ projects: [{ path: 'fw/app', debugLaunchConfig: 'dbg' }], mixins: [] }, '/ws', 'linux', anyDirectory, noFiles);
+        assert.deepStrictEqual(project, {
+            key: 'fw/app', absPath: '/ws/fw/app', projectFileName: 'project.yml', ymlFileName: 'project.yml',
+            ambiguousProjectFile: false, debugLaunchConfig: 'dbg', mixins: [],
+        });
     });
 
     test('an alternate yml path is keyed by its file name and resolves to its directory', () => {
-        const [project] = projectsFromSettings({ projects: [{ path: 'fw/ci.yml', debugLaunchConfig: 'dbg' }], mixins: [] }, '/ws', 'linux', anyDirectory);
+        const [project] = projectsFromSettings({ projects: [{ path: 'fw/ci.yml', debugLaunchConfig: 'dbg' }], mixins: [] }, '/ws', 'linux', anyDirectory, noFiles);
         assert.strictEqual(project.key, 'ci');
         assert.strictEqual(project.ymlFileName, 'ci.yml');
         assert.strictEqual(project.absPath, '/ws/fw');
     });
 
     test('a yml path at the workspace root resolves to the root', () => {
-        const [project] = projectsFromSettings({ projects: [{ path: 'ci.yml', debugLaunchConfig: 'dbg' }], mixins: [] }, '/ws', 'linux', anyDirectory);
+        const [project] = projectsFromSettings({ projects: [{ path: 'ci.yml', debugLaunchConfig: 'dbg' }], mixins: [] }, '/ws', 'linux', anyDirectory, noFiles);
         assert.strictEqual(project.absPath, '/ws');
     });
 
     test('an explicit project.yml path keeps the configured path as its key', () => {
-        const [project] = projectsFromSettings({ projects: [{ path: 'fw/project.yml', debugLaunchConfig: 'dbg' }], mixins: [] }, '/ws', 'linux', anyDirectory);
+        const [project] = projectsFromSettings({ projects: [{ path: 'fw/project.yml', debugLaunchConfig: 'dbg' }], mixins: [] }, '/ws', 'linux', anyDirectory, noFiles);
         assert.strictEqual(project.key, 'fw/project.yml');
         assert.strictEqual(project.ymlFileName, 'project.yml');
         assert.strictEqual(project.absPath, '/ws/fw');
     });
 
     test('backslash separators in a yml path are understood', () => {
-        const [project] = projectsFromSettings({ projects: [{ path: 'fw\\ci.yml', debugLaunchConfig: 'dbg' }], mixins: [] }, '/ws', 'linux', anyDirectory);
+        const [project] = projectsFromSettings({ projects: [{ path: 'fw\\ci.yml', debugLaunchConfig: 'dbg' }], mixins: [] }, '/ws', 'linux', anyDirectory, noFiles);
         assert.strictEqual(project.ymlFileName, 'ci.yml');
         assert.strictEqual(project.absPath, '/ws/fw');
     });
 
     test('a name overrides the derived key', () => {
-        const [project] = projectsFromSettings({ projects: [{ path: 'fw/ci.yml', debugLaunchConfig: 'dbg', name: 'Firmware' }], mixins: [] }, '/ws', 'linux', anyDirectory);
+        const [project] = projectsFromSettings({ projects: [{ path: 'fw/ci.yml', debugLaunchConfig: 'dbg', name: 'Firmware' }], mixins: [] }, '/ws', 'linux', anyDirectory, noFiles);
         assert.strictEqual(project.key, 'Firmware');
     });
 
@@ -63,27 +70,73 @@ suite('projectsFromSettings', () => {
                 { path: 'c', debugLaunchConfig: 'dbg', mixins: [] },
             ],
             mixins: ['gcc'],
-        }, '/ws', 'linux', anyDirectory);
+        }, '/ws', 'linux', anyDirectory, noFiles);
         assert.deepStrictEqual(projects.map((p) => p.mixins), [['gcc'], ['clang'], []]);
     });
 
     test('a path that is not a directory is a load error naming it', () => {
         assert.throws(
-            () => projectsFromSettings({ projects: [{ path: 'missing', debugLaunchConfig: 'dbg' }], mixins: [] }, '/ws', 'linux', () => false),
+            () => projectsFromSettings({ projects: [{ path: 'missing', debugLaunchConfig: 'dbg' }], mixins: [] }, '/ws', 'linux', () => false, noFiles),
             (e: unknown) => e instanceof CeedlingLoadError && /\/ws\/missing/.test(e.message),
         );
     });
 
     // Gcov's XML report generation needs an uppercase drive letter on Windows.
     test('on Windows the workspace drive letter is uppercased', () => {
-        const [project] = projectsFromSettings({ projects: [], mixins: [] }, 'c:\\ws', 'win32', anyDirectory);
+        const [project] = projectsFromSettings({ projects: [], mixins: [] }, 'c:\\ws', 'win32', anyDirectory, noFiles);
         assert.match(project.absPath, /^C:/);
     });
 
     test('the settings objects are not modified', () => {
         const setting = { path: 'fw/ci.yml', debugLaunchConfig: 'dbg' };
-        projectsFromSettings({ projects: [setting], mixins: [] }, '/ws', 'linux', anyDirectory);
+        projectsFromSettings({ projects: [setting], mixins: [] }, '/ws', 'linux', anyDirectory, noFiles);
         assert.deepStrictEqual(setting, { path: 'fw/ci.yml', debugLaunchConfig: 'dbg' });
+    });
+});
+
+// Ceedling 1.2.0 also loads ceedling.yml as a project's default project file.
+suite('projectsFromSettings: the default project file', () => {
+    test('a directory holding only ceedling.yml uses it', () => {
+        const [project] = projectsFromSettings({ projects: [], mixins: [] }, '/ws', 'linux', anyDirectory, filesAt('/ws/ceedling.yml'));
+        assert.strictEqual(project.projectFileName, 'ceedling.yml');
+        assert.strictEqual(project.ymlFileName, 'ceedling.yml');
+        assert.strictEqual(project.ambiguousProjectFile, false);
+    });
+
+    test('a directory holding both uses project.yml and flags the ambiguity', () => {
+        const [project] = projectsFromSettings({ projects: [], mixins: [] }, '/ws', 'linux', anyDirectory, filesAt('/ws/project.yml', '/ws/ceedling.yml'));
+        assert.strictEqual(project.projectFileName, 'project.yml');
+        assert.strictEqual(project.ambiguousProjectFile, true);
+    });
+
+    test('an alternate project file applies over a ceedling.yml base', () => {
+        const [project] = projectsFromSettings({ projects: [{ path: 'fw/ci.yml', debugLaunchConfig: 'dbg' }], mixins: [] },
+            '/ws', 'linux', anyDirectory, filesAt('/ws/fw/ceedling.yml', '/ws/fw/ci.yml'));
+        assert.strictEqual(project.projectFileName, 'ceedling.yml');
+        assert.strictEqual(project.ymlFileName, 'ci.yml');
+    });
+
+    test('an explicit ceedling.yml path is the project file itself, keyed by its path', () => {
+        const [project] = projectsFromSettings({ projects: [{ path: 'fw/ceedling.yml', debugLaunchConfig: 'dbg' }], mixins: [] },
+            '/ws', 'linux', anyDirectory, filesAt('/ws/fw/ceedling.yml'));
+        assert.strictEqual(project.key, 'fw/ceedling.yml');
+        assert.strictEqual(project.projectFileName, 'ceedling.yml');
+        assert.strictEqual(project.ymlFileName, 'ceedling.yml');
+    });
+});
+
+suite('capabilitiesOf', () => {
+    test('Ceedling before 1.2.0 has none of the 1.2.0 features', () => {
+        for (const version of ['1.0.0', '1.1.10', '1.1.10-85ec551']) {
+            assert.deepStrictEqual(capabilitiesOf(version), { dumpconfigStdout: false, forceTestRerun: false, pathQualifiedTestTasks: false, ceedlingYml: false });
+        }
+    });
+
+    // Real 1.2.0 builds report a commit suffix, e.g. 1.2.0-13a540f, which semver ranks below 1.2.0.
+    test('Ceedling 1.2.0 and later, build suffix included, has every 1.2.0 feature', () => {
+        for (const version of ['1.2.0', '1.2.0-13a540f', '1.3.1']) {
+            assert.deepStrictEqual(capabilitiesOf(version), { dumpconfigStdout: true, forceTestRerun: true, pathQualifiedTestTasks: true, ceedlingYml: true });
+        }
     });
 });
 
@@ -140,6 +193,16 @@ suite('projectState', () => {
     // Real `ceedling dumpconfig` output, captured against tests/manual (see fixtures/dumpconfig).
     test('real dumpconfig output without the bundled mixin lacks the report plugin', () => {
         assert.strictEqual(projectState(dumpconfigFixture('manual-project-no-report-plugin.yml'), 'linux').reportPluginEnabled, false);
+    });
+
+    // Captured with `ceedling dumpconfig --stdout` from Ceedling 1.2.0, against tests/manual plus the bundled mixin.
+    test('real Ceedling 1.2.0 `dumpconfig --stdout` output reads as the manual project', () => {
+        const resolved = yaml.safeLoad(fs.readFileSync(path.resolve(fixturesRoot, 'ceedling-1.2.0', 'dumpconfig-stdout.yml'), 'utf8'));
+        const state = projectState(resolved, 'linux');
+        assert.strictEqual(state.reportPluginEnabled, true);
+        assert.strictEqual(state.useParamTests, true);
+        assert.strictEqual(state.testFilePrefix, 'test_');
+        assert.strictEqual(state.executableExtension, '.out');
     });
 
     test('real dumpconfig output with the bundled mixin has the report plugin and default report name', () => {

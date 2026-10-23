@@ -80,6 +80,7 @@ class FakeCeedling {
             if (reply) return reply;
         }
         if (/^ceedling version/.test(command)) return { stdout: `Welcome to Ceedling!\n  Ceedling => ${this.version}\n` };
+        if (/^ceedling dumpconfig --stdout/.test(command)) return { stdout: this.resolvedConfig };
         const dump = /^ceedling dumpconfig (\S+)/.exec(command);
         if (dump) return { writes: { [dump[1]]: this.resolvedConfig } };
         if (/^ceedling files:test/.test(command)) return { stdout: `Test files:\n${this.testFiles.map((f) => ` - ${f}`).join('\n')}\n` };
@@ -203,7 +204,7 @@ suite('CeedlingEngine.discover', () => {
         const { projects, file } = await discovered(world);
         assert.deepStrictEqual(world.commands.map((c) => c.cwd), [WS, WS, WS]);
         assert.strictEqual(world.commands[0].command, 'ceedling version');
-        assert.match(world.commands[1].command, new RegExp(`^ceedling dumpconfig /tmp/\\S+\\.yml ${PROJECT_ARGS}$`));
+        assert.strictEqual(world.commands[1].command, `ceedling dumpconfig --stdout ${PROJECT_ARGS}`);
         assert.strictEqual(world.commands[2].command, `ceedling files:test ${PROJECT_ARGS}`);
         assert.deepStrictEqual(projects.map((p) => p.projectKey), ['default']);
         assert.deepStrictEqual(leafIds(file.functions), [
@@ -215,12 +216,6 @@ suite('CeedlingEngine.discover', () => {
         const world = new FakeCeedling();
         await discovered(world);
         assert.deepStrictEqual(world.commandsMatching(/summary/), []);
-    });
-
-    test('removes its dumpconfig temp file', async () => {
-        const world = new FakeCeedling();
-        await discovered(world);
-        assert.ok(![...world.files.keys()].some((f) => f.startsWith('/tmp/')));
     });
 
     test('an unsupported Ceedling version is a load error naming it', async () => {
@@ -315,8 +310,90 @@ suite('CeedlingEngine.discover', () => {
         await assert.rejects(engine.discover());
         await engine.runFile('default', file, recordingReporter(), token());
         const run = world.commands[world.commands.length - 1];
-        assert.strictEqual(run.command, `ceedling test:test_calc.c ${PROJECT_ARGS}`);
+        assert.strictEqual(run.command, `ceedling test:test/test_calc.c --force-test-rerun ${PROJECT_ARGS}`);
         assert.strictEqual(run.cwd, WS);
+    });
+});
+
+// Ceedling 1.2.0 added `dumpconfig --stdout`, path-qualified `test:` tasks, delta builds, and
+// ceedling.yml. The suites above simulate 1.2.0. This one pins the behavior before it.
+suite('CeedlingEngine with Ceedling before 1.2.0', () => {
+    test('dumpconfig writes a temporary file, which is removed', async () => {
+        const world = new FakeCeedling();
+        world.version = '1.1.10-85ec551';
+        await discovered(world);
+        assert.match(world.commands[1].command, new RegExp(`^ceedling dumpconfig /tmp/\\S+\\.yml ${PROJECT_ARGS}$`));
+        assert.ok(![...world.files.keys()].some((f) => f.startsWith('/tmp/')));
+    });
+
+    test("test tasks name the file alone and don't force a rerun", async () => {
+        const world = new FakeCeedling();
+        world.version = '1.1.10';
+        const { engine, file } = await discovered(world);
+        await engine.runFunction('default', file, file.functions[0], recordingReporter(), token());
+        assert.deepStrictEqual(world.commandsMatching(/^ceedling test:/), [`ceedling test:test_calc.c --test-case=test_add ${PROJECT_ARGS}`]);
+    });
+
+    test('a folder with both project files uses project.yml without complaint', async () => {
+        const world = new FakeCeedling();
+        world.version = '1.1.10';
+        world.write(`${WS}/ceedling.yml`, ':project: {}\n');
+        const { projects } = await discovered(world);
+        assert.strictEqual(projects.length, 1);
+        assert.match(world.commands[2].command, /--project project\.yml/);
+    });
+});
+
+suite('CeedlingEngine with Ceedling 1.2.0', () => {
+    test('dumpconfig output is read from stdout, past any leading log lines', async () => {
+        const world = new FakeCeedling();
+        world.handlers.push((command) => /dumpconfig --stdout/.test(command) ? { stdout: `WARNING: something\n---\n${world.resolvedConfig}` } : undefined);
+        assert.strictEqual((await makeEngine(world).discover()).length, 1);
+        assert.ok(![...world.files.keys()].some((f) => f.startsWith('/tmp/')));
+    });
+
+    test('a folder holding only ceedling.yml is a project using it', async () => {
+        const world = new FakeCeedling();
+        world.files.delete(`${WS}/project.yml`);
+        world.write(`${WS}/ceedling.yml`, ':project: {}\n');
+        const { engine, projects } = await discovered(world);
+        assert.strictEqual(projects.length, 1);
+        assert.match(world.commands[2].command, new RegExp(`--project ceedling\\.yml --mixin ${BUNDLED_MIXIN}$`));
+        assert.deepStrictEqual(engine.getYmlProjectPaths(), [`${WS}/ceedling.yml`]);
+    });
+
+    // Ceedling itself refuses this ambiguity, but only when no --project names the file.
+    test('a folder holding both project files is a load error naming both', async () => {
+        const world = new FakeCeedling();
+        world.write(`${WS}/ceedling.yml`, ':project: {}\n');
+        await assert.rejects(makeEngine(world).discover(),
+            (e: unknown) => e instanceof CeedlingLoadError && /project\.yml/.test(e.message) && /ceedling\.yml/.test(e.message));
+    });
+
+    test('an alternate project file and its base are both watched', async () => {
+        const world = new FakeCeedling();
+        world.directories.add(`${WS}/fw`);
+        world.write(`${WS}/fw/project.yml`, ':project: {}\n');
+        world.write(`${WS}/fw/ci.yml`, ':project: {}\n');
+        const engine = makeEngine(world, { settings: { projects: [{ path: 'fw/ci.yml', debugLaunchConfig: 'dbg' }] } });
+        await engine.discover().catch(() => undefined);
+        assert.deepStrictEqual(engine.getYmlProjectPaths().sort(), [`${WS}/fw/ci.yml`, `${WS}/fw/project.yml`]);
+    });
+
+    // 1.2.0 nests each executable under its test file's directory, relative to the test path.
+    test("a nested test file's executable is found under its directory", async () => {
+        const world = new FakeCeedling();
+        world.testFiles = ['test/unit/test_calc.c'];
+        world.write(`${WS}/test/unit/test_calc.c`, 'void test_add(void) {}\n');
+        const { engine, file } = await discovered(world);
+        world.handlers.push((command) => /^ceedling test:/.test(command) ? {
+            writes: {
+                ...world.reportWrite(cppunit({ passed: ['test/unit/test_calc.c::test_add'] })),
+                [`${WS}/build/test/out/unit/test_calc/test_calc.out`]: 'ELF',
+            },
+        } : undefined);
+        assert.strictEqual(await engine.compileForDebug('default', file, recordingReporter(), token()), 'unit/test_calc/test_calc.out');
+        assert.deepStrictEqual(world.commandsMatching(/^ceedling test:/), [`ceedling test:test/unit/test_calc.c --force-test-rerun ${PROJECT_ARGS}`]);
     });
 });
 
@@ -428,7 +505,7 @@ suite('CeedlingEngine runs', () => {
         world.handlers.push((command) => /^ceedling test:/.test(command) ? { writes: world.reportWrite(cppunit({ passed: ['test/test_calc.c::test_add'] })) } : undefined);
         const reporter = recordingReporter();
         await engine.runFunction('default', file, file.functions[0], reporter, token());
-        assert.deepStrictEqual(world.commandsMatching(/^ceedling test:/), [`ceedling test:test_calc.c --test-case=test_add ${PROJECT_ARGS}`]);
+        assert.deepStrictEqual(world.commandsMatching(/^ceedling test:/), [`ceedling test:test/test_calc.c --test-case=test_add --force-test-rerun ${PROJECT_ARGS}`]);
         assert.deepStrictEqual(reporter.of('passed').map((c) => c[1]), ['test/test_calc.c::test_add']);
     });
 
@@ -441,8 +518,8 @@ suite('CeedlingEngine runs', () => {
             : undefined);
         await engine.runFunction('default', file, file.functions[0], recordingReporter(), token());
         assert.deepStrictEqual(world.commandsMatching(/^ceedling test:/), [
-            `ceedling test:test_calc.c --test-case=test_add ${PROJECT_ARGS}`,
-            `ceedling test:test_calc.c ${PROJECT_ARGS}`,
+            `ceedling test:test/test_calc.c --test-case=test_add --force-test-rerun ${PROJECT_ARGS}`,
+            `ceedling test:test/test_calc.c --force-test-rerun ${PROJECT_ARGS}`,
         ]);
     });
 
@@ -450,14 +527,14 @@ suite('CeedlingEngine runs', () => {
         const world = new FakeCeedling();
         const { engine, projects } = await discovered(world);
         await engine.runProjectAll('default', projects[0].files, recordingReporter(), token());
-        assert.deepStrictEqual(world.commandsMatching(/^ceedling test:/), [`ceedling test:all ${PROJECT_ARGS}`]);
+        assert.deepStrictEqual(world.commandsMatching(/^ceedling test:/), [`ceedling test:all --force-test-rerun ${PROJECT_ARGS}`]);
     });
 
     test('every ${TEST_ID} in a configured argument is replaced', async () => {
         const world = new FakeCeedling();
         const { engine, file } = await discovered(world, { settings: { testCommandArgs: ['test:${TEST_ID}', 'gcov:${TEST_ID}/${TEST_ID}'] } });
         await engine.runFile('default', file, recordingReporter(), token());
-        assert.deepStrictEqual(world.commandsMatching(/^ceedling test:/), [`ceedling test:test_calc.c gcov:test_calc.c/test_calc.c ${PROJECT_ARGS}`]);
+        assert.deepStrictEqual(world.commandsMatching(/^ceedling test:/), [`ceedling test:test/test_calc.c gcov:test/test_calc.c/test/test_calc.c --force-test-rerun ${PROJECT_ARGS}`]);
     });
 
     test('development mode adds debug verbosity as two arguments', async () => {

@@ -1,0 +1,212 @@
+---
+:project:
+  :name: VSCode-Ceedling Manual Test Project
+  :which_ceedling: gem
+  :ceedling_version: 1.1.0
+  :use_mocks: true
+  :use_test_preprocessor: :none
+  :use_backtrace: :simple
+  :build_root: build
+  :test_file_prefix: test_
+  :default_tasks:
+  - test:all
+  :test_threads: :auto
+  :compile_threads: :auto
+  :use_exceptions: false
+  :use_partials: false
+  :release_build: false
+:plugins:
+  :load_paths:
+  - "/var/lib/gems/3.3.0/gems/ceedling-1.2.0/plugins"
+  :enabled:
+  - report_tests_log_factory
+  - report_tests_pretty_stdout
+  :display_raw_test_results: false
+  :report_tests_log_factory_path: "/var/lib/gems/3.3.0/gems/ceedling-1.2.0/plugins/report_tests_log_factory"
+  :report_tests_pretty_stdout_path: "/var/lib/gems/3.3.0/gems/ceedling-1.2.0/plugins/report_tests_pretty_stdout"
+  :test_build_contexts: []
+:paths:
+  :test:
+  - "+:test/**"
+  - "-:test/support"
+  :source:
+  - src/**
+  :include:
+  - src/**
+  :support:
+  - test/support
+  :libraries: []
+  :test_toolchain_include: []
+  :release_toolchain_include: []
+:defines:
+  :test:
+  - TEST
+  :use_test_definition: false
+  :release: []
+:cmock:
+  :plugins:
+  - :ignore
+  - :callback
+  :verbosity: 2
+  :when_no_prototypes: :warn
+  :skeleton_path: ''
+  :mock_prefix: mock_
+  :mock_suffix: ''
+  :strippables:
+  - "(?:__attribute__\\s*\\([ (]*.*?[ )]*\\)+)"
+  :attributes:
+  - __ramfunc
+  - __irq
+  - __fiq
+  - register
+  - extern
+  :c_calling_conventions:
+  - __stdcall
+  - __cdecl
+  - __fastcall
+  :treat_externs: :exclude
+  :treat_inlines: :exclude
+  :treat_as:
+    uint8: HEX8
+    uint16: HEX16
+    uint32: UINT32
+    int8: INT8
+    bool: UINT8
+  :memcmp_if_unknown: true
+  :when_ptr: :compare_data
+  :weak: ''
+  :enforce_strict_ordering: true
+  :fail_on_unexpected_calls: true
+  :callback_include_count: true
+  :callback_after_arg_check: false
+  :exclude_setjmp_h: false
+  :vendor_path: "/var/lib/gems/3.3.0/gems/ceedling-1.2.0/vendor"
+  :includes: []
+  :defines:
+  - CMOCK_MOCK_PREFIX=mock_
+  :unity_helper_path: []
+  :mock_name_include_folder: true
+  :mock_path: build/test/mocks
+:unity:
+  :defines:
+  - UNITY_EXCLUDE_FLOAT
+  - UNITY_SUPPORT_TEST_CASES
+  - UNITY_SUPPORT_VARIADIC_MACROS
+  :use_param_tests: true
+  :vendor_path: "/var/lib/gems/3.3.0/gems/ceedling-1.2.0/vendor"
+  :shuffle_tests: false
+:history:
+  :config:
+  - :type: :file
+    :path: project.yml
+    :mechanism: :project
+  - :type: :file
+    :path: "/mixins/report-tests-log-factory.yml"
+    :mechanism: :cmdline
+    :source: "--mixin"
+    :value: "/mixins/report-tests-log-factory.yml"
+:report_tests_log_factory:
+  :reports:
+  - cppunit
+:cexception:
+  :vendor_path: "/var/lib/gems/3.3.0/gems/ceedling-1.2.0/vendor"
+  :defines: []
+:release_build:
+  :use_assembly: false
+  :artifacts: []
+:test_build:
+  :use_assembly: false
+  :preprocess_force_fallback: false
+  :preprocess_directives_only_available: false
+:partials:
+  :max_extraction_length: 5000
+:environment: []
+:files:
+  :test: []
+  :source: []
+  :assembly: []
+  :support: []
+  :include: []
+:flags: {}
+:libraries:
+  :flag: "-l${1}"
+  :path_flag: -L "${1}"
+  :test: []
+  :release: []
+:extension:
+  :header:
+  - ".h"
+  :source:
+  - ".c"
+  :assembly:
+  - ".s"
+  :object:
+  - ".o"
+  :libraries:
+  - ".a"
+  - ".so"
+  :executable:
+  - ".out"
+  :map:
+  - ".map"
+  :list:
+  - ".lst"
+  :testpass:
+  - ".pass"
+  :testfail:
+  - ".fail"
+  :dependencies:
+  - ".d"
+:test_runner:
+  :cmdline_args: true
+  :includes: []
+  :defines:
+  - UNITY_EXCLUDE_FLOAT
+  - UNITY_SUPPORT_TEST_CASES
+  - UNITY_SUPPORT_VARIADIC_MACROS
+  :file_suffix: _runner
+  :mock_prefix: mock_
+  :mock_suffix: ''
+  :mock_name_include_folder: true
+  :enforce_strict_ordering: true
+  :use_param_tests: true
+  :shuffle_tests: false
+:tools:
+  :test_compiler:
+    :executable: gcc
+    :name: default_test_compiler
+    :optional: false
+    :arguments:
+    - -I"${5}"
+    - -D"${6}"
+    - "-DGNU_COMPILER"
+    - "-g"
+    - -c "${1}"
+    - -o "${2}"
+    - "-MMD"
+    - -MF "${4}"
+    :stderr_redirect: :none
+  :test_linker:
+    :executable: gcc
+    :name: default_test_linker
+    :optional: false
+    :arguments:
+    - "${1}"
+    - "${5}"
+    - -o "${2}"
+    - ''
+    - "${4}"
+    :stderr_redirect: :none
+  :test_fixture:
+    :executable: "${1}"
+    :name: default_test_fixture
+    :optional: false
+    :arguments: []
+    :stderr_redirect: :none
+  :test_fixture_simple_backtrace:
+    :executable: "${1}"
+    :name: default_test_fixture_simple_backtrace
+    :optional: false
+    :arguments:
+    - "${2}"
+    :stderr_redirect: :none

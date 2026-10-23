@@ -198,6 +198,7 @@ All steps run against [`tests/manual/`](../tests/manual/), opened as its own fol
 - [ ] **Run one.** A single test runs in isolation, from its gutter icon. The Ceedling Explorer log (Trace level) shows `--test-case=` in the invocation.
 - [ ] **Debug.** A breakpoint in `src/Calculator.c` is hit, from a test’s debug icon. The file’s real results show in the Testing view, including the deliberate failure. Starting a Run while the debug build is under way waits for it, then runs.
 - [ ] **Cancel.** Cancel a run of `test_calculator.c` while it builds. Its tests show as skipped, not errored.
+- [ ] **Ceedling 1.2.0.** On 1.2.0, rename `project.yml` to `ceedling.yml` and refresh. Discovery and runs still work. Add `test/alpha/test_dup.c` and `test/beta/test_dup.c`, each with one test. Both run and debug correctly. Run one test alone, then its whole file with nothing changed. Every test in the file reports a result. Revert after.
 - [ ] **Rediscovery during a run.** Start a run of all tests, then save `project.yml` while it runs. The run completes with correct results.
 - [ ] **Clean.** The Testing view’s Clean button clears `build/`.
 - [ ] **Clobber.** The Clobber button does a harder reset. It also succeeds.

@@ -17,6 +17,11 @@ This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 * The `report_tests_log_factory` plugin’s `cppunit` report — the XML report this extension depends on — is now enabled automatically via a bundled [mixin](README.md#mixins). Manually enabling it in `project.yml` is no longer required.
 * New `ceedlingExplorer.mixins` and `ceedlingExplorer.projects[].mixins` settings expose Ceedling’s own mixin mechanism, so you can layer toolchain targets, CI overrides, or other configuration without hand-editing `project.yml`. See [Mixins](README.md#mixins).
 * A one-time warning notification when `project.yml` or a configured mixin sets a non-default CppUnit XML report filename, naming the project and the resolved filename.
+* Support for Ceedling 1.2.0:
+  * A project directory may use `ceedling.yml` instead of `project.yml`. A directory holding both is reported as an error, as Ceedling itself reports it.
+  * Same-named test files in different directories (e.g. `test/unit/test_foo.c` and `test/integration/test_foo.c`) each run, report, and debug correctly.
+  * Project configuration is read through `ceedling dumpconfig --stdout`, without a temporary file.
+  * Every run reruns its tests. Ceedling 1.2.0’s delta builds otherwise reuse cached results that ignore which single test a run selected.
 * Unity’s `TEST_MATRIX()` parametrized tests and exclusive `TEST_RANGE(<start, end, step>)` ranges now appear in the _Testing_ view as individual test cases.
 
 ## 💪 Fixed
