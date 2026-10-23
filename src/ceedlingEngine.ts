@@ -1,14 +1,18 @@
 import { Mutex } from 'async-mutex';
 import child_process from 'child_process';
-import deepmerge from 'deepmerge';
 import fs from 'fs';
 import yaml from 'js-yaml';
+import os from 'os';
 import path from 'path';
 import semver from 'semver';
 import stripAnsi from 'strip-ansi';
 import tree_kill from 'tree-kill';
 import util from 'util';
-import vscode from 'vscode';
+// Type-only. This file has no runtime dependency on the `vscode` module - the one real call it
+// used to make, resolving workspace configuration, is now supplied by the caller (see
+// `configProvider` below). That keeps this file loadable in a plain Node test process, where the
+// `vscode` module the Extension Host normally injects does not exist.
+import type vscode from 'vscode';
 import xml2js from 'xml2js';
 import {
     buildFileLabelRegex,
@@ -22,17 +26,28 @@ import {
     testCaseFilterMatchedExactly,
 } from './ceedlingOutputParsing';
 import { getTestListFromXmlReport } from './ceedlingXmlReport';
-import { Logger } from './logger';
-import { FileDiagnostic, ProblemMatcher, ProblemMatchingPattern } from './problemMatcher';
+import { buildProjectArgs, quoteIfNeeded } from './ceedlingMixinArgs';
+// Type-only, same reasoning as the `vscode` import above: Logger and ProblemMatcher both have
+// real runtime vscode calls of their own (an output channel, a DiagnosticCollection). Importing
+// only their types keeps this file from pulling either module's code in at require-time. Callers
+// construct both and hand this file the instances (see `configProvider`/`deps.problemMatcher`).
+import type { Logger } from './logger';
+import type { FileDiagnostic, ProblemMatcher, ProblemMatchingPattern } from './problemMatcher';
 
 const MINIMUM_CEEDLING_VERSION = '1.0.0';
 const TEST_VERBOSITY_FLAG = '--verbosity debug';
+// Ceedling's own default for report_tests_log_factory's cppunit report. Also this extension's
+// fallback when nothing in the resolved config overrides it - see setXmlReportPath.
+const DEFAULT_CPPUNIT_REPORT_FILENAME = 'cppunit_tests_report.xml';
 
 export type ProjectData = {
     projectPath: string,
-    ymlFileName: any,
+    ymlFileName: string,
     absPath: string,
     debugLaunchConfig: string,
+    // Resolved once in loadProjectPaths(): this project's own ceedlingExplorer.projects[].mixins
+    // when set, else the workspace-wide ceedlingExplorer.mixins. Lowest to highest priority.
+    mixins: string[],
     files: {
         assembly?: string[],
         header?: string[],
@@ -45,6 +60,9 @@ export type ProjectConfig = {
     path: string,
     debugLaunchConfig: string,
     name?: string,
+    // Absent (not merely []) means "use the workspace-wide ceedlingExplorer.mixins instead" -
+    // see loadProjectPaths(). An explicit [] opts this project out of the global list entirely.
+    mixins?: string[],
 }
 
 export type CeedlingTestCase = {
@@ -115,20 +133,50 @@ export class CeedlingEngine {
     private testLabelRegexps: Record<string, RegExp | undefined> = {};
     private buildDirectories: Record<string, string> = {};
     private reportFilenames: Record<string, string> = {};
+    // Warned about at most once per project per activation, not once per discover() cycle - the
+    // project.yml file watch re-runs discover() on every save, and this would otherwise pop up a
+    // notification on every single one.
+    private warnedNonDefaultReportFilename: Set<string> = new Set();
 
     private isPrettyTestLabelEnable: boolean = false;
     private isPrettyTestFileLabelEnable: boolean = false;
 
     private projectData: Record<string, ProjectData> = {};
+    // Populated once per discover() cycle - see the comment in discover() itself.
+    private resolvedConfig: Record<string, any> = {};
 
     readonly problemMatcher: ProblemMatcher;
+
+    // Process spawning and YAML file reads go through these fields instead of the
+    // child_process/fs modules directly. Tests substitute fakes here to exercise
+    // Ceedling-invocation and config-parsing logic without a real Ceedling install or disk I/O.
+    private readonly exec: typeof child_process.exec;
+    private readonly readFile: typeof fs.readFile;
+    // Resolves workspace configuration. Required, no in-file default - the only real
+    // implementation needs the `vscode` module, and this file otherwise has none.
+    private readonly configProvider: (uri: vscode.Uri) => vscode.WorkspaceConfiguration;
+    // Absolute path to the extension's bundled mixin that force-enables the CppUnit XML report.
+    // Always the last, highest-priority --mixin flag on every invocation - see buildProjectArgs.
+    private readonly bundledMixinPath: string;
 
     constructor(
         public readonly workspaceFolder: vscode.WorkspaceFolder,
         private readonly logger: Logger,
         private readonly isDevelopmentMode: boolean,
+        deps: {
+            configProvider: (uri: vscode.Uri) => vscode.WorkspaceConfiguration,
+            // Constructed by the caller, not here - see the type-only problemMatcher import above.
+            problemMatcher: ProblemMatcher,
+            bundledMixinPath: string,
+            exec?: typeof child_process.exec,
+            readFile?: typeof fs.readFile,
+        },
     ) {
-        this.problemMatcher = new ProblemMatcher(logger);
+        this.problemMatcher = deps.problemMatcher;
+        this.exec = deps.exec ?? child_process.exec;
+        this.readFile = deps.readFile ?? fs.readFile;
+        this.configProvider = deps.configProvider;
+        this.bundledMixinPath = deps.bundledMixinPath;
     }
 
     dispose(): void {
@@ -137,7 +185,7 @@ export class CeedlingEngine {
     }
 
     getConfiguration(): vscode.WorkspaceConfiguration {
-        return vscode.workspace.getConfiguration('ceedlingExplorer', this.workspaceFolder.uri);
+        return this.configProvider(this.workspaceFolder.uri);
     }
 
     getDebugLaunchConfig(projectKey: string): string {
@@ -157,6 +205,12 @@ export class CeedlingEngine {
     // not an error - see loadProjectPaths().
     async discover(): Promise<CeedlingProjectNode[]> {
         this.ceedlingVersionChecked = false;
+        // Cleared here, not per-call: loadResolvedConfig spins up a real `ceedling dumpconfig`
+        // process, so each project's config is resolved once per discover() cycle and reused by
+        // every call within it (checkYmlProjectData below, and compileForDebug later). The
+        // existing project.yml file watch already forces a fresh discover() on any config change,
+        // which is all the invalidation this cache needs.
+        this.resolvedConfig = {};
         this.loadProjectPaths();
 
         const projectKeys = this.getExistingProjectKeys();
@@ -168,13 +222,14 @@ export class CeedlingEngine {
         await this.checkCeedlingVersion();
 
         for (const projectKey of projectKeys) {
-            const ymlProjectData = await this.getYmlProjectData(projectKey);
-            this.logger.debug(`discover(projectKey=${projectKey}, ymlProjectData=${util.format(ymlProjectData)})`);
-            this.setBuildDirectory(projectKey, ymlProjectData);
-            this.setXmlReportPath(projectKey, ymlProjectData);
-            this.setFunctionRegex(projectKey, ymlProjectData);
-            this.setFileLabelRegex(projectKey, ymlProjectData);
-            this.setTestLabelRegex(projectKey, ymlProjectData);
+            const resolvedConfig = await this.loadResolvedConfig(projectKey);
+            this.resolvedConfig[projectKey] = resolvedConfig;
+            this.logger.debug(`discover(projectKey=${projectKey}, resolvedConfig=${util.format(resolvedConfig)})`);
+            this.setBuildDirectory(projectKey, resolvedConfig);
+            this.setXmlReportPath(projectKey, resolvedConfig);
+            this.setFunctionRegex(projectKey, resolvedConfig);
+            this.setFileLabelRegex(projectKey, resolvedConfig);
+            this.setTestLabelRegex(projectKey, resolvedConfig);
         }
 
         const errorMessage = await this.sanityCheck(projectKeys);
@@ -342,8 +397,9 @@ export class CeedlingEngine {
             reporter.failed(file.id, `${result.stdout}\n${result.stderr}`);
             return undefined;
         }
-        const ymlProjectData = await this.getYmlProjectData(projectKey);
-        const ext = this.getExecutableExtension(ymlProjectData);
+        // Reads the same resolvedConfig cache discover() populated for this project - debugging
+        // is only reachable after a file has already been discovered, so it's already there.
+        const ext = this.getExecutableExtension(this.resolvedConfig[projectKey]);
         const testFileName = `${/([^/]*).c$/.exec(file.id)![1]}`;
         return `${testFileName}/${testFileName}${ext}`;
     }
@@ -402,20 +458,26 @@ export class CeedlingEngine {
         }
     }
 
+    // Reads the config discover() already resolved this cycle - see resolvedConfig's own comment.
+    // A missing entry here means loadResolvedConfig() itself failed (dumpconfig errored, or its
+    // output couldn't be read/parsed), not that a mixin didn't apply.
     private async checkYmlProjectData(projectKey: string): Promise<string | void> {
-        const ymlProjectData = await this.getYmlProjectData(projectKey)
-        if (!ymlProjectData) {
-            return `Failed to find or load the project.yml file for ${projectKey}. ` +
-                `Please check the ceedlingExplorer.projectPath option.`;
+        const resolvedConfig = this.resolvedConfig[projectKey];
+        if (!resolvedConfig) {
+            return `Failed to resolve Ceedling's configuration for ${projectKey} via 'ceedling dumpconfig'. ` +
+                `Please check the ceedlingExplorer.projects option.`;
         }
         try {
-            if (!ymlProjectData[':plugins'][':enabled'].includes('report_tests_log_factory')) {
+            if (!resolvedConfig[':plugins'][':enabled'].includes('report_tests_log_factory')) {
                 throw 'Report tests log factory plugin not enabled';
             }
         } catch (e) {
-            return `The required Ceedling plugin 'report_tests_log_factory' is not enabled. ` +
-                `You have to edit ${this.getYmlProjectPath(projectKey)} file to enable the plugin.\n` +
-                `see https://github.com/ThrowTheSwitch/Ceedling/blob/master/plugins/report_tests_log_factory/README.md`;
+            // The bundled mixin (assets/mixins/report-tests-log-factory.yml) always enables this
+            // plugin, so reaching here means that mixin itself didn't take effect - not that the
+            // user needs to edit anything by hand.
+            return `The required Ceedling plugin 'report_tests_log_factory' did not take effect for ${projectKey}, ` +
+                `even though this extension's own mixin always enables it. Check that 'ceedling dumpconfig' ` +
+                `ran successfully and that ceedlingExplorer.mixins/projects[].mixins don't reference an invalid mixin.`;
         }
     }
 
@@ -440,6 +502,10 @@ export class CeedlingEngine {
 
     private loadProjectPaths(): void {
         const projectConfigs = this.getConfiguration().get<object>('projects', []) as Array<ProjectConfig>;
+        // The workspace-wide fallback. A project's own `mixins` is used only when it's genuinely
+        // absent from settings (`undefined`) - an explicit `mixins: []` opts a project out of
+        // this list rather than falling back to it.
+        const globalMixins = this.getConfiguration().get<string[]>('mixins', []);
         this.projectData = {};
         let workspacePath = this.workspaceFolder.uri.fsPath;
         projectConfigs.forEach(projectConfig => {
@@ -467,12 +533,17 @@ export class CeedlingEngine {
             if (!(fs.existsSync(absolutePath) && fs.lstatSync(absolutePath).isDirectory())) {
                 throw new CeedlingLoadError(`The project path ${absolutePath} does not exist or is not a directory.`);
             } else {
-                this.logger.debug(`loadProjectPaths: resolved project '${key}' -> path='${absolutePath}', ymlFileName='${ymlName}'`);
+                const mixins = projectConfig.mixins !== undefined ? projectConfig.mixins : globalMixins;
+                this.logger.debug(
+                    `loadProjectPaths: resolved project '${key}' -> path='${absolutePath}', ymlFileName='${ymlName}', ` +
+                    `mixins=${util.format(mixins)}`
+                );
                 this.projectData[key] = {
                     debugLaunchConfig: projectConfig.debugLaunchConfig,
                     projectPath: projectConfig.path,
                     ymlFileName: ymlName,
                     absPath: absolutePath,
+                    mixins,
                     files: {}
                 };
             }
@@ -483,6 +554,7 @@ export class CeedlingEngine {
                 projectPath: ".",
                 ymlFileName: 'project.yml',
                 absPath: path.resolve(workspacePath, "."),
+                mixins: globalMixins,
                 files: {}
             };
         }
@@ -570,12 +642,9 @@ export class CeedlingEngine {
     private execCeedling(args: ReadonlyArray<string>, projectKey = Object.keys(this.projectData)[0], verbosity = ''): Promise<any> {
         let cwd = ".";
         if (this.ceedlingVersionChecked && projectKey in this.projectData) {
-            let projectParam = ` --project project.yml`;
-            if (this.projectData[projectKey].ymlFileName != 'project.yml') {
-                projectParam += ` --mixin ${this.projectData[projectKey].ymlFileName}`;
-            }
-            args = [...args, projectParam];
-            cwd = this.projectData[projectKey].absPath;
+            const project = this.projectData[projectKey];
+            args = [...args, ...buildProjectArgs(project.ymlFileName, project.mixins, this.bundledMixinPath)];
+            cwd = project.absPath;
         }
         if (this.isDevelopmentMode && verbosity) {
             args = [...args, verbosity];
@@ -584,7 +653,7 @@ export class CeedlingEngine {
         const shell = this.getShellPath();
         this.logger.debug(`execCeedling(args=${util.format(args)}) \ncommand=${command} \ncwd=${cwd} \nshell=${shell}`);
         return new Promise<any>((resolve) => {
-            this.ceedlingProcess = child_process.exec(
+            this.ceedlingProcess = this.exec(
                 command,
                 {
                     cwd: cwd,
@@ -621,23 +690,12 @@ export class CeedlingEngine {
         let testPrefix = 'test|spec|should';
         if (ymlProjectData) {
             try {
-                const ymlProjectUnityDefines = ymlProjectData[':unity'][':defines'];
-                if (ymlProjectUnityDefines != undefined && (
-                    ymlProjectUnityDefines.includes('-UNITY_SKIP_DEFAULT_RUNNER') ||
-                    ymlProjectUnityDefines.includes('-RUN_TEST')
-                )) {
-                    const ymlProjectTestRunnerTestPrefix = ymlProjectData[':test_runner'][':test_prefix'];
-                    if (ymlProjectTestRunnerTestPrefix != undefined) {
-                        testPrefix = ymlProjectTestRunnerTestPrefix;
-                    }
-                } else {
-                    const ymlProjectTestPrefix = ymlProjectData[':unity'][':test_prefix'];
-                    if (ymlProjectTestPrefix != undefined) {
-                        testPrefix = ymlProjectTestPrefix;
-                    }
+                const ymlProjectTestPrefix = ymlProjectData[':test_runner'][':test_prefix'];
+                if (ymlProjectTestPrefix != undefined) {
+                    testPrefix = ymlProjectTestPrefix;
                 }
             } catch (e) {
-                this.logger.debug(`getTestPrefix: no ':unity'/':test_runner' data in project.yml, using default '${testPrefix}': ${e}`);
+                this.logger.debug(`getTestPrefix: no ':test_runner'/':test_prefix' in project.yml, using default '${testPrefix}': ${e}`);
             }
         }
         return testPrefix;
@@ -666,7 +724,7 @@ export class CeedlingEngine {
     }
 
     private setXmlReportPath(projectKey: string, ymlProjectData: any = undefined) {
-        let reportFilename = 'cppunit_tests_report.xml';
+        let reportFilename = DEFAULT_CPPUNIT_REPORT_FILENAME;
         if (ymlProjectData) {
             try {
                 const ymlProjectReportFilename = ymlProjectData[':report_tests_log_factory'][':cppunit'][':filename'];
@@ -676,6 +734,18 @@ export class CeedlingEngine {
             } catch (e) {
                 this.logger.debug(`setXmlReportPath(${projectKey}): no ':report_tests_log_factory'/':cppunit'/':filename' in project.yml, using default '${reportFilename}': ${e}`);
             }
+        }
+        // A mixin or project.yml setting a non-default filename changes where this extension looks
+        // for the report (getXmlReportPath), silently as far as the user is concerned - surface it
+        // once per project so an unexpected report location doesn't look like a mystery failure.
+        if (reportFilename !== DEFAULT_CPPUNIT_REPORT_FILENAME && !this.warnedNonDefaultReportFilename.has(projectKey)) {
+            this.warnedNonDefaultReportFilename.add(projectKey);
+            this.logger.showWarning(
+                `Ceedling project '${projectKey}': the CppUnit XML report filename resolves to '${reportFilename}', ` +
+                `not the default '${DEFAULT_CPPUNIT_REPORT_FILENAME}' - project.yml or a configured mixin sets ` +
+                `':report_tests_log_factory' ↳ ':cppunit' ↳ ':filename'. This extension will use the resolved name; ` +
+                `if that's unexpected, check ceedlingExplorer.mixins/projects[].mixins and project.yml.`
+            );
         }
         this.reportFilenames[projectKey] = reportFilename;
     }
@@ -797,63 +867,35 @@ export class CeedlingEngine {
         );
     }
 
-    private getYmlProjectData(projectKey: string): Promise<any | undefined> {
-        try {
-            if (this.projectData[projectKey].ymlFileName != 'project.yml') {
-                return this.mergeYmlProjectData(projectKey);
-            }
-            return new Promise<any | undefined>((resolve) => {
-                const project_yml = this.getYmlProjectPath(projectKey);
-                fs.readFile(project_yml, 'utf8', (error, data) => {
-                    if (error) {
-                        this.logger.error(`Failed to read YAML file '${project_yml}': ${util.format(error)}`);
-                        resolve(undefined);
-                        return;
-                    }
-                    try {
-                        resolve(yaml.safeLoad(data));
-                    } catch (e) {
-                        this.logger.error(`Failed to parse YAML file '${project_yml}': ${util.format(e)}`);
-                        resolve(undefined);
-                    }
-                });
-            });
+    // Resolves a project's fully-merged Ceedling configuration via `ceedling dumpconfig`, rather
+    // than parsing project.yml (and its mixin, if any) by hand. dumpconfig applies Ceedling's own
+    // multi-file overlay, plugin defaults, and mixin-merge rules - see buildProjectArgs - so this
+    // reflects exactly what a real build would see, not just what's literally typed in one file.
+    // dumpconfig only writes to a file, never stdout, so this drives it through a throwaway
+    // temp file and reads that back.
+    private async loadResolvedConfig(projectKey: string): Promise<any | undefined> {
+        const tmpPath = path.join(
+            os.tmpdir(),
+            `ceedling-dumpconfig-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.yml`,
+        );
+        this.logger.debug(`loadResolvedConfig(${projectKey}): resolving via 'ceedling dumpconfig' -> '${tmpPath}'`);
+        const result = await this.execCeedling(['dumpconfig', quoteIfNeeded(tmpPath)], projectKey);
+        if (result.error) {
+            this.logger.error(`loadResolvedConfig(${projectKey}): 'ceedling dumpconfig' failed: ${util.format(result)}`);
+            return undefined;
         }
-        catch (e) {
-            this.logger.error(`getYmlProjectData()=${util.format(e)}`);
-        }
-        return Promise.resolve(undefined);
-    }
-
-    private mergeYmlProjectData(projectKey: string): Promise<any | undefined> {
         return new Promise<any | undefined>((resolve) => {
-            const project_data = this.getYmlProjectPath(projectKey);
-            fs.readFile(project_data, 'utf8', (error, data) => {
+            this.readFile(tmpPath, 'utf8', (error, data) => {
                 if (error) {
-                    this.logger.error(`Failed to read YAML file: ${util.format(error)}`);
+                    this.logger.error(`loadResolvedConfig(${projectKey}): failed to read dumpconfig output '${tmpPath}': ${util.format(error)}`);
                     resolve(undefined);
                     return;
                 }
+                fs.unlink(tmpPath, () => { }); // best-effort cleanup; a leftover temp file is harmless
                 try {
-                    const result = yaml.safeLoad(data);
-                    const defaultYmlPath = path.resolve(this.projectData[projectKey].absPath, 'project.yml');
-                    fs.readFile(defaultYmlPath, 'utf8', (error, data) => {
-                        if (error) {
-                            this.logger.error(`Failed to read default YAML file: ${util.format(error)}`);
-                            resolve(result);
-                            return;
-                        }
-                        try {
-                            const defaultResult = yaml.safeLoad(data) || {};
-                            const mergedResult = deepmerge(defaultResult as object, (result as object) || {});
-                            resolve(mergedResult);
-                        } catch (e) {
-                            this.logger.error(`Failed to parse default YAML file: ${util.format(e)}`);
-                            resolve(result);
-                        }
-                    });
+                    resolve(yaml.safeLoad(data));
                 } catch (e) {
-                    this.logger.error(`Failed to parse YAML file: ${util.format(e)}`);
+                    this.logger.error(`loadResolvedConfig(${projectKey}): failed to parse dumpconfig output: ${util.format(e)}`);
                     resolve(undefined);
                 }
             });
