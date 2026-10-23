@@ -272,11 +272,19 @@ export class CeedlingEngine {
             throw new CeedlingLoadError(errors.join('\n'));
         }
 
-        // Listing runs Ceedling in each project directory, under its lock. Reading and parsing
-        // sources needs no lock.
+        // Listing runs Ceedling in each project directory, under its lock. A failed listing fails
+        // discovery, rather than showing a project with no tests. Reading and parsing sources needs
+        // no lock.
         const projects = [...loaded.values()];
         const listings = await mapGrouped(projects, (project) => this.directoryOf(project),
             (project) => this.inDirectory(project, () => this.listTestFiles(project)));
+        const unlisted = projects.filter((_, i) => listings[i] === undefined);
+        if (unlisted.length > 0) {
+            throw new CeedlingLoadError(unlisted.map((project) =>
+                `Failed to list the test files of Ceedling project '${project.key}' with 'ceedling files:test'. ` +
+                `Check that Ceedling runs in the configured shell (ceedlingExplorer.shellPath), and that the project's ` +
+                `:paths: ↳ :test: entries are valid. The Ceedling Explorer log has Ceedling's output.`).join('\n'));
+        }
         const labels = this.prettyLabels();
         await Promise.all(projects.map(async (project, i) => {
             project.files = await this.testFileNodes(project, listings[i] ?? [], labels);
@@ -496,12 +504,12 @@ export class CeedlingEngine {
         );
     }
 
-    // Callers hold the project directory's lock.
-    private async listTestFiles(project: CeedlingProject): Promise<string[]> {
+    // Callers hold the project directory's lock. undefined when Ceedling failed, with its output logged.
+    private async listTestFiles(project: CeedlingProject): Promise<string[] | undefined> {
         const result = await this.ceedling(['files:test'], { project });
         if (result.error) {
             this.logger.error(`listTestFiles(${project.key}): 'ceedling files:test' failed: ${util.format(result)}`);
-            return [];
+            return undefined;
         }
         return parseFileListBullets(result.stdout);
     }

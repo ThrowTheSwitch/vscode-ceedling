@@ -320,13 +320,33 @@ suite('CeedlingEngine.discover', () => {
         assert.ok(logs.some((l) => l.level === 'error' && /could not parse dumpconfig output/.test(l.message)));
     });
 
-    test('a failed test listing is logged, and leaves the project without test files', async () => {
+    test('a failed test listing is a load error naming the project and the settings to check, with the failure logged', async () => {
         const world = new FakeCeedling();
         world.handlers.push((command) => /^ceedling files:test/.test(command) ? { error: true, stderr: 'boom' } : undefined);
         const logs: LogCall[] = [];
-        const { projects } = await discovered(world, { logs });
-        assert.deepStrictEqual(projects[0].files, []);
+        await assert.rejects(makeEngine(world, { logs }).discover(),
+            (e: unknown) => e instanceof CeedlingLoadError && /'default'/.test(e.message) && /files:test/.test(e.message) && /shellPath/.test(e.message));
         assert.ok(logs.some((l) => l.level === 'error' && /files:test/.test(l.message)));
+    });
+
+    test('a failed test listing keeps the last good projects for runs and watchers', async () => {
+        const world = new FakeCeedling();
+        const { engine } = await discovered(world);
+        world.handlers.push((command) => /^ceedling files:test/.test(command) ? { error: true } : undefined);
+        await assert.rejects(engine.discover(), CeedlingLoadError);
+        assert.deepStrictEqual(engine.testFileAt(`${WS}/test/test_calc.c`), { projectKey: 'default', fileId: 'test/test_calc.c' });
+    });
+
+    test('every project whose listing failed is named, in settings order', async () => {
+        const world = new FakeCeedling();
+        for (const dir of ['a', 'b', 'c']) {
+            world.directories.add(`${WS}/${dir}`);
+            world.write(`${WS}/${dir}/project.yml`, ':project: {}\n');
+        }
+        world.handlers.push((command, cwd) => /^ceedling files:test/.test(command) && cwd !== `${WS}/b` ? { error: true } : undefined);
+        const settings = { projects: ['a', 'b', 'c'].map((dir) => ({ path: dir, debugLaunchConfig: 'dbg' })) };
+        await assert.rejects(makeEngine(world, { settings }).discover(), (e: unknown) => e instanceof CeedlingLoadError &&
+            /'a'[\s\S]*'c'/.test(e.message) && !/'b'/.test(e.message));
     });
 
     test("a test file's discovery warnings are logged, naming the file", async () => {
