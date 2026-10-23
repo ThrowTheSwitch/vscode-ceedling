@@ -46,3 +46,8 @@ export function leafIds(functions: readonly CeedlingTestFunction[]): string[] {
 export function allIds(file: CeedlingFileNode): string[] {
     return [file.id, ...file.functions.flatMap((fn) => [fn.id, ...fn.cases.map((c) => c.id)])];
 }
+
+// The Testing view names each folder's tests when there is more than one folder.
+export function controllerLabel(folderName: string, folderCount: number): string {
+    return folderCount > 1 ? `Ceedling (${folderName})` : 'Ceedling';
+}
