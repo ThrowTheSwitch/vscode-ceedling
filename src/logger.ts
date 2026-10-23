@@ -9,7 +9,7 @@ export class Logger {
         if (this._channel) return this._channel
         this._channel = vscode.window.createOutputChannel("Ceedling Explorer", { log: true });
         this._channel.onDidChangeLogLevel((level) => { this._channel?.info(`Log level: ${LogLevel[level]}`) });
-        this._channel.info(`Log level: ${LogLevel[vscode.env.logLevel]}`);
+        this._channel.info(`Log level: ${LogLevel[this._channel.logLevel]}`);
         return this._channel;
     }
 
@@ -36,7 +36,6 @@ export class Logger {
     public error(...args: unknown[]) {
         const message = this.format(...args);
         this.channel.error(message);
-        this.channel.show();
     }
 
     public showInfo(...args: unknown[]) {
@@ -51,9 +50,11 @@ export class Logger {
         vscode.window.showWarningMessage(message);
     }
 
+    // Logs, notifies, and reveals the log without taking focus, for errors the user must act on.
     public showError(...args: unknown[]) {
         const message = this.format(...args);
         this.error(message);
+        this.channel.show(true);
         vscode.window.showErrorMessage(message);
     }
 

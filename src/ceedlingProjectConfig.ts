@@ -49,8 +49,8 @@ export type ProjectState = {
 // Ceedling's own default name for report_tests_log_factory's CppUnit report.
 export const DEFAULT_CPPUNIT_REPORT_FILENAME = 'cppunit_tests_report.xml';
 
-const DEFAULT_PROJECT_FILE = 'project.yml';
-const ALTERNATE_DEFAULT_PROJECT_FILE = 'ceedling.yml';
+export const DEFAULT_PROJECT_FILE = 'project.yml';
+export const ALTERNATE_DEFAULT_PROJECT_FILE = 'ceedling.yml';
 
 // Ceedling features this extension uses only where they exist.
 export type CeedlingCapabilities = {

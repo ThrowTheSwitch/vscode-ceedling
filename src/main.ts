@@ -3,19 +3,26 @@ import { CeedlingTestController } from './testController';
 import { Logger } from './logger';
 
 const logger = new Logger();
-const controllers = new Map<vscode.WorkspaceFolder, CeedlingTestController>();
+// Keyed by folder URI. VS Code reuses folder objects in practice but doesn't promise to.
+const controllers = new Map<string, CeedlingTestController>();
 let isDevelopmentMode = false;
 let extensionPath = '';
 
+// The Testing view names each folder's tests when there is more than one folder.
+function labelFor(workspaceFolder: vscode.WorkspaceFolder): string {
+    return (vscode.workspace.workspaceFolders?.length ?? 0) > 1 ? `Ceedling (${workspaceFolder.name})` : 'Ceedling';
+}
+
 function addWorkspaceFolder(workspaceFolder: vscode.WorkspaceFolder): void {
     logger.debug(`addWorkspaceFolder(${workspaceFolder.uri.toString()})`);
-    controllers.set(workspaceFolder, new CeedlingTestController(workspaceFolder, logger, isDevelopmentMode, extensionPath));
+    controllers.set(workspaceFolder.uri.toString(),
+        new CeedlingTestController(workspaceFolder, logger, isDevelopmentMode, extensionPath, labelFor(workspaceFolder)));
 }
 
 function removeWorkspaceFolder(workspaceFolder: vscode.WorkspaceFolder): void {
     logger.debug(`removeWorkspaceFolder(${workspaceFolder.uri.toString()})`);
-    controllers.get(workspaceFolder)?.dispose();
-    controllers.delete(workspaceFolder);
+    controllers.get(workspaceFolder.uri.toString())?.dispose();
+    controllers.delete(workspaceFolder.uri.toString());
 }
 
 async function ceedlingClean(): Promise<void> {
@@ -58,6 +65,9 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         for (const workspaceFolder of event.removed) {
             removeWorkspaceFolder(workspaceFolder);
+        }
+        for (const controller of controllers.values()) {
+            controller.setLabel(labelFor(controller.workspaceFolder));
         }
     }));
     context.subscriptions.push({ dispose: () => { for (const controller of controllers.values()) controller.dispose(); } });

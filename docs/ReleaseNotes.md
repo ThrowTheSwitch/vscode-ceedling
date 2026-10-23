@@ -16,11 +16,15 @@ Test discovery now follows Ceedling’s own test runner exactly. Every test name
 
 Ceedling 1.2.0 is supported. Projects may use `ceedling.yml`, same-named test files in different directories each work, and configuration is read directly from Ceedling’s output. Every run reruns its tests, because 1.2.0’s cached results don’t account for running a single test.
 
+The _Testing_ view keeps itself current. It updates as you edit a test file, and rediscovers when test files come and go or a project or mixin file changes.
+
 Running, cancelling, and debugging tests are more dependable. A test whose result never arrives now shows an error explaining why, instead of quietly ending as skipped. Cancelling a run marks its tests skipped and stops only that run. Debugging reports the test file’s real results. Several races between runs, debug builds, _Clean_, _Clobber_, and edits to `project.yml` are gone.
 
 `:unity: :test_prefix:` was never a real Ceedling setting — a misunderstanding inherited from the original extension — and is no longer read. If you want to change the recognized prefix of test-case functions, set `:test_runner: :test_prefix:`, which Ceedling actually supports.
 
 ## 🚨 Important Changes
+
+This release requires VS Code 1.74.0 or later.
 
 The `ceedlingExplorer.testCaseMacroAliases` and `ceedlingExplorer.testRangeMacroAliases` settings are removed. Ceedling recognizes only the literal `TEST_CASE`, `TEST_RANGE`, and `TEST_MATRIX` markers, so these settings never worked. See [BreakingChanges.md](BreakingChanges.md).
 

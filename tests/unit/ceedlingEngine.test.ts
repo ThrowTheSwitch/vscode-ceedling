@@ -299,7 +299,7 @@ suite('CeedlingEngine.discover', () => {
         world.resolvedConfig = ':plugins:\n  :enabled: []\n';
         const engine = makeEngine(world);
         await assert.rejects(engine.discover());
-        assert.deepStrictEqual(engine.getYmlProjectPaths(), [`${WS}/project.yml`]);
+        assert.ok(engine.configurationFiles().includes(`${WS}/project.yml`));
     });
 
     // A failed rediscovery must not leave runs without their --project/--mixin flags and cwd.
@@ -359,7 +359,7 @@ suite('CeedlingEngine with Ceedling 1.2.0', () => {
         const { engine, projects } = await discovered(world);
         assert.strictEqual(projects.length, 1);
         assert.match(world.commands[2].command, new RegExp(`--project ceedling\\.yml --mixin ${BUNDLED_MIXIN}$`));
-        assert.deepStrictEqual(engine.getYmlProjectPaths(), [`${WS}/ceedling.yml`]);
+        assert.ok(engine.configurationFiles().includes(`${WS}/ceedling.yml`));
     });
 
     // Ceedling itself refuses this ambiguity, but only when no --project names the file.
@@ -370,14 +370,13 @@ suite('CeedlingEngine with Ceedling 1.2.0', () => {
             (e: unknown) => e instanceof CeedlingLoadError && /project\.yml/.test(e.message) && /ceedling\.yml/.test(e.message));
     });
 
-    test('an alternate project file and its base are both watched', async () => {
+    test('an alternate project file and either base are watched', async () => {
         const world = new FakeCeedling();
         world.directories.add(`${WS}/fw`);
         world.write(`${WS}/fw/project.yml`, ':project: {}\n');
         world.write(`${WS}/fw/ci.yml`, ':project: {}\n');
         const engine = makeEngine(world, { settings: { projects: [{ path: 'fw/ci.yml', debugLaunchConfig: 'dbg' }] } });
-        await engine.discover().catch(() => undefined);
-        assert.deepStrictEqual(engine.getYmlProjectPaths().sort(), [`${WS}/fw/ci.yml`, `${WS}/fw/project.yml`]);
+        assert.deepStrictEqual(engine.configurationFiles().sort(), [`${WS}/fw/ceedling.yml`, `${WS}/fw/ci.yml`, `${WS}/fw/project.yml`]);
     });
 
     // 1.2.0 nests each executable under its test file's directory, relative to the test path.
@@ -677,4 +676,65 @@ suite('CeedlingEngine against real Ceedling output', () => {
             assert.deepStrictEqual(reporter.of('errored'), []);
         });
     }
+});
+
+suite('CeedlingEngine for watchers and editing', () => {
+    // A project file that doesn't exist yet is watched too, so creating one starts discovery.
+    test("configuration files include absent default project files and each project's file-path mixins", () => {
+        const world = new FakeCeedling();
+        world.directories.add(`${WS}/fw`);
+        const engine = makeEngine(world, { settings: { projects: [{ path: 'fw', debugLaunchConfig: 'dbg', mixins: ['gcc', 'mixins/cov.yml'] }] } });
+        assert.deepStrictEqual(engine.configurationFiles().sort(), [`${WS}/fw/ceedling.yml`, `${WS}/fw/mixins/cov.yml`, `${WS}/fw/project.yml`]);
+    });
+
+    test('configuration files are empty, not an error, when settings name a missing directory', () => {
+        const engine = makeEngine(new FakeCeedling(), { settings: { projects: [{ path: 'nope', debugLaunchConfig: 'dbg' }] } });
+        assert.deepStrictEqual(engine.configurationFiles(), []);
+    });
+
+    test('a discovered test file is found by its absolute path', async () => {
+        const { engine } = await discovered(new FakeCeedling());
+        assert.deepStrictEqual(engine.testFileAt(`${WS}/test/test_calc.c`), { projectKey: 'default', fileId: 'test/test_calc.c' });
+        assert.strictEqual(engine.testFileAt(`${WS}/src/calc.c`), undefined);
+    });
+
+    test('a new file in a project may be a test file when it has the test file prefix', async () => {
+        const { engine } = await discovered(new FakeCeedling());
+        assert.strictEqual(engine.mayBeTestFile(`${WS}/test/sub/test_new.c`), true);
+        assert.strictEqual(engine.mayBeTestFile(`${WS}/src/calc.c`), false);
+        assert.strictEqual(engine.mayBeTestFile('/elsewhere/test_x.c'), false);
+    });
+
+    test('rediscovering one file reparses its source without running Ceedling', async () => {
+        const world = new FakeCeedling();
+        const { engine } = await discovered(world);
+        const before = world.commands.length;
+        const file = await engine.rediscoverFile('default', 'test/test_calc.c', 'void test_only(void) {}\n');
+        assert.deepStrictEqual(file!.functions.map((f) => f.id), ['test/test_calc.c::test_only']);
+        assert.strictEqual(file!.functions[0].label, 'only');
+        assert.strictEqual(world.commands.length, before);
+    });
+
+    test('rediscovering reads the saved file when no source is given', async () => {
+        const world = new FakeCeedling();
+        const { engine } = await discovered(world);
+        world.write(`${WS}/test/test_calc.c`, 'void test_saved(void) {}\n');
+        const file = await engine.rediscoverFile('default', 'test/test_calc.c');
+        assert.deepStrictEqual(file!.functions.map((f) => f.id), ['test/test_calc.c::test_saved']);
+    });
+
+    test('rediscovering an unknown file finds nothing', async () => {
+        const { engine } = await discovered(new FakeCeedling());
+        assert.strictEqual(await engine.rediscoverFile('default', 'test/test_unknown.c', ''), undefined);
+    });
+
+    test('the configured Ceedling command starts every invocation', async () => {
+        const world = new FakeCeedling();
+        world.handlers.push((command) => /^bundle exec ceedling version/.test(command) ? { stdout: 'Ceedling => 1.2.0\n' } : undefined);
+        world.handlers.push((command) => /^bundle exec ceedling dumpconfig --stdout/.test(command) ? { stdout: world.resolvedConfig } : undefined);
+        world.handlers.push((command) => /^bundle exec ceedling files:test/.test(command) ? { stdout: ' - test/test_calc.c\n' } : undefined);
+        await discovered(world, { settings: { ceedlingCommand: 'bundle exec ceedling' } });
+        assert.ok(world.commands.length > 0);
+        assert.ok(world.commands.every((c) => c.command.startsWith('bundle exec ceedling ')));
+    });
 });

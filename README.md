@@ -33,7 +33,7 @@ Ceedling and its complementary [ThrowTheSwitch] pieces and parts are and always 
 
 ## VS Code
 
-Requires VS Code 1.71.0 or later.
+Requires VS Code 1.74.0 or later.
 
 ## Ceedling
 
@@ -56,6 +56,8 @@ Ceedling 1.0.0 also requires test-file preprocessing disabled (`:project` ↳ `:
 * Open the Testing view.
 * Run your tests using the run/debug icons in VS Code’s _Testing_ view or in your test file’s gutter.
 
+The _Testing_ view keeps itself current. Editing a test file updates its tests as you type, even before you save. Adding or removing a test file, or changing `project.yml` or a mixin file, rediscovers the project.
+
 The extension resolves your project’s configuration with [`ceedling dumpconfig`][dumpconfig-docs] and always applies its own [mixin](#mixins) enabling the `report_tests_log_factory` plugin’s `cppunit` report — the XML report this extension depends on. No manual plugin setup is required.
 
 [dumpconfig-docs]: https://throwtheswitch.github.io/Ceedling/1.1.0/getting-started/command-line/#ceedling-dumpconfig-filepath-sections
@@ -66,7 +68,7 @@ Run and debug tests from the Testing view, or from the gutter next to a test in 
 
 <img src="img/run.png" alt="Running tests" width="276">
 
-The Testing view’s toolbar also has Clean and Clobber buttons. They run `ceedling clean` and `ceedling clobber` against the current project.
+The Testing view’s toolbar also has Clean and Clobber buttons. They run `ceedling clean` and `ceedling clobber` in every Ceedling project in the workspace, after any test run in progress finishes.
 
 # Configuration
 
@@ -79,6 +81,7 @@ This table of options should be read as `ceedlingExplorer.<property>`.
 | `.projects` | An array of objects with the path to the Ceedling project (or yml-file) to use (relative to the workspace folder). See below for its `path`, `debugLaunchConfig`, `name`, and `mixins` properties. |
 | `.mixins` | An array of [Ceedling mixins](#mixins) — names, built-in toolchain targets (e.g. `gcc`, `clang`), or file paths — applied to every project that doesn’t define its own `mixins` (see `.projects` below), lowest to highest priority. By default it is `[]`. |
 | `.shellPath` | The path to the shell where Ceedling is installed. By default (or if this option is set to `null`), it uses the OS default shell. |
+| `.ceedlingCommand` | The command that runs Ceedling. By default it is `ceedling`. Set it to, e.g., `bundle exec ceedling` or the path to a vendored Ceedling. |
 | `.prettyTestLabel` | Shortens the test label in the _Testing_ explorer by dropping its leading prefix (e.g. inactive `test_BlinkTaskShouldToggleLed` vs. active `BlinkTaskShouldToggleLed`).<br><br>Inactive:<br><img src="img/prettyTestLabelInactive.png" alt="prettyTestLabelInactive" width="420"><br><br> Active:<br><img src="img/prettyTestLabelActive.png" alt="prettyTestLabelActive" width="420">|
 | `.prettyTestFileLabel` | Shortens the test file label in the _Testing_ explorer by dropping its path, leading prefix, and file type (e.g. inactive `test/LEDs/test_BlinkTask.c` vs. active `BlinkTask`).<br><br>Inactive:<br><img src="img/prettyTestFileLabelInactive.png" alt="prettyTestFileLabelInactive" width="320"><br><br> Active:<br><img src="img/prettyTestFileLabelActive.png" alt="prettyTestFileLabelActive" width="320"> |
 | `.testCommandArgs` | The command line arguments used to run Ceedling tests. The first argument has to literally contain the `${TEST_ID}` tag, which becomes the test file to run. With Ceedling 1.2.0 and later it is the file’s project-relative path (e.g. `test/unit/test_foo.c`), which tells same-named test files apart. With earlier versions it is the file’s name alone. The value `["test:${TEST_ID}"]` is used by default. For example, the arguments `"test:${TEST_ID}", "gcov:${TEST_ID}", "utils:gcov"` can be used to run tests and generate a gcov report. |

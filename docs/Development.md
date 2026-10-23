@@ -39,6 +39,7 @@ The code has two layers. Most modules have no `vscode` dependency and are unit-t
 | `src/testResults.ts` | Pure | The CppUnit report, mapped onto discovered ids |
 | `src/runPlan.ts` | Pure | A run request → the fewest Ceedling invocations |
 | `src/testModel.ts` | Pure | The test tree types and the `RunReporter` interface |
+| `src/singleFlight.ts` | Pure | Coalesces overlapping discovery requests into one rerun |
 | `src/ceedlingOutputParsing.ts` | Pure | Ceedling stdout, report names, and pretty labels |
 | `src/ceedlingMixinArgs.ts` | Pure | The `--project`/`--mixin` flags for a project |
 | `src/problemMatching.ts` | Pure | Compiler-output patterns and their matches |
@@ -49,13 +50,24 @@ Two Ceedling constraints shape everything else. Ceedling always compiles a whole
 
 `CeedlingTestController.refresh()` calls `CeedlingEngine.discover()`, which builds the test tree in five steps.
 
-1. `projectsFromSettings()` turns `ceedlingExplorer.projects` and `ceedlingExplorer.mixins` into `CeedlingProject`s: key, absolute path, project file, launch configuration name, and mixins. Projects whose project file exists become the engine’s `candidates`. Their project files are watched even when discovery fails.
+1. `projectsFromSettings()` turns `ceedlingExplorer.projects` and `ceedlingExplorer.mixins` into `CeedlingProject`s: key, absolute path, project file, launch configuration name, and mixins. Projects whose project file exists become the engine’s `candidates`.
 2. For each candidate, `checkCeedlingVersion()` runs `ceedling version` in the project directory and requires 1.0.0 or later. `semver.coerce()` reads a build suffix such as `1.2.0-13a540f` as its release.
 3. `resolveConfig()` runs `ceedling dumpconfig <temp file>` with the project’s flags and parses the YAML. `projectState()` reads the `ProjectState` from it: `buildRoot`, `reportFilename`, `testPrefix`, `testFilePrefix`, `executableExtension`, `useParamTests`, and `reportPluginEnabled`.
 4. `listTestFiles()` runs `ceedling files:test` and parses its bullets with `parseFileListBullets()`.
 5. `testFileNodes()` reads each file and calls `discoverTests(source, { testPrefix, useParamTests })`. A function’s id is `file::name`, and a case’s is `file::name(args)`, exactly the names in Ceedling’s report.
 
 The engine replaces its `projects` map only after every project loads. A failed discovery throws `CeedlingLoadError` and leaves the last good map in place for runs. The controller then turns the tree into TestItems. It keeps a `PlanTarget` for each item, and item lookups per project, since ids are unique only within one project.
+
+### Staying current
+
+The controller keeps the tree current without polling. Its refreshes go through a `SingleFlight`, so startup, watchers, and settings changes arriving together cause one discovery plus at most one rerun.
+
+- **Configuration files.** `CeedlingEngine.configurationFiles()` lists every file a project’s configuration can come from, existing or not: both default project files, any alternate project file, and file-path mixins. A `FileSystemWatcher` on each triggers discovery, so creating a project file in an empty folder starts one.
+- **Test sources.** A watcher on each project directory’s `**/*.c` reparses a changed test file alone, through `rediscoverFile()`, with no Ceedling call. A created file that `mayBeTestFile()` accepts, or a deleted test file, triggers discovery, since only `ceedling files:test` knows the full list.
+- **Unsaved edits.** `onDidChangeTextDocument` reparses an open test file from its buffer once typing pauses.
+- **Settings.** A change to a setting in `DISCOVERY_SETTINGS` triggers discovery. Others apply on the next run.
+
+The TestController itself exists only while discovery finds a project, so a folder without one adds nothing to the Testing view.
 
 ### Runs
 
@@ -203,7 +215,10 @@ All steps run against [`tests/manual/`](../tests/manual/), opened as its own fol
 - [ ] **Clean.** The Testing view’s Clean button clears `build/`.
 - [ ] **Clobber.** The Clobber button does a harder reset. It also succeeds.
 - [ ] **Problem matching.** A deliberate syntax error in `test_calculator.c` surfaces in the Problems panel. It squiggles at the error line. The Testing view’s own message for the erroring test shows the same compiler message, not a bare `stdout:` label. Revert the edit after.
-- [ ] **Settings change.** Toggle `ceedlingExplorer.prettyTestLabel` to `true` in `tests/manual/.vscode/settings.json`. Refresh. Labels shorten. No full window reload was needed.
+- [ ] **Settings change.** Toggle `ceedlingExplorer.prettyTestLabel` to `false` in `tests/manual/.vscode/settings.json`. Labels lengthen at once, with no refresh or window reload. Revert after.
+- [ ] **Live editing.** Add a test function to `test_calculator.c` without saving. It appears in the Testing view within a second. Close the file without saving. It disappears.
+- [ ] **New test file.** Create `test/test_extra.c` with one test. It appears without a manual refresh. Delete it. It disappears.
+- [ ] **Non-Ceedling folder.** Add a folder with no project file to the workspace. No extra entry appears in the Testing view. The Ceedling entries are labelled with their folder names.
 - [ ] **Parametrized test.** All cases in `test_calculator_parametrized.c` pass, on Ceedling 1.0.0, 1.1.10, and 1.2.0. `test_add_MatrixCases` shows four cases. `test_add_CommentedOut` is not listed.
 - [ ] **Crash handling.** `test_should_crash` in `test_calculator_crash.c` shows as a failed test, at the exact crashing line, on both Ceedling 1.0.0 and 1.1.0.
 - [ ] **Crash log link.** With Ceedling 1.1.0 running on a platform that supports `gdb`, set `:use_backtrace:` ⇒ `:gdb` in `project.yml` and re-run `test_should_crash`. Its failure message ends with a clickable link to the gdb log file. Revert the setting after.

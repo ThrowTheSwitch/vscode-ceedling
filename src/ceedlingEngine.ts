@@ -29,11 +29,13 @@ import {
 } from './ceedlingOutputParsing';
 import { buildCommandLine, Cancellation, CeedlingResult, CeedlingRunner } from './ceedlingProcess';
 import {
+    ALTERNATE_DEFAULT_PROJECT_FILE,
     capabilitiesOf,
     CeedlingCapabilities,
     CeedlingLoadError,
     CeedlingProject,
     DEFAULT_CPPUNIT_REPORT_FILENAME,
+    DEFAULT_PROJECT_FILE,
     ProjectSetting,
     ProjectState,
     projectState,
@@ -48,7 +50,6 @@ import { discoverTests } from './unityTestDiscovery';
 export { CeedlingLoadError } from './ceedlingProjectConfig';
 
 const MINIMUM_CEEDLING_VERSION = '1.0.0';
-const CEEDLING_COMMAND = 'ceedling';
 // Added to test runs and debug builds in development mode only, for the extension's own logs.
 const DEBUG_VERBOSITY = ['--verbosity', 'debug'];
 const UNREPORTED_MESSAGE =
@@ -155,21 +156,64 @@ export class CeedlingEngine {
         return this.project(projectKey).absPath;
     }
 
-    // Every file a project's configuration comes from: its base project file, and the configured
-    // alternate applied over it, if any.
-    getYmlProjectPaths(): string[] {
-        return [...new Set(this.candidates.flatMap((project) =>
-            [project.ymlFileName, project.projectFileName].map((file) => this.paths.resolve(project.absPath, file))))];
+    // Every file a project's configuration can come from, whether or not it exists yet: both
+    // default project files, any alternate project file, and each mixin given as a file path.
+    // Watching these starts discovery when one appears, changes, or goes away. A mixin given by
+    // name resolves through Ceedling's load paths, which aren't known here, so it isn't included.
+    configurationFiles(): string[] {
+        let projects: CeedlingProject[];
+        try {
+            projects = this.projectSettings();
+        } catch {
+            return [];
+        }
+        const isFilePath = (mixin: string) => /[\\/]/.test(mixin) || /\.ya?ml$/i.test(mixin);
+        return [...new Set(projects.flatMap((project) =>
+            [DEFAULT_PROJECT_FILE, ALTERNATE_DEFAULT_PROJECT_FILE, project.ymlFileName, ...project.mixins.filter(isFilePath)]
+                .map((file) => this.paths.resolve(project.absPath, file))))];
+    }
+
+    // The discovered test file at an absolute path, if any.
+    testFileAt(absPath: string): { projectKey: string, fileId: string } | undefined {
+        const target = this.paths.resolve(absPath);
+        for (const project of this.projects.values()) {
+            const file = project.files.find((f) => this.paths.resolve(f.absPath) === target);
+            if (file) {
+                return { projectKey: project.key, fileId: file.id };
+            }
+        }
+        return undefined;
+    }
+
+    // Whether a new C file inside a project could be a test file Ceedling would list, judged by
+    // the project's test file prefix. Only `ceedling files:test` decides for certain.
+    mayBeTestFile(absPath: string): boolean {
+        const fileName = this.paths.basename(absPath);
+        return fileName.endsWith('.c') && [...this.projects.values()].some((project) => {
+            const relative = this.paths.relative(project.absPath, absPath);
+            return !relative.startsWith('..') && !this.paths.isAbsolute(relative) && fileName.startsWith(project.state.testFilePrefix);
+        });
+    }
+
+    // Reparses one discovered test file without running Ceedling, from `source` (e.g. an unsaved
+    // editor buffer) or else the file on disk. undefined for a file not discovered.
+    async rediscoverFile(projectKey: string, fileId: string, source?: string): Promise<CeedlingFileNode | undefined> {
+        const project = this.projects.get(projectKey);
+        const index = project?.files.findIndex((f) => f.id === fileId) ?? -1;
+        if (!project || index < 0) {
+            return undefined;
+        }
+        const [node] = await this.testFileNodes(project, [fileId], this.prettyLabels(), source);
+        if (node) {
+            project.files[index] = node;
+        }
+        return node;
     }
 
     // Discovers every configured project and its tests. Throws CeedlingLoadError when Ceedling or
     // a project's configuration is unusable. A folder without a project file is zero projects.
     async discover(): Promise<CeedlingProjectNode[]> {
-        const config = this.getConfiguration();
-        const settings = projectsFromSettings(
-            { projects: config.get<ProjectSetting[]>('projects', []), mixins: config.get<string[]>('mixins', []) },
-            this.workspaceFolder.uri.fsPath, this.platform, (p) => this.fs.isDirectory(p), (p) => this.fs.exists(p),
-        );
+        const settings = this.projectSettings();
         this.candidates = settings.filter((project) => {
             const projectFile = this.paths.resolve(project.absPath, project.ymlFileName);
             const exists = this.fs.exists(projectFile);
@@ -221,7 +265,7 @@ export class CeedlingEngine {
             throw new CeedlingLoadError(errors.join('\n'));
         }
 
-        const labels = { tests: config.get<boolean>('prettyTestLabel', true), files: config.get<boolean>('prettyTestFileLabel', true) };
+        const labels = this.prettyLabels();
         for (const project of loaded.values()) {
             project.files = await this.testFileNodes(project, await this.listTestFiles(project), labels);
         }
@@ -299,6 +343,19 @@ export class CeedlingEngine {
 
     cancel(): void {
         this.runner.cancelAll();
+    }
+
+    private projectSettings(): CeedlingProject[] {
+        const config = this.getConfiguration();
+        return projectsFromSettings(
+            { projects: config.get<ProjectSetting[]>('projects', []), mixins: config.get<string[]>('mixins', []) },
+            this.workspaceFolder.uri.fsPath, this.platform, (p) => this.fs.isDirectory(p), (p) => this.fs.exists(p),
+        );
+    }
+
+    private prettyLabels(): { tests: boolean, files: boolean } {
+        const config = this.getConfiguration();
+        return { tests: config.get<boolean>('prettyTestLabel', true), files: config.get<boolean>('prettyTestFileLabel', true) };
     }
 
     private project(projectKey: string): LoadedProject {
@@ -399,7 +456,8 @@ export class CeedlingEngine {
         });
     }
 
-    private async testFileNodes(project: LoadedProject, files: string[], pretty: { tests: boolean, files: boolean }): Promise<CeedlingFileNode[]> {
+    // `source`, when given, stands in for the contents of a single file.
+    private async testFileNodes(project: LoadedProject, files: string[], pretty: { tests: boolean, files: boolean }, source?: string): Promise<CeedlingFileNode[]> {
         const options = { testPrefix: project.state.testPrefix, useParamTests: project.state.useParamTests };
         const testLabel = pretty.tests ? this.labelRegex(() => buildTestLabelRegex(project.state.testPrefix)) : undefined;
         const fileLabel = pretty.files ? this.labelRegex(() => buildFileLabelRegex(project.state.testFilePrefix)) : undefined;
@@ -409,7 +467,7 @@ export class CeedlingEngine {
             const absPath = this.paths.resolve(project.absPath, file);
             let discovered: ReturnType<typeof discoverTests>;
             try {
-                discovered = discoverTests(await this.fs.readFile(absPath), options);
+                discovered = discoverTests(source ?? await this.fs.readFile(absPath), options);
             } catch (e) {
                 // An unreadable file, or a :test_runner: :test_prefix: that isn't a valid regex.
                 this.logger.warn(`testFileNodes: skipping '${absPath}' (test prefix '${options.testPrefix}'): ${e}`);
@@ -633,11 +691,12 @@ export class CeedlingEngine {
             fullArgs.push(...DEBUG_VERBOSITY);
         }
         const cwd = options.cwd ?? options.project?.absPath ?? this.workspaceFolder.uri.fsPath;
+        const command = config.get<string>('ceedlingCommand', 'ceedling').trim() || 'ceedling';
         const shellSetting = config.get<string | null>('shellPath', null);
         const shell = shellSetting && shellSetting !== 'null' ? shellSetting : undefined;
-        this.logger.debug(`ceedling: ${buildCommandLine(CEEDLING_COMMAND, fullArgs)} (cwd=${cwd}, shell=${shell ?? 'default'})`);
+        this.logger.debug(`ceedling: ${buildCommandLine(command, fullArgs)} (cwd=${cwd}, shell=${shell ?? 'default'})`);
         const result = await this.runner.run({
-            command: CEEDLING_COMMAND,
+            command,
             args: fullArgs,
             cwd,
             shell,

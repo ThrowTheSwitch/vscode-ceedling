@@ -1,5 +1,4 @@
 import crypto from 'crypto';
-import fs from 'fs';
 import path from 'path';
 import util from 'util';
 import vscode from 'vscode';
@@ -8,25 +7,37 @@ import { extractGdbLogReference } from './ceedlingOutputParsing';
 import { Logger } from './logger';
 import { ProblemMatcher } from './problemMatcher';
 import { buildRunPlan, PlanTarget, RunPlanEntry } from './runPlan';
+import { SingleFlight } from './singleFlight';
 import { CeedlingFileNode, CeedlingProjectNode, CeedlingTestFunction, RunReporter } from './testModel';
 
 // Names the launch configuration of one debug request, so its debug session can be told apart
 // from any other session VS Code starts meanwhile.
 const DEBUG_REQUEST_KEY = '__ceedlingDebugRequest';
+// Settings whose change changes what discovery finds. The rest apply on the next run.
+const DISCOVERY_SETTINGS = ['projects', 'mixins', 'shellPath', 'ceedlingCommand', 'prettyTestLabel', 'prettyTestFileLabel'];
+// How long typing pauses before an unsaved test file is reparsed.
+const EDIT_REPARSE_DELAY_MS = 400;
 
-// Owns one native vscode.TestController for a workspace folder, mirroring CeedlingEngine's
-// discovery and results onto TestItems and TestRuns. Several Ceedling projects in one folder
-// (ceedlingExplorer.projects) appear as sibling root items.
+// Mirrors one workspace folder's CeedlingEngine discovery and results onto a native
+// vscode.TestController. Several Ceedling projects in one folder (ceedlingExplorer.projects)
+// appear as sibling root items. The TestController exists only while the folder has a Ceedling
+// project, so folders without one add nothing to the Testing view.
 export class CeedlingTestController {
 
-    private readonly controller: vscode.TestController;
+    private controller: vscode.TestController | undefined;
+    private controllerDisposables: vscode.Disposable[] = [];
     private readonly engine: CeedlingEngine;
     private readonly disposables: vscode.Disposable[] = [];
+    private readonly discovery: SingleFlight;
+    // Each watcher with its listeners, keyed by what it watches: a configuration file, or a
+    // project directory's C sources.
+    private readonly configurationWatchers = new Map<string, vscode.Disposable>();
+    private readonly sourceWatchers = new Map<string, vscode.Disposable>();
+    private readonly pendingReparses = new Map<string, NodeJS.Timeout>();
 
     private readonly targets = new WeakMap<vscode.TestItem, PlanTarget>();
     // Item ids are unique only within a project, so lookups are scoped by project key.
     private readonly items = new Map<string, Map<string, vscode.TestItem>>();
-    private readonly watchedReloadFiles = new Set<string>();
     private projects: CeedlingProjectNode[] = [];
 
     constructor(
@@ -34,6 +45,7 @@ export class CeedlingTestController {
         private readonly logger: Logger,
         isDevelopmentMode: boolean,
         extensionPath: string,
+        private label: string,
     ) {
         this.logger.debug(`CeedlingTestController created for ${workspaceFolder.uri.toString()}`);
         this.engine = new CeedlingEngine(workspaceFolder, logger, isDevelopmentMode, {
@@ -41,43 +53,25 @@ export class CeedlingTestController {
             problemMatcher: new ProblemMatcher(logger),
             bundledMixinPath: path.join(extensionPath, 'assets', 'mixins', 'report-tests-log-factory.yml'),
         });
-        this.controller = vscode.tests.createTestController(`ceedlingExplorer:${workspaceFolder.uri.toString()}`, 'Ceedling');
-        this.disposables.push(this.controller);
-
-        this.controller.resolveHandler = async (item) => {
-            if (item === undefined) {
-                await this.refresh();
-            }
-        };
-        this.controller.refreshHandler = async () => {
-            await this.refresh();
-        };
+        this.discovery = new SingleFlight(() => this.discover());
 
         this.disposables.push(
-            this.controller.createRunProfile('Run', vscode.TestRunProfileKind.Run, (request, token) => this.handleRun(request, token), true),
-            this.controller.createRunProfile('Debug', vscode.TestRunProfileKind.Debug, (request, token) => this.handleDebug(request, token), true),
+            vscode.workspace.onDidChangeConfiguration((event) => this.onConfigurationChanged(event)),
+            vscode.workspace.onDidChangeTextDocument((event) => this.scheduleReparse(event.document)),
+            // Closing a file with unsaved edits discards them, so the saved file is what remains.
+            vscode.workspace.onDidCloseTextDocument((document) => this.reparse(document.uri.fsPath)),
         );
 
-        this.disposables.push(vscode.workspace.onDidChangeConfiguration(event => {
-            if (event.affectsConfiguration("ceedlingExplorer.problemMatching", this.workspaceFolder.uri)) {
-                if (!this.engine.getConfiguration().get<boolean>('problemMatching.enabled', false)) {
-                    this.logger.debug(`onDidChangeConfiguration: problemMatching disabled, clearing diagnostics`);
-                    this.engine.problemMatcher.clear();
-                }
-            }
-            const pathChanged = event.affectsConfiguration("ceedlingExplorer.projects", this.workspaceFolder.uri);
-            const affectedPrettyTestLabel = event.affectsConfiguration("ceedlingExplorer.prettyTestLabel", this.workspaceFolder.uri);
-            const affectedPrettyTestFileLabel = event.affectsConfiguration("ceedlingExplorer.prettyTestFileLabel", this.workspaceFolder.uri);
-            if (affectedPrettyTestLabel || affectedPrettyTestFileLabel || pathChanged) {
-                this.logger.debug(`onDidChangeConfiguration: projects=${pathChanged}, prettyTestLabel=${affectedPrettyTestLabel}, ` +
-                    `prettyTestFileLabel=${affectedPrettyTestFileLabel}, refreshing`);
-                this.refresh();
-            }
-        }));
-
-        // Populate now rather than when VS Code first calls resolveHandler, so gutter icons appear
+        // Discover now rather than when VS Code first calls resolveHandler, so gutter icons appear
         // in open test files before the Testing view is ever opened.
         this.refresh();
+    }
+
+    setLabel(label: string): void {
+        this.label = label;
+        if (this.controller) {
+            this.controller.label = label;
+        }
     }
 
     async clean(): Promise<void> {
@@ -90,14 +84,53 @@ export class CeedlingTestController {
 
     dispose(): void {
         this.logger.debug(`CeedlingTestController disposed for ${this.workspaceFolder.uri.toString()}`);
-        for (const file of this.watchedReloadFiles) {
-            fs.unwatchFile(file);
-        }
-        for (const disposable of this.disposables) {
-            disposable.dispose();
-        }
+        this.pendingReparses.forEach((timer) => clearTimeout(timer));
+        [...this.configurationWatchers.values(), ...this.sourceWatchers.values(), ...this.disposables].forEach((d) => d.dispose());
+        this.disposeController();
         this.engine.dispose();
     }
+
+    // The TestController, its handlers, and its run profiles, created on first need.
+    private ensureController(): vscode.TestController {
+        if (this.controller) {
+            return this.controller;
+        }
+        const controller = vscode.tests.createTestController(`ceedlingExplorer:${this.workspaceFolder.uri.toString()}`, this.label);
+        controller.resolveHandler = async (item) => {
+            if (item === undefined) {
+                await this.refresh();
+            }
+        };
+        controller.refreshHandler = () => this.refresh();
+        this.controllerDisposables = [
+            controller,
+            controller.createRunProfile('Run', vscode.TestRunProfileKind.Run, (request, token) => this.handleRun(request, token), true),
+            controller.createRunProfile('Debug', vscode.TestRunProfileKind.Debug, (request, token) => this.handleDebug(request, token), true),
+        ];
+        this.controller = controller;
+        return controller;
+    }
+
+    private disposeController(): void {
+        this.controllerDisposables.forEach((d) => d.dispose());
+        this.controllerDisposables = [];
+        this.controller = undefined;
+        this.items.clear();
+    }
+
+    private onConfigurationChanged(event: vscode.ConfigurationChangeEvent): void {
+        const affects = (setting: string) => event.affectsConfiguration(`ceedlingExplorer.${setting}`, this.workspaceFolder.uri);
+        if (affects('problemMatching') && this.engine.getConfiguration().get<string>('problemMatching.mode', 'disabled') === 'disabled') {
+            this.logger.debug(`onConfigurationChanged: problem matching disabled, clearing diagnostics`);
+            this.engine.problemMatcher.clear();
+        }
+        const changed = DISCOVERY_SETTINGS.filter(affects);
+        if (changed.length > 0) {
+            this.logger.debug(`onConfigurationChanged: ${changed.join(', ')} changed, refreshing`);
+            this.refresh();
+        }
+    }
+
 
     private async runTask(name: string, task: (token: vscode.CancellationToken) => Promise<boolean>): Promise<void> {
         this.logger.trace(`${name.toLowerCase()}()`);
@@ -110,10 +143,21 @@ export class CeedlingTestController {
         }
     }
 
-    private async refresh(): Promise<void> {
-        this.logger.trace(`refresh()`);
+    private refresh(): Promise<void> {
+        return this.discovery.run().catch((e) => this.logger.error(`refresh: ${util.format(e)}`));
+    }
+
+    // A folder without a Ceedling project loses its TestController. One whose discovery fails
+    // keeps it, emptied, until the next discovery.
+    private async discover(): Promise<void> {
+        this.logger.trace(`discover()`);
         try {
             this.projects = await this.engine.discover();
+            if (this.projects.length > 0) {
+                this.ensureController();
+            } else {
+                this.disposeController();
+            }
         } catch (e) {
             const message = e instanceof CeedlingLoadError ? e.message : `Failed to load Ceedling project: ${util.format(e)}`;
             this.logger.error(message);
@@ -121,11 +165,97 @@ export class CeedlingTestController {
             this.projects = [];
         }
         this.rebuildTree();
-        this.watchFilesForReload(this.engine.getYmlProjectPaths());
+        this.updateWatchers();
+    }
+
+    // Configuration files rediscover everything. A C source change in a project directory
+    // reparses that test file alone. A test file appearing or disappearing rediscovers, since only
+    // `ceedling files:test` knows the full list.
+    private updateWatchers(): void {
+        const configurationFiles = new Set(this.engine.configurationFiles());
+        const projectDirectories = new Set(this.projects.map((p) => this.engine.getProjectAbsPath(p.projectKey)));
+        this.syncWatchers(this.configurationWatchers, configurationFiles,
+            (file) => new vscode.RelativePattern(vscode.Uri.file(path.dirname(file)), path.basename(file)),
+            (watcher, file) => {
+                const changed = () => {
+                    this.logger.debug(`watcher: '${file}' changed, refreshing`);
+                    this.refresh();
+                };
+                return [watcher.onDidCreate(changed), watcher.onDidChange(changed), watcher.onDidDelete(changed)];
+            });
+        this.syncWatchers(this.sourceWatchers, projectDirectories,
+            (directory) => new vscode.RelativePattern(vscode.Uri.file(directory), '**/*.c'),
+            (watcher) => [
+                watcher.onDidChange((uri) => this.reparse(uri.fsPath)),
+                watcher.onDidCreate((uri) => {
+                    if (this.engine.mayBeTestFile(uri.fsPath)) this.refresh();
+                }),
+                watcher.onDidDelete((uri) => {
+                    if (this.engine.testFileAt(uri.fsPath)) this.refresh();
+                }),
+            ]);
+    }
+
+    private syncWatchers(
+        watchers: Map<string, vscode.Disposable>, wanted: Set<string>,
+        pattern: (key: string) => vscode.RelativePattern,
+        listen: (watcher: vscode.FileSystemWatcher, key: string) => vscode.Disposable[],
+    ): void {
+        for (const [key, watcher] of watchers) {
+            if (!wanted.has(key)) {
+                watcher.dispose();
+                watchers.delete(key);
+            }
+        }
+        for (const key of wanted) {
+            if (!watchers.has(key)) {
+                const watcher = vscode.workspace.createFileSystemWatcher(pattern(key));
+                watchers.set(key, vscode.Disposable.from(watcher, ...listen(watcher, key)));
+            }
+        }
+    }
+
+    // Reparses an edited test file once typing pauses, from its unsaved contents.
+    private scheduleReparse(document: vscode.TextDocument): void {
+        const file = document.uri.fsPath;
+        if (document.uri.scheme !== 'file' || !this.engine.testFileAt(file)) {
+            return;
+        }
+        clearTimeout(this.pendingReparses.get(file));
+        this.pendingReparses.set(file, setTimeout(() => {
+            this.pendingReparses.delete(file);
+            this.reparse(file, document.getText());
+        }, EDIT_REPARSE_DELAY_MS));
+    }
+
+    // Replaces one test file's functions and cases in the tree, without running Ceedling.
+    private async reparse(absPath: string, source?: string): Promise<void> {
+        const found = this.engine.testFileAt(absPath);
+        const file = found && await this.engine.rediscoverFile(found.projectKey, found.fileId, source);
+        const projectItems = found && this.items.get(found.projectKey);
+        const fileItem = file && projectItems?.get(file.id);
+        if (!found || !file || !projectItems || !fileItem) {
+            return;
+        }
+        const project = this.projects.find((p) => p.projectKey === found.projectKey);
+        if (project) {
+            project.files = project.files.map((f) => f.id === file.id ? file : f);
+        }
+        for (const id of [...projectItems.keys()]) {
+            if (id.startsWith(`${file.id}::`)) projectItems.delete(id);
+        }
+        const uri = vscode.Uri.file(file.absPath);
+        fileItem.label = file.label;
+        fileItem.children.replace(file.functions.map((fn) => this.buildFunctionItem(found.projectKey, file, fn, uri, projectItems)));
+        this.logger.trace(`reparse: '${absPath}' -> ${file.functions.length} function(s)`);
     }
 
     private rebuildTree(): void {
         this.items.clear();
+        const controller = this.controller;
+        if (!controller) {
+            return;
+        }
         const multiProject = this.projects.length > 1;
         const rootItems: vscode.TestItem[] = [];
         for (const project of this.projects) {
@@ -133,7 +263,7 @@ export class CeedlingTestController {
             this.items.set(project.projectKey, projectItems);
             const fileItems = project.files.map((file) => this.buildFileItem(project.projectKey, file, projectItems));
             if (multiProject) {
-                const projectItem = this.controller.createTestItem(project.projectKey, project.label);
+                const projectItem = controller.createTestItem(project.projectKey, project.label);
                 projectItem.children.replace(fileItems);
                 this.targets.set(projectItem, { kind: 'project', projectKey: project.projectKey });
                 rootItems.push(projectItem);
@@ -141,13 +271,13 @@ export class CeedlingTestController {
                 rootItems.push(...fileItems);
             }
         }
-        this.controller.items.replace(rootItems);
+        controller.items.replace(rootItems);
         this.logger.debug(`rebuildTree: ${this.projects.length} project(s)`);
     }
 
     private buildFileItem(projectKey: string, file: CeedlingFileNode, projectItems: Map<string, vscode.TestItem>): vscode.TestItem {
         const uri = vscode.Uri.file(file.absPath);
-        const fileItem = this.controller.createTestItem(file.id, file.label, uri);
+        const fileItem = this.controller!.createTestItem(file.id, file.label, uri);
         this.targets.set(fileItem, { kind: 'file', projectKey, fileId: file.id });
         projectItems.set(file.id, fileItem);
         fileItem.children.replace(file.functions.map((fn) => this.buildFunctionItem(projectKey, file, fn, uri, projectItems)));
@@ -157,30 +287,18 @@ export class CeedlingTestController {
     private buildFunctionItem(
         projectKey: string, file: CeedlingFileNode, fn: CeedlingTestFunction, uri: vscode.Uri, projectItems: Map<string, vscode.TestItem>,
     ): vscode.TestItem {
-        const item = this.controller.createTestItem(fn.id, fn.label, uri);
+        const item = this.controller!.createTestItem(fn.id, fn.label, uri);
         item.range = new vscode.Range(fn.line, 0, fn.line, 0);
         this.targets.set(item, { kind: 'function', projectKey, fileId: file.id, functionId: fn.id });
         projectItems.set(fn.id, item);
         item.children.replace(fn.cases.map((testCase) => {
-            const caseItem = this.controller.createTestItem(testCase.id, testCase.label, uri);
+            const caseItem = this.controller!.createTestItem(testCase.id, testCase.label, uri);
             caseItem.range = new vscode.Range(testCase.line, 0, testCase.line, 0);
             this.targets.set(caseItem, { kind: 'case', projectKey, fileId: file.id, functionId: fn.id, caseId: testCase.id });
             projectItems.set(testCase.id, caseItem);
             return caseItem;
         }));
         return item;
-    }
-
-    private watchFilesForReload(files: string[]): void {
-        for (const file of files) {
-            if (!this.watchedReloadFiles.has(file)) {
-                this.watchedReloadFiles.add(file);
-                fs.watchFile(file, () => {
-                    this.logger.debug(`watchFilesForReload: '${file}' changed, refreshing`);
-                    this.refresh();
-                });
-            }
-        }
     }
 
     private planFor(request: vscode.TestRunRequest): RunPlanEntry[] {
@@ -276,7 +394,7 @@ export class CeedlingTestController {
 
     // Cancellation reaches Ceedling through `token`, which stops only this run's processes.
     private async handleRun(request: vscode.TestRunRequest, token: vscode.CancellationToken): Promise<void> {
-        const run = this.controller.createTestRun(request);
+        const run = this.ensureController().createTestRun(request);
         try {
             const plan = this.planFor(request);
             const excluded = this.excludedItems(request);
@@ -306,7 +424,7 @@ export class CeedlingTestController {
     // naming several files debugs the first and says so. The build also runs the file's tests,
     // whose real results are reported before the debugger starts.
     private async handleDebug(request: vscode.TestRunRequest, token: vscode.CancellationToken): Promise<void> {
-        const run = this.controller.createTestRun(request);
+        const run = this.ensureController().createTestRun(request);
         const listeners: vscode.Disposable[] = [];
         try {
             const plan = this.planFor(request);
