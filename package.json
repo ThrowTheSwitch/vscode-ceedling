@@ -93,13 +93,13 @@
       "title": "Ceedling project configuration",
       "properties": {
         "ceedlingExplorer.projects": {
-          "description": "Path to the Ceedling project directories or yml files if not 'project.yml'",
+          "description": "Path to the Ceedling project directories or yml files if not 'project.yml' (or 'ceedling.yml' with Ceedling 1.2.0 and later)",
           "type": "array",
           "items": {
             "type": "object",
             "properties": {
               "path": {
-                "description": "Path to the Ceedling project directory or yml file",
+                "description": "Path to the Ceedling project directory (holding project.yml, or ceedling.yml with Ceedling 1.2.0 and later) or yml file",
                 "type": "string"
               },
               "debugLaunchConfig": {

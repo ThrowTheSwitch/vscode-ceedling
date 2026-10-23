@@ -14,6 +14,8 @@ The `report_tests_log_factory` plugin’s `cppunit` report, which the Testing vi
 
 Test discovery now follows Ceedling’s own test runner exactly. Every test name, and every parametrized case name, matches what Ceedling reports. A test declared with a space before its parameter list, or with its body on one line, previously stayed skipped even when it passed ([#14](https://github.com/ThrowTheSwitch/vscode-ceedling/issues/14)). Commented-out tests no longer appear. Unity’s `TEST_MATRIX()` and exclusive `TEST_RANGE(<start, end, step>)` cases now appear individually.
 
+Ceedling 1.2.0 is supported. Projects may use `ceedling.yml`, same-named test files in different directories each work, and configuration is read directly from Ceedling’s output. Every run reruns its tests, because 1.2.0’s cached results don’t account for running a single test.
+
 Running, cancelling, and debugging tests are more dependable. A test whose result never arrives now shows an error explaining why, instead of quietly ending as skipped. Cancelling a run marks its tests skipped and stops only that run. Debugging reports the test file’s real results. Several races between runs, debug builds, _Clean_, _Clobber_, and edits to `project.yml` are gone.
 
 `:unity: :test_prefix:` was never a real Ceedling setting — a misunderstanding inherited from the original extension — and is no longer read. If you want to change the recognized prefix of test-case functions, set `:test_runner: :test_prefix:`, which Ceedling actually supports.

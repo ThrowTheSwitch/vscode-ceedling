@@ -37,7 +37,7 @@ Requires VS Code 1.71.0 or later.
 
 ## Ceedling
 
-Requires Ceedling 1.0.0 or later. Ceedling 1.0.0 and 1.1.0 are both supported.
+Requires Ceedling 1.0.0 or later. Ceedling 1.0.0 through 1.2.0 are supported.
 
 _[Ceedling documentation](https://throwtheswitch.github.io/Ceedling/latest/)_
 
@@ -81,13 +81,13 @@ This table of options should be read as `ceedlingExplorer.<property>`.
 | `.shellPath` | The path to the shell where Ceedling is installed. By default (or if this option is set to `null`), it uses the OS default shell. |
 | `.prettyTestLabel` | Shortens the test label in the _Testing_ explorer by dropping its leading prefix (e.g. inactive `test_BlinkTaskShouldToggleLed` vs. active `BlinkTaskShouldToggleLed`).<br><br>Inactive:<br><img src="img/prettyTestLabelInactive.png" alt="prettyTestLabelInactive" width="420"><br><br> Active:<br><img src="img/prettyTestLabelActive.png" alt="prettyTestLabelActive" width="420">|
 | `.prettyTestFileLabel` | Shortens the test file label in the _Testing_ explorer by dropping its path, leading prefix, and file type (e.g. inactive `test/LEDs/test_BlinkTask.c` vs. active `BlinkTask`).<br><br>Inactive:<br><img src="img/prettyTestFileLabelInactive.png" alt="prettyTestFileLabelInactive" width="320"><br><br> Active:<br><img src="img/prettyTestFileLabelActive.png" alt="prettyTestFileLabelActive" width="320"> |
-| `.testCommandArgs` | The command line arguments used to run Ceedling tests. The first argument has to literally contain the `${TEST_ID}` tag. The value `["test:${TEST_ID}"]` is used by default. For example, the arguments `"test:${TEST_ID}", "gcov:${TEST_ID}", "utils:gcov"` can be used to run tests and generate a gcov report. |
+| `.testCommandArgs` | The command line arguments used to run Ceedling tests. The first argument has to literally contain the `${TEST_ID}` tag, which becomes the test file to run. With Ceedling 1.2.0 and later it is the file’s project-relative path (e.g. `test/unit/test_foo.c`), which tells same-named test files apart. With earlier versions it is the file’s name alone. The value `["test:${TEST_ID}"]` is used by default. For example, the arguments `"test:${TEST_ID}", "gcov:${TEST_ID}", "utils:gcov"` can be used to run tests and generate a gcov report. |
 | `.problemMatching` | Configuration of compiler/linker problem matching. See the [Problem matching](#problem%20matching) section for details. |
 | `.ansiEscapeSequencesRemoved` | Whether ANSI escape sequences are removed from Ceedling `$stdout` and `$stderr`. By default it is `true`. |
 
 ### `ceedlingExplorer.projects` properties
 
-- `path`: can point either to a directory containing a "project.yml" file or directly to another .yml file (with the respective project.yml in the same directory). This path should be relative to the workspace root directory.
+- `path`: can point either to a directory containing a `project.yml` file or directly to another .yml file (with the respective `project.yml` in the same directory). With Ceedling 1.2.0 and later, `ceedling.yml` works in place of `project.yml`; a directory may not hold both. This path should be relative to the workspace root directory.
 - `debugLaunchConfig`: must be the *name* property of the launch config (launch.json) that is used for this project. The `${command:ceedlingExplorer.debugTestExecutable}` must still be used.
 - `name` (optional): used as the name for the folder containing the tests in the test explorer.
 - `mixins` (optional): this project’s own [mixins](#mixins), lowest to highest priority. When omitted entirely, `ceedlingExplorer.mixins` is used instead; set to `[]` explicitly to opt this project out of that workspace-wide list rather than falling back to it.
