@@ -34,7 +34,7 @@ suite('getPatternsPreset', () => {
 suite('gcc preset against real compile-failure output', () => {
     for (const version of ['ceedling-1.0.0', 'ceedling-1.1.0']) {
         test(`${version}: finds the compiler error, with no duplicate or false match`, () => {
-            const stderr = readFixture(version, 'compile-failure-stdout.txt');
+            const stderr = readFixture(version, 'compile-failure-stderr.txt');
             const problems = getGccPatternsPreset().flatMap((pattern) => getPatternProblems('', stderr, PROJECT_PATH, pattern));
 
             assert.strictEqual(problems.length, 1, 'expected exactly one match across all three patterns');
@@ -46,6 +46,22 @@ suite('gcc preset against real compile-failure output', () => {
             assert.match(problem.message, /expected .;. before .}. token/);
         });
     }
+});
+
+// A missing header is GCC's "fatal error", not "error". Ceedling 1.0.0 passes it through as is.
+// Ceedling 1.2.0 instead reports its own exception, naming no file or line, before compiling.
+suite('gcc preset against a real missing-header failure', () => {
+    test('ceedling-1.0.0: finds the fatal error at its own file and line, once', () => {
+        const stderr = readFixture('ceedling-1.0.0', 'compile-missing-header-stderr.txt');
+        const problems = getGccPatternsPreset().flatMap((pattern) => getPatternProblems('', stderr, PROJECT_PATH, pattern));
+        assert.strictEqual(problems.length, 1, 'expected exactly one match across all three patterns');
+        const [problem] = problems;
+        assert.strictEqual(problem.file, path.join(PROJECT_PATH, 'test/test_missing.c'));
+        assert.strictEqual(problem.severity, 'error');
+        assert.strictEqual(problem.startLine, 1);
+        assert.strictEqual(problem.startColumn, 9);
+        assert.strictEqual(problem.message, 'missing_header.h: No such file or directory');
+    });
 });
 
 suite('gcc preset against real linker-failure output', () => {

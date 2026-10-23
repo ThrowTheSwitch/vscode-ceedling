@@ -69,9 +69,11 @@ export function normalizePatterns(patterns: ProblemMatchingPattern[]): { valid: 
     return { valid, invalid };
 }
 
-// The built-in "gcc" mode: GCC/Clang warnings and errors, plus a catch-all for a linker error -
-// neither GCC nor Clang tag a linker error with "warning:"/"error:"/"note:", so it needs its own
-// pattern.
+// The built-in "gcc" mode: GCC/Clang warnings and errors, plus a catch-all for a linker error.
+// Neither GCC nor Clang tags a linker error with "warning:"/"error:"/"note:", so it needs its own
+// pattern. GCC reports a missing header as "fatal error:", which the error pattern accepts and the
+// catch-all excludes. Otherwise the catch-all's greedy file group reads `file.c:2:10:` as file
+// `file.c:2`, line 10.
 //
 // The catch-all's optional `(?:\([^)]*\):)?` segment exists for GNU ld's "undefined reference"
 // line. Confirmed against two real ld versions: an older one prints
@@ -99,7 +101,7 @@ export function getGccPatternsPreset(): ProblemMatchingPattern[] {
             scanStderr: true,
             severity: 'error',
             filePrefix: '${projectPath}',
-            regexp: '^(.*):(\\d+):(\\d+):\\s+error:\\s+(.*)$',
+            regexp: '^(.*):(\\d+):(\\d+):\\s+(?:fatal\\s+)?error:\\s+(.*)$',
             message: 4,
             file: 1,
             line: 2,
@@ -112,7 +114,7 @@ export function getGccPatternsPreset(): ProblemMatchingPattern[] {
             scanStderr: true,
             severity: 'error',
             filePrefix: '',
-            regexp: '^(.*):(\\d+):(?:\\([^)]*\\):)?\\s+(?!(warning:|error:|note:))(.*)$',
+            regexp: '^(.*):(\\d+):(?:\\([^)]*\\):)?\\s+(?!(warning:|error:|note:|fatal error:))(.*)$',
             message: 4,
             file: 1,
             line: 2,
