@@ -9,6 +9,7 @@ This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 ## ⚠️ Changed
 
 * Project configuration is now resolved with Ceedling’s own `ceedling dumpconfig` instead of the extension parsing and merging `project.yml` (and any mixin) itself. This reflects Ceedling’s actual merge — plugin defaults included — rather than a parallel one the extension maintained on its own.
+* Discovery checks the Ceedling version in each project’s own directory, so a project’s `:project` ↳ `:which_ceedling` is respected. It no longer runs `ceedling summary`.
 * Dropped erroneous recognition of `:unity` ↳ `:test_prefix` from project configuration processing and the Unity compilation define sniffing that was used to select it. These were never real Ceedling options; the only supported way to change the test-case function prefix is `:test_runner` ↳ `:test_prefix`, which this extension continues to support unchanged.
 
 ## 🌟 Added
@@ -21,6 +22,17 @@ This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 ## 💪 Fixed
 
 * A test declared with whitespace before its parameter list, such as `void test_example (void)`, no longer stays skipped after it passes. Test discovery names each test, and each padded `TEST_CASE( … )`, exactly as Ceedling’s test runner does ([#14](https://github.com/ThrowTheSwitch/vscode-ceedling/issues/14)).
+* A test whose result never arrives now shows an error saying so, instead of silently ending as skipped. The error names the likely cause: the extension and Ceedling disagree about the test’s name.
+* Cancelling a run now marks its tests skipped instead of errored, and stops only that run’s Ceedling process. _Clean_ and _Clobber_ now wait for a run in progress instead of deleting its build.
+* Debugging a test now reports the file’s real results instead of marking it passed when the debug session ends. A debug build no longer races a concurrent run for the shared test report.
+* A failed build no longer reports results from an older run’s leftover test report.
+* Saving `project.yml` while tests run no longer makes the rest of that run lose its project configuration.
+* A failure Ceedling reports without a source location, or a very large test output, no longer aborts the whole run.
+* Compiler problems in the _Problems_ panel no longer go stale when whole-project and single-file runs alternate.
+* Two projects in one folder with the same test file path no longer mix up their results.
+* Tests excluded from a run, such as hidden tests, are no longer reported.
+* Ceedling 1.0.0’s encoding crash on non-ASCII source is now prevented on every platform, including macOS. The extension no longer overrides your locale to do so.
+* When Ceedling can’t run at all, the error now says so and points to `ceedlingExplorer.shellPath`, instead of reporting an unsupported “version 0.0.0”.
 * Test discovery now follows Ceedling’s own test runner rules. Tests inside comments no longer appear in the _Testing_ view. Floating-point `TEST_RANGE()` cases carry the same names Ceedling reports. Parametrized cases appear only when `:unity` ↳ `:use_param_tests` is enabled.
 
 ## 👋 Removed
