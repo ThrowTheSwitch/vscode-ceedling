@@ -13,6 +13,8 @@ This document is the terse, itemized record of what changed in each release. Its
 * `:unity` ↳ `:test_prefix` is no longer read, nor the Unity compilation defines once sniffed to select it. Neither was ever a real Ceedling option. `:test_runner` ↳ `:test_prefix` remains the way to change the test function prefix.
 * A workspace folder without a Ceedling project no longer adds an empty _Ceedling_ entry to the _Testing_ view. With several workspace folders, each entry names its folder.
 * Discovery checks the Ceedling version in each project’s own directory, so a project’s `:project` ↳ `:which_ceedling` is respected. It no longer runs `ceedling summary`.
+* Discovery is faster in workspaces with several project directories or many test files. Projects in different directories load at the same time, and test files are read in parallel. Reading files no longer blocks VS Code’s extension host.
+* Ceedling commands in different project directories may now run at the same time, e.g. a run in one project while another rediscovers. Commands within one project directory still run one at a time.
 
 ## 🌟 Added
 
@@ -27,6 +29,7 @@ This document is the terse, itemized record of what changed in each release. Its
 * Unity’s `TEST_MATRIX()` parametrized tests and exclusive `TEST_RANGE(<start, end, step>)` ranges now appear in the _Testing_ view as individual test cases.
 * New `ceedlingExplorer.ceedlingCommand` setting for running Ceedling through another command, e.g. `bundle exec ceedling`.
 * A one-time warning when `project.yml` or a configured mixin sets a non-default CppUnit report filename, naming the project and the filename.
+* A warning in the _Ceedling Explorer_ log for a `TEST_RANGE()` with no `[start, end, step]` or `<start, end, step>` range, or a `TEST_MATRIX()` with no `[ … ]` list. Ceedling can’t build such a test.
 
 ## 💪 Fixed
 
