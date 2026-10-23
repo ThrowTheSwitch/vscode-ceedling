@@ -80,7 +80,7 @@ Two Ceedling constraints shape everything else. Ceedling always compiles a whole
 1. `projectsFromSettings()` turns `ceedlingExplorer.projects` and `ceedlingExplorer.mixins` into `CeedlingProject`s: key, absolute path, project file, launch configuration name, and mixins. Projects whose project file exists become the engine’s `candidates`.
 2. For each candidate, `checkCeedlingVersion()` runs `ceedling version` in the project directory and requires 1.0.0 or later. `semver.coerce()` reads a build suffix such as `1.2.0-13a540f` as its release.
 3. `resolveConfig()` runs `ceedling dumpconfig` with the project’s flags and parses the YAML. Ceedling 1.2.0 writes it to stdout (`--stdout`). Earlier versions write it to a uniquely named temporary file, which is then removed. `projectState()` reads the `ProjectState` from it: `buildRoot`, `reportFilename`, `testPrefix`, `testFilePrefix`, `executableExtension`, `useParamTests`, and `reportPluginEnabled`.
-4. `listTestFiles()` runs `ceedling files:test` and parses its bullets with `parseFileListBullets()`.
+4. `listTestFiles()` runs `ceedling files:test` and parses its bullets with `parseFileListBullets()`. A failed listing fails discovery, naming each project whose listing failed.
 5. `testFileNodes()` reads each file and calls `discoverTests(source, { testPrefix, useParamTests })`. A function’s id is `file::name`, and a case’s is `file::name(args)`, exactly the names in Ceedling’s report.
 
 Discovery overlaps the work it safely can, since every Ceedling start costs a Ruby startup. Steps 2 through 4 run concurrently across project directories and one project at a time within a directory (`mapGrouped()`). Outcomes apply in settings order, so errors read the same however the work interleaves. Test sources are read concurrently, within one limit of 16 open reads shared by every discovery and reparse (`Limiter`), and parsed in listed order.
@@ -113,7 +113,7 @@ Diagnostics are keyed by run scope: the project key for a project run, `projectK
 
 ### Debugging
 
-`handleDebug()` debugs one test file. `compileForDebug()` runs the file exactly as a run does and reports its real results. It then returns the executable’s path relative to Ceedling’s test output directory, `name/name<executableExtension>`. `resolveLaunchConfig()` in `debugLaunch.ts` splices that path into every `${command:ceedlingExplorer.debugTestExecutable}` in a copy of the named launch configuration. A unique `__ceedlingDebugRequest` value in that configuration identifies its debug session among any others.
+`handleDebug()` debugs one test file. `compileForDebug()` runs the file exactly as a run does and reports its real results. It then returns the executable’s path relative to Ceedling’s test output directory. Before 1.2.0 that is `name/name<executableExtension>`. Ceedling 1.2.0 nests it under the test file’s directory within its test path, e.g. `unit/name/name<executableExtension>` for `test/unit/name.c`. That test path isn’t known, so `executableSubpath()` tries each trailing part of the file’s directory and takes the newest build. `resolveLaunchConfig()` in `debugLaunch.ts` splices that path into every `${command:ceedlingExplorer.debugTestExecutable}` in a copy of the named launch configuration. A unique `__ceedlingDebugRequest` value in that configuration identifies its debug session among any others.
 
 ### Test seams
 
@@ -126,6 +126,15 @@ Diagnostics are keyed by run scope: the project key for a project run, `projectK
 - `platform` and `tmpdir` default to the host’s.
 
 [`tests/unit/ceedlingEngine.test.ts`](../tests/unit/ceedlingEngine.test.ts) drives the engine against `FakeCeedling`, a simulated Ceedling with an in-memory filesystem. Golden fixtures captured from real Ceedling releases pin discovery and report parsing. See [`tests/fixtures/README.md`](../tests/fixtures/README.md).
+
+The integration tests run the built extension in a real VS Code, on two workspace folders. One has no Ceedling project. The other is a temporary copy of [`tests/fixtures/workspace-fake-ceedling`](../tests/fixtures/workspace-fake-ceedling), whose `ceedlingExplorer.ceedlingCommand` runs a fake Ceedling: a Node script that answers each command from the project’s scenario file. The tests then cover the wiring that unit tests can’t:
+- the tree built from discovery;
+- results and failure locations in the Testing view;
+- compiler errors in the Problems panel;
+- cancellation;
+- watchers and unsaved edits.
+
+On Windows they also run the engine with Windows paths. VS Code’s API can’t read another extension’s TestItems or run results, so `activate()` returns a small handle for the tests, `CeedlingExplorerApi`. See [`tests/integration/main.ts`](../tests/integration/main.ts).
 
 ## 3. Running the Extension Locally
 
@@ -301,7 +310,7 @@ There are two modes.
 | `just package` | Produces a `.vsix` |
 | `just publish` | Publishes to the Marketplace. Requires `VSCE_PAT` |
 | `just shell` | Opens an interactive container session |
-| `just clean` | Removes build output |
+| `just clean` | Removes build output, the test build, and coverage reports |
 
 ---
 

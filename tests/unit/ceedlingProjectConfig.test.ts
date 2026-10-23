@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import yaml from 'js-yaml';
 import * as path from 'path';
-import { capabilitiesOf, CeedlingLoadError, projectState, projectsFromSettings } from '../../src/ceedlingProjectConfig';
+import { capabilitiesOf, CeedlingLoadError, pathKey, projectState, projectsFromSettings } from '../../src/ceedlingProjectConfig';
 
 const fixturesRoot = path.resolve(__dirname, '..', '..', '..', 'tests', 'fixtures');
 
@@ -85,6 +85,11 @@ suite('projectsFromSettings', () => {
     test('on Windows the workspace drive letter is uppercased', async () => {
         const [project] = await projectsFromSettings({ projects: [], mixins: [] }, 'c:\\ws', 'win32', anyDirectory, noFiles);
         assert.match(project.absPath, /^C:/);
+    });
+
+    test('on Windows an absolute project path gets an uppercase drive letter too', async () => {
+        const [project] = await projectsFromSettings({ projects: [{ path: 'c:\\ws\\fw', debugLaunchConfig: 'dbg' }], mixins: [] }, 'c:\\ws', 'win32', anyDirectory, noFiles);
+        assert.strictEqual(project.absPath, 'C:\\ws\\fw');
     });
 
     test('the settings objects are not modified', async () => {
@@ -211,5 +216,16 @@ suite('projectState', () => {
         assert.strictEqual(state.reportFilename, 'cppunit_tests_report.xml');
         assert.strictEqual(state.buildRoot, 'build');
         assert.strictEqual(state.useParamTests, true);
+    });
+});
+
+// Two spellings of one Windows directory must share a lock, or their builds could overlap.
+suite('pathKey', () => {
+    test('on Windows, spellings of one path differing only in case share a key', () => {
+        assert.strictEqual(pathKey('C:\\Work\\FW', 'win32'), pathKey('c:\\work\\fw', 'win32'));
+    });
+
+    test('elsewhere, case distinguishes paths', () => {
+        assert.notStrictEqual(pathKey('/work/FW', 'linux'), pathKey('/work/fw', 'linux'));
     });
 });

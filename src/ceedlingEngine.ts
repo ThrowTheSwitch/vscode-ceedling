@@ -36,6 +36,7 @@ import {
     type CeedlingProject,
     DEFAULT_CPPUNIT_REPORT_FILENAME,
     DEFAULT_PROJECT_FILE,
+    pathKey,
     type ProjectSetting,
     type ProjectState,
     projectState,
@@ -196,11 +197,12 @@ export class CeedlingEngine {
                 .map((file) => this.paths.resolve(project.absPath, file))))];
     }
 
-    // The discovered test file at an absolute path, if any.
+    // The discovered test file at an absolute path, if any. VS Code's paths may differ in case from
+    // discovered ones on Windows, e.g. in the drive letter.
     testFileAt(absPath: string): { projectKey: string, fileId: string } | undefined {
-        const target = this.paths.resolve(absPath);
+        const target = pathKey(this.paths.resolve(absPath), this.platform);
         for (const project of this.projects.values()) {
-            const file = project.files.find((f) => this.paths.resolve(f.absPath) === target);
+            const file = project.files.find((f) => pathKey(this.paths.resolve(f.absPath), this.platform) === target);
             if (file) {
                 return { projectKey: project.key, fileId: file.id };
             }
@@ -252,7 +254,7 @@ export class CeedlingEngine {
 
         // Projects load concurrently across directories, one at a time within a directory. Outcomes
         // apply in settings order, so errors read the same however the loads interleave.
-        const outcomes = await mapGrouped(this.candidates, (project) => project.absPath, (project) => this.loadProject(project));
+        const outcomes = await mapGrouped(this.candidates, (project) => this.directoryOf(project), (project) => this.loadProject(project));
         const loaded = new Map<string, LoadedProject>();
         const errors: string[] = [];
         for (const outcome of outcomes) {
@@ -270,11 +272,19 @@ export class CeedlingEngine {
             throw new CeedlingLoadError(errors.join('\n'));
         }
 
-        // Listing runs Ceedling in each project directory, under its lock. Reading and parsing
-        // sources needs no lock.
+        // Listing runs Ceedling in each project directory, under its lock. A failed listing fails
+        // discovery, rather than showing a project with no tests. Reading and parsing sources needs
+        // no lock.
         const projects = [...loaded.values()];
-        const listings = await mapGrouped(projects, (project) => project.absPath,
+        const listings = await mapGrouped(projects, (project) => this.directoryOf(project),
             (project) => this.inDirectory(project, () => this.listTestFiles(project)));
+        const unlisted = projects.filter((_, i) => listings[i] === undefined);
+        if (unlisted.length > 0) {
+            throw new CeedlingLoadError(unlisted.map((project) =>
+                `Failed to list the test files of Ceedling project '${project.key}' with 'ceedling files:test'. ` +
+                `Check that Ceedling runs in the configured shell (ceedlingExplorer.shellPath), and that the project's ` +
+                `:paths: ↳ :test: entries are valid. The Ceedling Explorer log has Ceedling's output.`).join('\n'));
+        }
         const labels = this.prettyLabels();
         await Promise.all(projects.map(async (project, i) => {
             project.files = await this.testFileNodes(project, listings[i] ?? [], labels);
@@ -342,7 +352,7 @@ export class CeedlingEngine {
         });
     }
 
-    // True when the command succeeded in every project.
+    // False when the command failed in some project. A cancelled command is no failure.
     clean(token?: Cancellation): Promise<boolean> {
         return this.runInEveryProject(['clean'], token);
     }
@@ -376,8 +386,13 @@ export class CeedlingEngine {
         return project;
     }
 
+    // The key a project's directory groups and locks its work under.
+    private directoryOf(project: CeedlingProject): string {
+        return pathKey(project.absPath, this.platform);
+    }
+
     private inDirectory<T>(project: CeedlingProject, work: () => Promise<T>): Promise<T> {
-        return this.directoryLocks.run(project.absPath, work);
+        return this.directoryLocks.run(this.directoryOf(project), work);
     }
 
     // Checks one project's Ceedling and resolves its configuration. An unusable Ceedling stops all
@@ -489,12 +504,12 @@ export class CeedlingEngine {
         );
     }
 
-    // Callers hold the build lock.
-    private async listTestFiles(project: CeedlingProject): Promise<string[]> {
+    // Callers hold the project directory's lock. undefined when Ceedling failed, with its output logged.
+    private async listTestFiles(project: CeedlingProject): Promise<string[] | undefined> {
         const result = await this.ceedling(['files:test'], { project });
         if (result.error) {
             this.logger.error(`listTestFiles(${project.key}): 'ceedling files:test' failed: ${util.format(result)}`);
-            return [];
+            return undefined;
         }
         return parseFileListBullets(result.stdout);
     }
@@ -717,9 +732,9 @@ export class CeedlingEngine {
     }
 
     private async runInEveryProject(args: string[], token?: Cancellation): Promise<boolean> {
-        const results = await mapGrouped(this.candidates, (project) => project.absPath,
+        const results = await mapGrouped(this.candidates, (project) => this.directoryOf(project),
             (project) => this.inDirectory(project, () => this.ceedling(args, { project, cancellation: token })));
-        return results.every((result) => !result.error);
+        return results.every((result) => !result.error || result.cancelled);
     }
 
     // `${TEST_ID}` in each configured argument becomes the test file: its project-relative path

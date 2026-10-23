@@ -44,10 +44,13 @@ This document is the terse, itemized record of what changed in each release. Its
 * A failure Ceedling reports without a source location, or a very large test output, no longer aborts the whole run.
 * A missing header now appears in the _Problems_ panel at its `#include` line. GCC reports it as a “fatal error”, which problem matching misread as a different file and line.
 * Compiler problems in the _Problems_ panel no longer go stale when whole-project and single-file runs alternate.
+* A compiler warning GCC places at line 0, such as a redefined command-line macro (`<command-line>:0:0`), no longer drops the other problems that run found from the _Problems_ panel.
+* Running one function whose test cases have `::` in their arguments, such as `TEST_CASE("a::b")`, no longer reruns the whole file with a warning about an unrelated test.
 * Two projects in one folder with the same test file path no longer mix up their results.
 * Tests excluded from a run, such as hidden tests, are no longer reported.
 * Ceedling 1.0.0’s encoding crash on non-ASCII source is now prevented on every platform, including macOS. The extension no longer overrides your locale to do so.
 * When Ceedling can’t run at all, the error now says so and points to `ceedlingExplorer.shellPath`, instead of reporting an unsupported “version 0.0.0”.
+* When Ceedling can’t list a project’s test files, an error now names the project and the settings to check, instead of the project silently showing no tests.
 * Changing `ceedlingExplorer.mixins`, `ceedlingExplorer.shellPath`, or `ceedlingExplorer.ceedlingCommand` now rediscovers tests. Changing problem-matching settings no longer clears the _Problems_ panel unless problem matching is turned off.
 * Pretty file labels now apply to test files at a project’s root and on Windows-style paths.
 * Routine errors no longer pull the _Ceedling Explorer_ log into view and take focus.

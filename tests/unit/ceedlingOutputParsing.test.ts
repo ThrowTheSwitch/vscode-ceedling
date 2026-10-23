@@ -110,6 +110,11 @@ suite('extractTestFunctionName', () => {
         );
     });
 
+    // C identifiers can't contain `::`, but a case's arguments, such as a string, can.
+    test("a `::` inside a case's arguments is not the file separator", () => {
+        assert.strictEqual(extractTestFunctionName('test/t.c::test_s("a::b")'), 'test_s');
+    });
+
     test('handles a bare function name with no file prefix', () => {
         assert.strictEqual(extractTestFunctionName('test_add_should_ReturnSum'), 'test_add_should_ReturnSum');
     });

@@ -140,8 +140,10 @@ export function resolveDiagnosticFilePath(matchedFile: string, filePrefix: strin
     return path.join(path.normalize(filePrefix), path.normalize(matchedFile));
 }
 
-// Turns one regex match into a MatchedProblem. undefined when a configured group index is out of
-// range, or a captured line or column isn't a number.
+// Turns one regex match into a MatchedProblem, with 0-based positions. undefined when a configured
+// group index is out of range, the file or message group didn't participate, or a captured line or
+// column isn't a number. A line or column of 0, as GCC reports for `<command-line>`, places the
+// problem at the start.
 export function matchToProblem(
     matches: RegExpExecArray, file: number, message: number, severity: string, filePrefix: string,
     line: number | null, lastLine: number | null, column: number | null, lastColumn: number | null
@@ -170,15 +172,16 @@ export function matchToProblem(
         return undefined;
     }
 
-    const startLine = lineValue !== undefined ? lineValue - 1 : 0;
+    const zeroBased = (value: number | undefined, absent: number) => value !== undefined ? Math.max(0, value - 1) : absent;
+    const startLine = zeroBased(lineValue, 0);
     return {
         file: fileValue,
         message: messageValue,
         severity,
         startLine,
-        startColumn: columnValue !== undefined ? columnValue - 1 : 0,
-        endLine: lastLineValue !== undefined ? lastLineValue - 1 : startLine,
-        endColumn: lastColumnValue !== undefined ? lastColumnValue - 1 : 999,
+        startColumn: zeroBased(columnValue, 0),
+        endLine: zeroBased(lastLineValue, startLine),
+        endColumn: zeroBased(lastColumnValue, 999),
     };
 }
 
