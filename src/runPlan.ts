@@ -4,7 +4,7 @@
 // (`test:all`), a whole file, or one function in a file. It has no `vscode` dependency. The
 // controller translates TestItems into PlanTargets.
 
-import { CeedlingFileNode, CeedlingProjectNode, CeedlingTestFunction } from './testModel';
+import { type CeedlingFileNode, type CeedlingProjectNode, type CeedlingTestFunction } from './testModel';
 
 export type PlanTarget =
     | { kind: 'project', projectKey: string }
@@ -32,7 +32,7 @@ export function buildRunPlan(
     const tree = new Map(projects.map((project) => [project.projectKey, project]));
     const findFile = (projectKey: string, fileId: string) => tree.get(projectKey)?.files.find((f) => f.id === fileId);
     const selection = new Map<string, ProjectSelection>();
-    const selectProject = (projectKey: string) => getOrAdd(selection, projectKey, () => ({ whole: false, files: new Map() }));
+    const selectProject = (projectKey: string) => getOrAdd(selection, projectKey, () => ({ whole: false, files: new Map<string, FileSelection>() }));
     const selectFile = (projectKey: string, fileId: string) =>
         getOrAdd(selectProject(projectKey).files, fileId, () => ({ whole: false, functions: new Set<string>() }));
 
@@ -87,7 +87,7 @@ export function buildRunPlan(
     }
     for (const { projectKey, fileId, functionId, caseIds } of excludedCases.values()) {
         const fn = findFile(projectKey, fileId)?.functions.find((f) => f.id === functionId);
-        if (fn && fn.cases.every((c) => caseIds.has(c.id))) {
+        if (fn?.cases.every((c) => caseIds.has(c.id))) {
             excludeFunction(projectKey, fileId, functionId);
         }
     }

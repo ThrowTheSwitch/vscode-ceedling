@@ -30,34 +30,41 @@ export interface MatchedProblem {
     endColumn: number;
 }
 
-// Sanitizes patterns from settings. WorkspaceConfiguration.get<T> doesn't enforce its type, and
-// user JSON can hold anything. `valid` holds each well-shaped pattern, with defaults filled in as
+// Sanitizes patterns from settings, which arrive as untyped user JSON: WorkspaceConfiguration
+// doesn't enforce its type parameter. `valid` holds each well-shaped pattern, with defaults filled in as
 // the "gcc" preset's are. `invalid` holds the rest, for the caller to log.
-export function normalizePatterns(patterns: ProblemMatchingPattern[]): { valid: ProblemMatchingPattern[], invalid: unknown[] } {
+export function normalizePatterns(patterns: readonly unknown[]): { valid: ProblemMatchingPattern[], invalid: unknown[] } {
     const valid: ProblemMatchingPattern[] = [];
     const invalid: unknown[] = [];
 
-    for (const pattern of patterns) {
-        const wellShaped = (pattern.regexp !== undefined) && (typeof pattern.regexp === 'string') &&
-            (pattern.message !== undefined) && (typeof pattern.message === 'number') &&
-            (pattern.file !== undefined) && (typeof pattern.file === 'number');
-        if (!wellShaped) {
-            invalid.push(pattern);
+    for (const candidate of patterns) {
+        const get = (key: string): unknown =>
+            typeof candidate === 'object' && candidate !== null ? (candidate as Record<string, unknown>)[key] : undefined;
+        const regexp = get('regexp');
+        const message = get('message');
+        const file = get('file');
+        if (typeof regexp !== 'string' || typeof message !== 'number' || typeof file !== 'number') {
+            invalid.push(candidate);
             continue;
         }
+        const severity = get('severity');
+        const filePrefix = get('filePrefix');
+        const index = (key: string) => {
+            const value = get(key);
+            return typeof value === 'number' ? value : null;
+        };
         valid.push({
-            scanStdout: pattern.scanStdout === true,
-            scanStderr: pattern.scanStderr !== false,
-            severity: (pattern.severity === 'error' || pattern.severity === 'warning' || pattern.severity === 'info')
-                ? pattern.severity : 'info',
-            filePrefix: (pattern.filePrefix !== undefined && typeof pattern.filePrefix === 'string') ? pattern.filePrefix : '',
-            regexp: pattern.regexp,
-            message: pattern.message,
-            file: pattern.file,
-            line: (pattern.line !== undefined && typeof pattern.line === 'number') ? pattern.line : null,
-            lastLine: (pattern.lastLine !== undefined && typeof pattern.lastLine === 'number') ? pattern.lastLine : null,
-            column: (pattern.column !== undefined && typeof pattern.column === 'number') ? pattern.column : null,
-            lastColumn: (pattern.lastColumn !== undefined && typeof pattern.lastColumn === 'number') ? pattern.lastColumn : null,
+            scanStdout: get('scanStdout') === true,
+            scanStderr: get('scanStderr') !== false,
+            severity: severity === 'error' || severity === 'warning' || severity === 'info' ? severity : 'info',
+            filePrefix: typeof filePrefix === 'string' ? filePrefix : '',
+            regexp,
+            message,
+            file,
+            line: index('line'),
+            lastLine: index('lastLine'),
+            column: index('column'),
+            lastColumn: index('lastColumn'),
         });
     }
 
@@ -145,16 +152,20 @@ export function matchToProblem(
         return undefined;
     }
 
-    const fileValue = resolveDiagnosticFilePath(matches[file], filePrefix);
+    // An optional group that didn't participate in the match is undefined despite a valid index.
+    const matchedFile = matches[file];
     const messageValue = matches[message];
+    if (matchedFile === undefined || messageValue === undefined) {
+        return undefined;
+    }
+    const fileValue = resolveDiagnosticFilePath(matchedFile, filePrefix);
     const lineValue = line !== null ? Number(matches[line]) : undefined;
     const lastLineValue = lastLine !== null ? Number(matches[lastLine]) : undefined;
     const columnValue = column !== null ? Number(matches[column]) : undefined;
     const lastColumnValue = lastColumn !== null ? Number(matches[lastColumn]) : undefined;
 
     const isNumberOrUndefined = (value: number | undefined) => value === undefined || !Number.isNaN(value);
-    if (fileValue === undefined || messageValue === undefined ||
-        !isNumberOrUndefined(lineValue) || !isNumberOrUndefined(lastLineValue) ||
+    if (!isNumberOrUndefined(lineValue) || !isNumberOrUndefined(lastLineValue) ||
         !isNumberOrUndefined(columnValue) || !isNumberOrUndefined(lastColumnValue)) {
         return undefined;
     }

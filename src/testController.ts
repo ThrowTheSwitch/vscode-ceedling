@@ -4,11 +4,11 @@ import util from 'util';
 import vscode from 'vscode';
 import { CeedlingEngine, CeedlingLoadError } from './ceedlingEngine';
 import { extractGdbLogReference } from './ceedlingOutputParsing';
-import { Logger } from './logger';
+import { type Logger } from './logger';
 import { ProblemMatcher } from './problemMatcher';
-import { buildRunPlan, PlanTarget, RunPlanEntry } from './runPlan';
+import { buildRunPlan, type PlanTarget, type RunPlanEntry } from './runPlan';
 import { SingleFlight } from './singleFlight';
-import { CeedlingFileNode, CeedlingProjectNode, CeedlingTestFunction, RunReporter } from './testModel';
+import { type CeedlingFileNode, type CeedlingProjectNode, type CeedlingTestFunction, type RunReporter } from './testModel';
 
 // Names the launch configuration of one debug request, so its debug session can be told apart
 // from any other session VS Code starts meanwhile.
@@ -59,12 +59,12 @@ export class CeedlingTestController {
             vscode.workspace.onDidChangeConfiguration((event) => this.onConfigurationChanged(event)),
             vscode.workspace.onDidChangeTextDocument((event) => this.scheduleReparse(event.document)),
             // Closing a file with unsaved edits discards them, so the saved file is what remains.
-            vscode.workspace.onDidCloseTextDocument((document) => this.reparse(document.uri.fsPath)),
+            vscode.workspace.onDidCloseTextDocument((document) => void this.reparse(document.uri.fsPath)),
         );
 
         // Discover now rather than when VS Code first calls resolveHandler, so gutter icons appear
         // in open test files before the Testing view is ever opened.
-        this.refresh();
+        void this.refresh();
     }
 
     setLabel(label: string): void {
@@ -85,7 +85,7 @@ export class CeedlingTestController {
     dispose(): void {
         this.logger.debug(`CeedlingTestController disposed for ${this.workspaceFolder.uri.toString()}`);
         this.pendingReparses.forEach((timer) => clearTimeout(timer));
-        [...this.configurationWatchers.values(), ...this.sourceWatchers.values(), ...this.disposables].forEach((d) => d.dispose());
+        [...this.configurationWatchers.values(), ...this.sourceWatchers.values(), ...this.disposables].forEach((d) => { d.dispose(); });
         this.disposeController();
         this.engine.dispose();
     }
@@ -112,7 +112,7 @@ export class CeedlingTestController {
     }
 
     private disposeController(): void {
-        this.controllerDisposables.forEach((d) => d.dispose());
+        this.controllerDisposables.forEach((d) => { d.dispose(); });
         this.controllerDisposables = [];
         this.controller = undefined;
         this.items.clear();
@@ -127,7 +127,7 @@ export class CeedlingTestController {
         const changed = DISCOVERY_SETTINGS.filter(affects);
         if (changed.length > 0) {
             this.logger.debug(`onConfigurationChanged: ${changed.join(', ')} changed, refreshing`);
-            this.refresh();
+            void this.refresh();
         }
     }
 
@@ -179,19 +179,19 @@ export class CeedlingTestController {
             (watcher, file) => {
                 const changed = () => {
                     this.logger.debug(`watcher: '${file}' changed, refreshing`);
-                    this.refresh();
+                    void this.refresh();
                 };
                 return [watcher.onDidCreate(changed), watcher.onDidChange(changed), watcher.onDidDelete(changed)];
             });
         this.syncWatchers(this.sourceWatchers, projectDirectories,
             (directory) => new vscode.RelativePattern(vscode.Uri.file(directory), '**/*.c'),
             (watcher) => [
-                watcher.onDidChange((uri) => this.reparse(uri.fsPath)),
+                watcher.onDidChange((uri) => void this.reparse(uri.fsPath)),
                 watcher.onDidCreate((uri) => {
-                    if (this.engine.mayBeTestFile(uri.fsPath)) this.refresh();
+                    if (this.engine.mayBeTestFile(uri.fsPath)) void this.refresh();
                 }),
                 watcher.onDidDelete((uri) => {
-                    if (this.engine.testFileAt(uri.fsPath)) this.refresh();
+                    if (this.engine.testFileAt(uri.fsPath)) void this.refresh();
                 }),
             ]);
     }
@@ -224,17 +224,27 @@ export class CeedlingTestController {
         clearTimeout(this.pendingReparses.get(file));
         this.pendingReparses.set(file, setTimeout(() => {
             this.pendingReparses.delete(file);
-            this.reparse(file, document.getText());
+            void this.reparse(file, document.getText());
         }, EDIT_REPARSE_DELAY_MS));
     }
 
-    // Replaces one test file's functions and cases in the tree, without running Ceedling.
+    // Replaces one test file's functions and cases in the tree, without running Ceedling. Watchers
+    // and editor events start it without awaiting, so it reports its own failures.
     private async reparse(absPath: string, source?: string): Promise<void> {
+        try {
+            await this.replaceFileItems(absPath, source);
+        } catch (e) {
+            this.logger.error(`reparse: '${absPath}' failed: ${util.format(e)}`);
+        }
+    }
+
+    private async replaceFileItems(absPath: string, source?: string): Promise<void> {
         const found = this.engine.testFileAt(absPath);
         const file = found && await this.engine.rediscoverFile(found.projectKey, found.fileId, source);
         const projectItems = found && this.items.get(found.projectKey);
         const fileItem = file && projectItems?.get(file.id);
-        if (!found || !file || !projectItems || !fileItem) {
+        const controller = this.controller;
+        if (!found || !file || !projectItems || !fileItem || !controller) {
             return;
         }
         const project = this.projects.find((p) => p.projectKey === found.projectKey);
@@ -246,7 +256,7 @@ export class CeedlingTestController {
         }
         const uri = vscode.Uri.file(file.absPath);
         fileItem.label = file.label;
-        fileItem.children.replace(file.functions.map((fn) => this.buildFunctionItem(found.projectKey, file, fn, uri, projectItems)));
+        fileItem.children.replace(file.functions.map((fn) => this.buildFunctionItem(controller, found.projectKey, file, fn, uri, projectItems)));
         this.logger.trace(`reparse: '${absPath}' -> ${file.functions.length} function(s)`);
     }
 
@@ -261,7 +271,7 @@ export class CeedlingTestController {
         for (const project of this.projects) {
             const projectItems = new Map<string, vscode.TestItem>();
             this.items.set(project.projectKey, projectItems);
-            const fileItems = project.files.map((file) => this.buildFileItem(project.projectKey, file, projectItems));
+            const fileItems = project.files.map((file) => this.buildFileItem(controller, project.projectKey, file, projectItems));
             if (multiProject) {
                 const projectItem = controller.createTestItem(project.projectKey, project.label);
                 projectItem.children.replace(fileItems);
@@ -275,24 +285,27 @@ export class CeedlingTestController {
         this.logger.debug(`rebuildTree: ${this.projects.length} project(s)`);
     }
 
-    private buildFileItem(projectKey: string, file: CeedlingFileNode, projectItems: Map<string, vscode.TestItem>): vscode.TestItem {
+    private buildFileItem(
+        controller: vscode.TestController, projectKey: string, file: CeedlingFileNode, projectItems: Map<string, vscode.TestItem>,
+    ): vscode.TestItem {
         const uri = vscode.Uri.file(file.absPath);
-        const fileItem = this.controller!.createTestItem(file.id, file.label, uri);
+        const fileItem = controller.createTestItem(file.id, file.label, uri);
         this.targets.set(fileItem, { kind: 'file', projectKey, fileId: file.id });
         projectItems.set(file.id, fileItem);
-        fileItem.children.replace(file.functions.map((fn) => this.buildFunctionItem(projectKey, file, fn, uri, projectItems)));
+        fileItem.children.replace(file.functions.map((fn) => this.buildFunctionItem(controller, projectKey, file, fn, uri, projectItems)));
         return fileItem;
     }
 
     private buildFunctionItem(
-        projectKey: string, file: CeedlingFileNode, fn: CeedlingTestFunction, uri: vscode.Uri, projectItems: Map<string, vscode.TestItem>,
+        controller: vscode.TestController, projectKey: string, file: CeedlingFileNode, fn: CeedlingTestFunction, uri: vscode.Uri,
+        projectItems: Map<string, vscode.TestItem>,
     ): vscode.TestItem {
-        const item = this.controller!.createTestItem(fn.id, fn.label, uri);
+        const item = controller.createTestItem(fn.id, fn.label, uri);
         item.range = new vscode.Range(fn.line, 0, fn.line, 0);
         this.targets.set(item, { kind: 'function', projectKey, fileId: file.id, functionId: fn.id });
         projectItems.set(fn.id, item);
         item.children.replace(fn.cases.map((testCase) => {
-            const caseItem = this.controller!.createTestItem(testCase.id, testCase.label, uri);
+            const caseItem = controller.createTestItem(testCase.id, testCase.label, uri);
             caseItem.range = new vscode.Range(testCase.line, 0, testCase.line, 0);
             this.targets.set(caseItem, { kind: 'case', projectKey, fileId: file.id, functionId: fn.id, caseId: testCase.id });
             projectItems.set(testCase.id, caseItem);
@@ -402,6 +415,8 @@ export class CeedlingTestController {
             for (const item of plan.flatMap((entry) => this.itemsOf(entry))) {
                 if (!excluded.has(item)) run.enqueued(item);
             }
+            // Entries run one at a time, in tree order. The engine serializes Ceedling runs anyway.
+            /* eslint-disable no-await-in-loop -- sequential by design, see above */
             for (const entry of plan) {
                 if (token.isCancellationRequested) break;
                 const reporter = this.makeReporter(run, entry.projectKey, excluded);
@@ -413,6 +428,7 @@ export class CeedlingTestController {
                     await this.engine.runFile(entry.projectKey, entry.file, reporter, token);
                 }
             }
+            /* eslint-enable no-await-in-loop */
         } catch (e) {
             this.logger.error(`handleRun error: ${util.format(e)}`);
         } finally {
@@ -480,7 +496,7 @@ export class CeedlingTestController {
         } catch (e) {
             this.logger.error(`Debug error: ${util.format(e)}`);
         } finally {
-            listeners.forEach((listener) => listener.dispose());
+            listeners.forEach((listener) => { listener.dispose(); });
             run.end();
         }
     }
@@ -500,6 +516,6 @@ export class CeedlingTestController {
         this.logger.debug(`resolveLaunchConfig: resolved '${debugLaunchConfig}' with executableSubpath='${executableSubpath}'`);
         return JSON.parse(
             JSON.stringify(found).replace(/\$\{command:ceedlingExplorer\.debugTestExecutable\}/g, () => executableSubpath)
-        );
+        ) as vscode.DebugConfiguration;
     }
 }

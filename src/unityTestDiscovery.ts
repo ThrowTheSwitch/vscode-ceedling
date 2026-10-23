@@ -22,6 +22,11 @@ type MarkerKind = 'CASE' | 'RANGE' | 'MATRIX';
 type Marker = { kind: MarkerKind, args: string[] };
 type FoundTest = { name: string, markers: Marker[] };
 
+// A capture group that the pattern's structure guarantees participates in every match.
+function captured(match: RegExpMatchArray, group: number): string {
+    return match[group] ?? '';
+}
+
 export function discoverTests(source: string, options: DiscoveryOptions): DiscoveryResult {
     const warnings: string[] = [];
     const found = findTests(source, options, warnings);
@@ -40,11 +45,14 @@ const UNHIDE: Record<string, string> = { '@co@': '{', '@cc@': '}', '@ss@': ';', 
 // preprocessor lines and at `;`, `{`, and `}`. A test signature must then sit within one piece.
 function logicalLines(source: string): string[] {
     let text = source.replace(/\\"/g, '@quote@').replace(/\\'/g, '@apos@');
-    text = text.replace(/("[^"\n]*")|('[^'\n]*')/g, (literal) => literal.replace(/[{};/]/g, (c) => HIDE_IN_STRINGS[c]));
+    text = text.replace(/("[^"\n]*")|('[^'\n]*')/g, (literal) => literal.replace(/[{};/]/g, (c) => HIDE_IN_STRINGS[c] ?? c));
     text = stripComments(text, () => '');
+    // Splitting on capture groups yields undefined for each group that didn't participate, though
+    // the library types the result as string[].
     return text.split(/(^\s*#.*$)|(;|\{|\})/m)
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- see above
         .filter((piece): piece is string => piece !== undefined)
-        .map((piece) => piece.replace(/@co@|@cc@|@ss@|@fs@|@quote@|@apos@/g, (token) => UNHIDE[token]));
+        .map((piece) => piece.replace(/@co@|@cc@|@ss@|@fs@|@quote@|@apos@/g, (token) => UNHIDE[token] ?? token));
 }
 
 // Unity's three comment passes, in its order. The first removes a line comment that hides the
@@ -70,7 +78,8 @@ function findTests(source: string, options: DiscoveryOptions, warnings: string[]
         if (!match) {
             continue;
         }
-        const [, markerBlock, name] = match;
+        const markerBlock = captured(match, 1);
+        const name = captured(match, 2);
         // Unity keeps only the first occurrence of a name, e.g. a prototype before its definition.
         if (seen.has(name)) {
             continue;
@@ -89,7 +98,7 @@ function parseMarkers(name: string, markerBlock: string, warnings: string[]): Ma
     const markers: Marker[] = [];
     for (let i = 1; i < pieces.length; i += 2) {
         const kind = pieces[i] as MarkerKind;
-        const body = pieces[i + 1];
+        const body = pieces[i + 1] ?? '';
         if (kind === 'CASE') {
             // Unity trims inside the parentheses, so `TEST_CASE( 1, 2 )` reports as `(1, 2)`.
             markers.push({ kind, args: [body.replace(/^\s*\(\s*(.*?)\s*\)\s*$/ms, '$1')] });
@@ -108,8 +117,9 @@ const RANGE_PATTERN = /(\[|<)\s*(-?\d+.?\d*)\s*,\s*(-?\d+.?\d*)\s*,\s*(-?\d+.?\d
 
 function expandRangeMarker(name: string, body: string, warnings: string[]): string[] {
     const ranges: string[][] = [];
-    for (const [, open, start, end, step, close] of body.matchAll(RANGE_PATTERN)) {
-        const values = expandRubyRange(start, end, step, open === '<' && close === '>');
+    for (const match of body.matchAll(RANGE_PATTERN)) {
+        const [start, end, step] = [captured(match, 2), captured(match, 3), captured(match, 4)] as const;
+        const values = expandRubyRange(start, end, step, captured(match, 1) === '<' && captured(match, 5) === '>');
         if (values === undefined) {
             warnings.push(`TEST_RANGE for ${name} has a zero step (${start}, ${end}, ${step}); Ceedling cannot build this test.`);
             return [];
@@ -121,6 +131,7 @@ function expandRangeMarker(name: string, body: string, warnings: string[]): stri
 
 // Unity's element pattern: a double-quoted string, a character literal, or a bare token (which
 // may contain a bracketed index). Kept as Unity's own source text so the two compare directly.
+// eslint-disable-next-line no-useless-escape -- Unity's source escapes `[` inside the class
 const MATRIX_ELEMENT = /(?:(?:"(?:\\"|[^\\])*?")+|(?:'\\?.')+|(?:[^\s\]\["',]|\[[\d\S_-]+\])+)/.source;
 const MATRIX_LIST_PATTERN = new RegExp(`\\[((?:\\s*${MATRIX_ELEMENT}\\s*,?)*(?:\\s*${MATRIX_ELEMENT})?\\s*)\\]`, 'gs');
 const MATRIX_ELEMENT_PATTERN = new RegExp(`\\s*(${MATRIX_ELEMENT})\\s*,\\s*`, 'gs');
@@ -128,7 +139,7 @@ const MATRIX_ELEMENT_PATTERN = new RegExp(`\\s*(${MATRIX_ELEMENT})\\s*,\\s*`, 'g
 function expandMatrixMarker(name: string, body: string, warnings: string[]): string[] {
     // A trailing comma lets every element, the last included, match the comma-terminated pattern.
     const lists = [...body.matchAll(MATRIX_LIST_PATTERN)]
-        .map(([, list]) => [...`${list},`.matchAll(MATRIX_ELEMENT_PATTERN)].map(([, element]) => element));
+        .map((list) => [...`${captured(list, 1)},`.matchAll(MATRIX_ELEMENT_PATTERN)].map((element) => captured(element, 1)));
     if (lists.length === 0) {
         warnings.push(`TEST_MATRIX for ${name} has no [ ... ] lists; Ceedling cannot build this test.`);
         return [];
@@ -155,21 +166,18 @@ function cartesianProduct(lists: string[][]): string[] {
 // as floats. A negative step counts down, as Ruby's does.
 export function expandRubyRange(start: string, end: string, step: string, excludeEnd: boolean): string[] | undefined {
     const isFloat = [start, end, step].some((value) => value.includes('.'));
+    const parse = (value: string) => isFloat ? parseFloat(value) : parseInt(value, 10);
+    const [b, e, s] = [parse(start), parse(end), parse(step)] as const;
+    if (s === 0) {
+        return undefined;
+    }
     if (!isFloat) {
-        const [b, e, s] = [start, end, step].map((value) => parseInt(value, 10));
-        if (s === 0) {
-            return undefined;
-        }
         const values: string[] = [];
         const inRange = (v: number) => s > 0 ? (excludeEnd ? v < e : v <= e) : (excludeEnd ? v > e : v >= e);
         for (let v = b; inRange(v); v += s) {
             values.push(String(v));
         }
         return values;
-    }
-    const [b, e, s] = [start, end, step].map((value) => parseFloat(value));
-    if (s === 0) {
-        return undefined;
     }
     const count = rubyFloatStepCount(b, e, s, excludeEnd);
     const values: string[] = [];
@@ -214,7 +222,8 @@ export function rubyFloatToString(value: number): string {
     if (Object.is(value, -0)) {
         return '-0.0';
     }
-    const [mantissa, exponentText] = value.toExponential().split('e');
+    // toExponential() always yields `d[.ddd]e±N`, so both parts exist.
+    const [mantissa = '', exponentText = '0'] = value.toExponential().split('e');
     const exponent = parseInt(exponentText, 10);
     if (exponent >= -4 && exponent <= 14) {
         const fixed = String(value);
@@ -239,11 +248,16 @@ function blankCommentsAndStrings(source: string): string {
 
 function locateTests(source: string, found: FoundTest[]): DiscoveredTest[] {
     const blanked = blankCommentsAndStrings(source);
-    const lineStarts = [0, ...[...blanked.matchAll(/\n/g)].map((m) => m.index! + 1)];
+    const lineStarts = [0, ...[...blanked.matchAll(/\n/g)].map((m) => m.index + 1)];
+    // The last line starting at or before `offset`, by binary search over the line starts.
     const lineAt = (offset: number) => {
-        let line = 0;
-        while (line + 1 < lineStarts.length && lineStarts[line + 1] <= offset) line++;
-        return line;
+        let low = 0;
+        let high = lineStarts.length - 1;
+        while (low < high) {
+            const middle = Math.ceil((low + high) / 2);
+            if ((lineStarts[middle] ?? Infinity) <= offset) low = middle; else high = middle - 1;
+        }
+        return low;
     };
 
     // Tests are found in source order, so each search starts where the previous one ended.
@@ -276,7 +290,7 @@ function locateMarkers(between: string, offset: number, count: number): number[]
     }
     const boundaries = [...between.matchAll(/[;{}]|^[ \t]*#.*$/gm)];
     const last = boundaries[boundaries.length - 1];
-    const start = last ? last.index! + last[0].length : 0;
-    const markers = [...between.slice(start).matchAll(/TEST_(?:CASE|RANGE|MATRIX)\s*\(/g)].map((m) => offset + start + m.index!);
+    const start = last ? last.index + last[0].length : 0;
+    const markers = [...between.slice(start).matchAll(/TEST_(?:CASE|RANGE|MATRIX)\s*\(/g)].map((m) => offset + start + m.index);
     return markers.length === count ? markers : [];
 }

@@ -1,6 +1,6 @@
 import * as assert from 'assert';
-import * as child_process from 'child_process';
-import { buildCommandLine, Cancellation, CeedlingInvocation, CeedlingRunner, ceedlingEnvironment, descendantsOf, parseProcStatParent, quoteIfNeeded } from '../../src/ceedlingProcess';
+import type * as child_process from 'child_process';
+import { buildCommandLine, type Cancellation, type CeedlingInvocation, CeedlingRunner, ceedlingEnvironment, descendantsOf, parseProcStatParent, quoteIfNeeded } from '../../src/ceedlingProcess';
 
 type ExecCall = { command: string, options: child_process.ExecOptions, finish: (error: Error | null, stdout: string, stderr: string) => void };
 
@@ -133,8 +133,8 @@ suite('CeedlingRunner', () => {
         }) as unknown as typeof child_process.exec;
         const runner = new CeedlingRunner({ exec, kill: (p) => killed.push(p) });
         const done = runner.run(invocation());
-        runner.run(invocation());
-        runner.run(invocation());
+        void runner.run(invocation());
+        void runner.run(invocation());
         calls[0].finish(null, '', '');
         await done;
         runner.cancelAll();

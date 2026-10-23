@@ -46,7 +46,7 @@ function debugTestExecutableGuard(): never {
     throw new Error("Start debugging from a test’s debug icon in the Testing view, not with F5 or via the Run and Debug panel.");
 }
 
-export async function activate(context: vscode.ExtensionContext) {
+export function activate(context: vscode.ExtensionContext) {
     isDevelopmentMode = context.extensionMode === vscode.ExtensionMode.Development;
     extensionPath = context.extensionPath;
     const workspaceFolderCount = vscode.workspace.workspaceFolders?.length ?? 0;

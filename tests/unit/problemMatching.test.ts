@@ -7,7 +7,7 @@ import {
     getPatternsPreset,
     matchToProblem,
     normalizePatterns,
-    ProblemMatchingPattern,
+    type ProblemMatchingPattern,
     resolveDiagnosticFilePath,
 } from '../../src/problemMatching';
 
@@ -113,7 +113,7 @@ suite('matchToProblem', () => {
     function exec(regexp: string, line: string): RegExpExecArray {
         const matches = new RegExp(regexp).exec(line);
         assert.ok(matches, `expected '${regexp}' to match '${line}'`);
-        return matches!;
+        return matches;
     }
 
     test('builds a 0-based problem from a real error-pattern match', () => {
@@ -135,6 +135,21 @@ suite('matchToProblem', () => {
         assert.strictEqual(matchToProblem(matches, 1, 99, 'error', '', 2, null, null, null), undefined);
     });
 
+    // An optional group that didn't participate is undefined, though its index is in range.
+    test('rejects a match whose file group did not participate', () => {
+        const matches = exec('^(?:(\\S+\\.c):)?(\\d+): (.*)$', '9: whatever');
+        assert.strictEqual(matchToProblem(matches, 1, 3, 'error', '/project', 2, null, null, null), undefined);
+    });
+
+    test('a pattern with an optional file group still reports the lines where it matched', () => {
+        const pattern: ProblemMatchingPattern = {
+            scanStdout: false, scanStderr: true, severity: 'error', filePrefix: '/project',
+            regexp: '^(?:(\\S+\\.c):)?(\\d+): (.*)$', message: 3, file: 1, line: 2, lastLine: null, column: null, lastColumn: null,
+        };
+        const problems = getPatternProblems('', '9: no file\nsrc/a.c:4: has file', '/project', pattern);
+        assert.deepStrictEqual(problems.map((p) => [p.file, p.startLine]), [[path.join('/project', 'src/a.c'), 3]]);
+    });
+
     test('rejects a match when a captured line value is not a number', () => {
         const matches = exec('^(.*):(\\w+):(.*)$', 'test/foo.c:NaN:whatever');
         assert.strictEqual(matchToProblem(matches, 1, 3, 'error', '', 2, null, null, null), undefined);
@@ -144,7 +159,7 @@ suite('matchToProblem', () => {
 suite('normalizePatterns', () => {
     test('defaults every optional field, and keeps a well-shaped pattern', () => {
         const { valid, invalid } = normalizePatterns([
-            { regexp: '^(.*)$', message: 0, file: 0 } as unknown as ProblemMatchingPattern,
+            { regexp: '^(.*)$', message: 0, file: 0 },
         ]);
         assert.deepStrictEqual(invalid, []);
         assert.deepStrictEqual(valid, [{
@@ -164,7 +179,7 @@ suite('normalizePatterns', () => {
 
     test('drops a pattern missing a required field', () => {
         const { valid, invalid } = normalizePatterns([
-            { message: 0, file: 0 } as unknown as ProblemMatchingPattern, // no regexp
+            { message: 0, file: 0 }, // no regexp
         ]);
         assert.deepStrictEqual(valid, []);
         assert.strictEqual(invalid.length, 1);
@@ -172,7 +187,7 @@ suite('normalizePatterns', () => {
 
     test('drops a pattern whose required field is the wrong type', () => {
         const { valid, invalid } = normalizePatterns([
-            { regexp: '^(.*)$', message: '0', file: 0 } as unknown as ProblemMatchingPattern, // message is a string
+            { regexp: '^(.*)$', message: '0', file: 0 }, // message is a string
         ]);
         assert.deepStrictEqual(valid, []);
         assert.strictEqual(invalid.length, 1);

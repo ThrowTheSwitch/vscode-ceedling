@@ -75,12 +75,11 @@ export class CeedlingRunner {
             return Promise.resolve({ error: null, stdout: '', stderr: '', cancelled: true });
         }
         return new Promise((resolve) => {
-            // Declared ahead of exec: a test double may call back before exec returns.
-            let child: child_process.ChildProcess | undefined;
-            let subscription: { dispose(): void } | undefined;
-            let finished = false;
-            let cancelled = false;
-            child = this.exec(
+            // Shared with the exit callback, which a test double may call before exec even returns.
+            // The child is tracked as live only if it is still running once exec returns.
+            const state: { tracked?: child_process.ChildProcess, subscription?: { dispose(): void }, finished: boolean, cancelled: boolean } =
+                { finished: false, cancelled: false };
+            const child = this.exec(
                 buildCommandLine(invocation.command, invocation.args),
                 {
                     cwd: invocation.cwd,
@@ -89,22 +88,23 @@ export class CeedlingRunner {
                     maxBuffer: MAX_OUTPUT_BYTES,
                 },
                 (error, stdout, stderr) => {
-                    finished = true;
-                    if (child) this.live.delete(child);
-                    subscription?.dispose();
+                    state.finished = true;
+                    if (state.tracked) this.live.delete(state.tracked);
+                    state.subscription?.dispose();
                     resolve({
                         error,
                         stdout: invocation.stripAnsi ? stripAnsi(stdout) : stdout,
                         stderr: invocation.stripAnsi ? stripAnsi(stderr) : stderr,
-                        cancelled,
+                        cancelled: state.cancelled,
                     });
                 },
             );
-            if (!finished) {
+            if (!state.finished) {
+                state.tracked = child;
                 this.live.add(child);
-                subscription = cancellation?.onCancellationRequested(() => {
-                    cancelled = true;
-                    this.stop(child!);
+                state.subscription = cancellation?.onCancellationRequested(() => {
+                    state.cancelled = true;
+                    this.stop(child);
                 });
             }
         });
@@ -159,8 +159,7 @@ export function descendantsOf(root: number, parents: ReadonlyMap<number, number>
     }
     const found: number[] = [];
     const pending = [root];
-    while (pending.length > 0) {
-        const pid = pending.pop()!;
+    for (let pid = pending.pop(); pid !== undefined; pid = pending.pop()) {
         found.push(pid);
         pending.push(...(children.get(pid) ?? []));
     }
@@ -171,15 +170,19 @@ export function descendantsOf(root: number, parents: ReadonlyMap<number, number>
 // itself contain spaces and parentheses, so fields are read after its last closing parenthesis.
 export function parseProcStatParent(stat: string): number | undefined {
     const fields = stat.slice(stat.lastIndexOf(')') + 1).trim().split(/\s+/);
-    const parent = parseInt(fields[1], 10);
+    const parent = parseInt(fields[1] ?? '', 10);
     return stat.includes(')') && Number.isFinite(parent) ? parent : undefined;
 }
 
 function linuxProcessParents(): Map<number, number> {
     const parents = new Map<number, number>();
+    // Synchronous on purpose: a consistent snapshot of the tree before any kill. /proc is in memory,
+    // and this runs only on cancellation.
+    // eslint-disable-next-line no-restricted-properties -- a consistent snapshot, see above
     for (const entry of fs.readdirSync('/proc')) {
         if (!/^\d+$/.test(entry)) continue;
         try {
+            // eslint-disable-next-line no-restricted-properties -- see above
             const parent = parseProcStatParent(fs.readFileSync(`/proc/${entry}/stat`, 'utf8'));
             if (parent !== undefined) parents.set(Number(entry), parent);
         } catch {

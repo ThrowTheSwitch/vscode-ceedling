@@ -113,7 +113,7 @@ function projectFromSetting(
     let key = setting.path;
     if (setting.path.endsWith('.yml')) {
         const segments = setting.path.split(/[\\/]/);
-        configuredFile = segments.pop()!;
+        configuredFile = segments.pop() ?? setting.path;
         directory = segments.join('/') || '.';
         if (configuredFile !== DEFAULT_PROJECT_FILE && configuredFile !== ALTERNATE_DEFAULT_PROJECT_FILE) {
             key = configuredFile.slice(0, -'.yml'.length);
@@ -137,7 +137,7 @@ function projectFiles(
     const hasDefault = exists(paths.join(absPath, DEFAULT_PROJECT_FILE));
     const hasAlternate = exists(paths.join(absPath, ALTERNATE_DEFAULT_PROJECT_FILE));
     const isDefaultName = configuredFile === DEFAULT_PROJECT_FILE || configuredFile === ALTERNATE_DEFAULT_PROJECT_FILE;
-    const projectFileName = isDefaultName ? configuredFile! : (hasAlternate && !hasDefault ? ALTERNATE_DEFAULT_PROJECT_FILE : DEFAULT_PROJECT_FILE);
+    const projectFileName = isDefaultName ? configuredFile : (hasAlternate && !hasDefault ? ALTERNATE_DEFAULT_PROJECT_FILE : DEFAULT_PROJECT_FILE);
     return {
         projectFileName,
         ymlFileName: configuredFile ?? projectFileName,

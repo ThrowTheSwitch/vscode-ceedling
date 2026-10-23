@@ -1,6 +1,6 @@
 import {
     Diagnostic,
-    DiagnosticCollection,
+    type DiagnosticCollection,
     DiagnosticSeverity,
     Position,
     Range,
@@ -10,13 +10,12 @@ import {
 import {
     getPatternProblems,
     getPatternsPreset,
-    MatchedProblem,
+    type MatchedProblem,
     normalizePatterns,
-    ProblemMatchingPattern,
+    type ProblemMatchingPattern,
 } from './problemMatching';
-import { Logger } from './logger';
-
-export { ProblemMatchingPattern } from './problemMatching';
+import util from 'util';
+import { type Logger } from './logger';
 
 // A Diagnostic with the absolute path of the file it belongs to.
 export interface FileDiagnostic {
@@ -52,7 +51,7 @@ export class ProblemMatcher {
     }
 
     // Every problem the configured patterns find in a run's output. No state changes.
-    match(stdout: string, stderr: string, projectPath: string, mode: string, patterns: ProblemMatchingPattern[]): FileDiagnostic[] {
+    match(stdout: string, stderr: string, projectPath: string, mode: string, patterns: readonly unknown[]): FileDiagnostic[] {
         let normalizedPatterns: ProblemMatchingPattern[];
         if (mode === "patterns") {
             const { valid, invalid } = normalizePatterns(patterns);
@@ -69,7 +68,7 @@ export class ProblemMatcher {
             try {
                 fileDiagnostics.push(...getPatternProblems(stdout, stderr, projectPath, pattern).map(toFileDiagnostic));
             } catch (e) {
-                this.logger.warn(`match: pattern threw, likely an invalid regexp (${pattern.regexp}): ${e}`);
+                this.logger.warn(`match: pattern threw, likely an invalid regexp (${pattern.regexp}): ${util.format(e)}`);
             }
         }
         this.logger.debug(`match: mode=${mode}, patterns=${normalizedPatterns.length}, diagnostics=${fileDiagnostics.length}`);
