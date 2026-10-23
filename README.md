@@ -32,6 +32,7 @@ The extension brings your Ceedling tests into VS Code’s own testing tools.
 * Keeps the test list current as you edit, add, or remove tests.
 * Reports compiler and linker problems in the editor and the _Problems_ panel, when configured.
 * Supports several Ceedling projects per workspace, and Ceedling mixins.
+* Reports code coverage through VS Code’s built-in coverage UI, from Ceedling’s gcov plugin.
 
 # Requirements
 
@@ -39,7 +40,7 @@ The extension needs a recent VS Code and Ceedling 1.0.0 or later.
 
 ## VS Code
 
-Requires VS Code 1.74.0 or later.
+Requires VS Code 1.88.0 or later.
 
 ## Ceedling
 
@@ -79,6 +80,16 @@ Running a single test function runs only that function. Ceedling still compiles 
 
 The _Testing_ view’s toolbar also has Clean and Clobber buttons. They run `ceedling clean` and `ceedling clobber` in every Ceedling project in the workspace, after any test run in progress finishes.
 
+# Coverage
+
+The Testing view’s **Run with Coverage** button runs the same tests through Ceedling’s `gcov:` task and reports the result in VS Code’s own coverage UI: the Test Coverage panel, per-file percentages, and — with Toggle Inline Coverage — line and branch hit counts in the editor.
+
+It reads the report Ceedling’s [gcov plugin](https://throwtheswitch.github.io/Ceedling/plugins/gcov/) writes to `<build_root>/artifacts/gcov/gcovr/GcovCoverageCobertura.xml`. Configure that plugin as its own documentation describes; this extension only requires that `gcovr` is among its `:utilities:` and `Cobertura` among its `:reports:`.
+
+Function rows in the Test Coverage panel depend on your gcovr version. gcovr 5.0 writes an empty `<methods/>` for every file, leaving only line and branch coverage; 8.6 populates it, and the rows appear with no change here.
+
+Coverage is not the default run profile — a coverage run rebuilds instrumented, so it stays opt-in behind its own button. If your project’s coverage task is not `gcov:${TEST_ID}`, override `ceedlingExplorer.coverageCommandArgs`.
+
 # Configuration
 
 Settings live under `ceedlingExplorer` in VS Code’s settings.
@@ -96,6 +107,7 @@ Read each property below as `ceedlingExplorer.<property>`.
 | `.prettyTestLabel` | Shortens each test’s label in the _Testing_ view by dropping its prefix, e.g. `test_BlinkTaskShouldToggleLed` becomes `BlinkTaskShouldToggleLed`. By default it is `true`.<br><br>Inactive:<br><img src="img/prettyTestLabelInactive.png" alt="prettyTestLabelInactive" width="420"><br><br> Active:<br><img src="img/prettyTestLabelActive.png" alt="prettyTestLabelActive" width="420">|
 | `.prettyTestFileLabel` | Shortens each test file’s label by dropping its path, prefix, and extension, e.g. `test/LEDs/test_BlinkTask.c` becomes `BlinkTask`. By default it is `true`.<br><br>Inactive:<br><img src="img/prettyTestFileLabelInactive.png" alt="prettyTestFileLabelInactive" width="320"><br><br> Active:<br><img src="img/prettyTestFileLabelActive.png" alt="prettyTestFileLabelActive" width="320"> |
 | `.testCommandArgs` | The command line arguments that run a test file. The first must contain the `${TEST_ID}` tag, which becomes the test file. With Ceedling 1.2.0 and later that is the file’s project-relative path (e.g. `test/unit/test_foo.c`), which tells same-named test files apart. With earlier versions it is the file’s name alone. By default it is `["test:${TEST_ID}"]`. For example, `"test:${TEST_ID}", "gcov:${TEST_ID}", "utils:gcov"` runs tests and generates a gcov report. |
+| `.coverageCommandArgs` | The command line arguments used by the Testing view's **Run with Coverage** button. The first argument has to literally contain the `${TEST_ID}` tag. The value `["gcov:${TEST_ID}"]` is used by default. See [Coverage](#coverage). |
 | `.problemMatching` | Compiler and linker problem matching. See [Problem matching](#problem-matching). |
 | `.ansiEscapeSequencesRemoved` | Whether ANSI escape sequences are removed from Ceedling’s output. By default it is `true`. |
 

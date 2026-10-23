@@ -6,6 +6,14 @@ This document explains each change that can break an existing setup, and what to
 
 # [Unreleased]
 
+## Minimum VS Code version is now 1.88.0
+
+This extension now requires VS Code 1.88.0 or later, up from 1.71.0. 1.88.0 is the release that finalized VS Code's test coverage API, which the new **Run with Coverage** support is built on.
+
+**What changes for you:**
+- On VS Code 1.88.0 or later, nothing. Coverage is additive and opt-in; every existing behavior and setting is unchanged.
+- On anything older, VS Code will not offer this version. It keeps the last version you can run, which continues to work.
+
 ## Test case marker alias settings removed
 
 The `ceedlingExplorer.testCaseMacroAliases` and `ceedlingExplorer.testRangeMacroAliases` settings no longer exist. They never worked with Ceedling.

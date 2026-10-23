@@ -8,7 +8,7 @@ This document is the terse, itemized record of what changed in each release. Its
 
 ## ⚠️ Changed
 
-* Requires VS Code 1.74.0 or later.
+* Minimum VS Code version is now 1.71.0 → **1.88.0**, the release that finalized the test coverage API this feature is built on.
 * Project configuration is now resolved with Ceedling’s own `ceedling dumpconfig`, instead of the extension parsing and merging `project.yml` and any mixins itself. The extension now sees exactly the configuration a real build sees, plugin defaults included.
 * `:unity` ↳ `:test_prefix` is no longer read, nor the Unity compilation defines once sniffed to select it. Neither was ever a real Ceedling option. `:test_runner` ↳ `:test_prefix` remains the way to change the test function prefix.
 * A workspace folder without a Ceedling project no longer adds an empty _Ceedling_ entry to the _Testing_ view. With several workspace folders, each entry names its folder.
@@ -18,6 +18,8 @@ This document is the terse, itemized record of what changed in each release. Its
 
 ## 🌟 Added
 
+* Native test coverage. The Testing view's **Run with Coverage** button runs the suite through Ceedling's `gcov:` task and reports the result through VS Code's own coverage UI: the Test Coverage panel, per-file percentages, and inline line and branch hit counts. Function-level entries follow when gcovr populates `<method>` — gcovr 5.0 leaves it empty, 8.6 fills it in.
+* New `ceedlingExplorer.coverageCommandArgs` setting, for projects whose coverage task is not the default `gcov:${TEST_ID}`.
 * Support for Ceedling 1.2.0:
   * A project directory may use `ceedling.yml` instead of `project.yml`. A directory holding both is reported as an error, as Ceedling itself reports it.
   * Same-named test files in different directories (e.g. `test/unit/test_foo.c` and `test/integration/test_foo.c`) each run, report, and debug correctly.
