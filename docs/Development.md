@@ -127,6 +127,15 @@ Diagnostics are keyed by run scope: the project key for a project run, `projectK
 
 [`tests/unit/ceedlingEngine.test.ts`](../tests/unit/ceedlingEngine.test.ts) drives the engine against `FakeCeedling`, a simulated Ceedling with an in-memory filesystem. Golden fixtures captured from real Ceedling releases pin discovery and report parsing. See [`tests/fixtures/README.md`](../tests/fixtures/README.md).
 
+The integration tests run the built extension in a real VS Code, on two workspace folders. One has no Ceedling project. The other is a temporary copy of [`tests/fixtures/workspace-fake-ceedling`](../tests/fixtures/workspace-fake-ceedling), whose `ceedlingExplorer.ceedlingCommand` runs a fake Ceedling: a Node script that answers each command from the project’s scenario file. The tests then cover the wiring that unit tests can’t:
+- the tree built from discovery;
+- results and failure locations in the Testing view;
+- compiler errors in the Problems panel;
+- cancellation;
+- watchers and unsaved edits.
+
+On Windows they also run the engine with Windows paths. VS Code’s API can’t read another extension’s TestItems or run results, so `activate()` returns a small handle for the tests, `CeedlingExplorerApi`. See [`tests/integration/main.ts`](../tests/integration/main.ts).
+
 ## 3. Running the Extension Locally
 
 F5 launches a second VS Code window. This extension runs inside that window.

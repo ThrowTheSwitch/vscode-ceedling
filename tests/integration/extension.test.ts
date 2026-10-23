@@ -1,9 +1,9 @@
 import * as assert from 'assert';
+import * as fs from 'fs';
 import * as vscode from 'vscode';
 
-// Runs inside a real VS Code with the built extension loaded (see main.ts), on a workspace with
-// no Ceedling project. It checks what unit tests can't: that the bundle loads, activates, and
-// wires its commands into VS Code.
+// Runs inside a real VS Code with the built extension loaded (see main.ts). It checks what unit
+// tests can't: that the bundle loads, activates, and wires its commands into VS Code.
 
 const EXTENSION_ID = 'throw-the-switch.vscode-ceedling';
 
@@ -28,8 +28,12 @@ suite('Extension in VS Code', () => {
         await assert.rejects(Promise.resolve(vscode.commands.executeCommand('ceedlingExplorer.debugTestExecutable')), /Testing view/);
     });
 
-    // Without a project, there is nothing to clean and no Ceedling to run.
-    test('Clean succeeds in a workspace without a Ceedling project', async () => {
+    // The folder without a project has nothing to clean, and runs no Ceedling.
+    test('Clean runs in each folder with a Ceedling project', async () => {
         await vscode.commands.executeCommand('ceedlingExplorer.clean');
+        const project = vscode.workspace.workspaceFolders?.find((f) => f.name === 'fake-project');
+        assert.ok(project);
+        const log = fs.readFileSync(vscode.Uri.joinPath(project.uri, 'fake-ceedling.log').fsPath, 'utf8');
+        assert.ok(log.split('\n').some((line) => line.startsWith('["clean"')));
     });
 });

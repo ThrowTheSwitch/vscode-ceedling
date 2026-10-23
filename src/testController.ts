@@ -18,6 +18,10 @@ const DEBUG_REQUEST_KEY = '__ceedlingDebugRequest';
 // How long typing pauses before an unsaved test file is reparsed.
 const EDIT_REPARSE_DELAY_MS = 400;
 
+// One result a run reported to the Testing view, for the integration tests. VS Code's API can't
+// read another extension's run results.
+export type ReportedResult = { item: vscode.TestItem, outcome: 'started' | 'passed' | 'failed' | 'skipped' | 'errored', message?: vscode.TestMessage };
+
 // Mirrors one workspace folder's CeedlingEngine discovery and results onto a native
 // vscode.TestController. Several Ceedling projects in one folder (ceedlingExplorer.projects)
 // appear as sibling root items. The TestController exists only while the folder has a Ceedling
@@ -39,6 +43,8 @@ export class CeedlingTestController {
     // Item ids are unique only within a project, so lookups are scoped by project key.
     private readonly items = new Map<string, Map<string, vscode.TestItem>>();
     private projects: CeedlingProjectNode[] = [];
+    private readonly reported = new vscode.EventEmitter<ReportedResult>();
+    readonly onDidReport = this.reported.event;
 
     constructor(
         public readonly workspaceFolder: vscode.WorkspaceFolder,
@@ -74,6 +80,21 @@ export class CeedlingTestController {
         }
     }
 
+    // The TestController, while the folder has a Ceedling project.
+    get testController(): vscode.TestController | undefined {
+        return this.controller;
+    }
+
+    // Settles once a discovery started now has finished, whatever its outcome.
+    whenDiscovered(): Promise<void> {
+        return this.refresh();
+    }
+
+    // Runs a request as the Run profile does.
+    run(request: vscode.TestRunRequest, token: vscode.CancellationToken): Promise<void> {
+        return this.handleRun(request, token);
+    }
+
     async clean(): Promise<void> {
         await this.runTask('Clean', (token) => this.engine.clean(token));
     }
@@ -88,6 +109,7 @@ export class CeedlingTestController {
         [...this.configurationWatchers.values(), ...this.sourceWatchers.values(), ...this.disposables].forEach((d) => { d.dispose(); });
         this.disposeController();
         this.engine.dispose();
+        this.reported.dispose();
     }
 
     // The TestController, its handlers, and its run profiles, created on first need.
@@ -352,11 +374,19 @@ export class CeedlingTestController {
         const items = this.items.get(projectKey);
         return createRunReporter<vscode.TestItem>({
             sink: {
-                started: (item) => { run.started(item); },
-                passed: (item) => { run.passed(item); },
-                failed: (item, message) => { run.failed(item, testMessage(message, item)); },
-                skipped: (item) => { run.skipped(item); },
-                errored: (item, message) => { run.errored(item, testMessage(message, item)); },
+                started: (item) => { run.started(item); this.reported.fire({ item, outcome: 'started' }); },
+                passed: (item) => { run.passed(item); this.reported.fire({ item, outcome: 'passed' }); },
+                failed: (item, message) => {
+                    const shown = testMessage(message, item);
+                    run.failed(item, shown);
+                    this.reported.fire({ item, outcome: 'failed', message: shown });
+                },
+                skipped: (item) => { run.skipped(item); this.reported.fire({ item, outcome: 'skipped' }); },
+                errored: (item, message) => {
+                    const shown = testMessage(message, item);
+                    run.errored(item, shown);
+                    this.reported.fire({ item, outcome: 'errored', message: shown });
+                },
                 appendOutput: (text) => { run.appendOutput(text); },
             },
             projectKey,

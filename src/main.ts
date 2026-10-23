@@ -46,7 +46,13 @@ function debugTestExecutableGuard(): never {
     throw new Error("Start debugging from a test’s debug icon in the Testing view, not with F5 or via the Run and Debug panel.");
 }
 
-export function activate(context: vscode.ExtensionContext) {
+// What activate() returns, for the integration tests only. VS Code's API can't read another
+// extension's TestController items or run results, so the tests reach them through this.
+export type CeedlingExplorerApi = {
+    controllerFor(folder: vscode.Uri): CeedlingTestController | undefined,
+};
+
+export function activate(context: vscode.ExtensionContext): CeedlingExplorerApi {
     isDevelopmentMode = context.extensionMode === vscode.ExtensionMode.Development;
     extensionPath = context.extensionPath;
     const workspaceFolderCount = vscode.workspace.workspaceFolders?.length ?? 0;
@@ -71,4 +77,5 @@ export function activate(context: vscode.ExtensionContext) {
         }
     }));
     context.subscriptions.push({ dispose: () => { for (const controller of controllers.values()) controller.dispose(); } });
+    return { controllerFor: (folder) => controllers.get(folder.toString()) };
 }

@@ -10,6 +10,8 @@ Fixtures are grouped by where they came from.
 - `source/` holds C test files. Some are read directly by discovery tests. Others are the inputs whose reports live under `ceedling-<version>/`. Each file's header comment names its reports.
 - `dumpconfig/` holds `ceedling dumpconfig` output. See [its own README](dumpconfig/README.md).
 - `capture/` holds the tool that produces new captures (below).
+- `fake-ceedling/` and `workspace-fake-ceedling/` serve the integration tests. `fake-ceedling/ceedling.js` answers the commands the extension runs, as Ceedling 1.2.0 does, from the project's scenario file. Its reports follow the structure of the captured CppUnit reports, and its compiler failure is a captured one. See [its project's README](workspace-fake-ceedling/README.md).
+- `workspace-without-project/` is the integration tests' folder without a Ceedling project.
 
 ## Capturing new fixtures
 

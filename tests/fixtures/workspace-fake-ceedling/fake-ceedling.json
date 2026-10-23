@@ -1,0 +1,17 @@
+{
+    "version": "1.2.0",
+    "files": {
+        "test/test_broken.c": { "compileError": "ceedling-1.0.0/compile-failure-stderr.txt" },
+        "test/test_calc.c": {
+            "results": {
+                "test_add": "pass",
+                "test_sub": { "fail": "Expected 1 Was 2", "line": 9 },
+                "test_skip": "ignore",
+                "test_param(1)": "pass",
+                "test_param(2)": "pass"
+            }
+        },
+        "test/test_slow.c": { "hang": true },
+        "test/test_unreported.c": { "results": { "test_reported": "pass" } }
+    }
+}
