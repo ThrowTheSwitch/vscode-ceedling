@@ -24,9 +24,10 @@ function findItem(items: vscode.TestItemCollection, id: string): vscode.TestItem
     return found;
 }
 
-async function waitFor(condition: () => boolean, what: string, timeoutMs = 15000): Promise<void> {
+// `detail` explains a timeout, e.g. with the paths being compared.
+async function waitFor(condition: () => boolean, what: string, detail = () => '', timeoutMs = 15000): Promise<void> {
     for (const deadline = Date.now() + timeoutMs; !condition();) {
-        assert.ok(Date.now() < deadline, `timed out waiting for ${what}`);
+        assert.ok(Date.now() < deadline, `timed out waiting for ${what}. ${detail()}`);
         // eslint-disable-next-line no-await-in-loop -- polling
         await new Promise((resolve) => setTimeout(resolve, 100));
     }
@@ -159,7 +160,8 @@ suite('Extension against a fake Ceedling', function () {
         await vscode.workspace.fs.writeFile(created, Buffer.from('void test_fresh(void)\n{\n}\n'));
         await waitFor(() => findItem(items(), 'test/test_new.c::test_fresh') !== undefined, 'the new test file to appear');
         await vscode.workspace.fs.delete(created);
-        await waitFor(() => findItem(items(), 'test/test_new.c') === undefined, 'the deleted test file to go');
+        await waitFor(() => findItem(items(), 'test/test_new.c') === undefined, 'the deleted test file to go',
+            () => `Deleted '${created.fsPath}'; discovered '${findItem(items(), 'test/test_new.c')?.uri?.fsPath}'.`);
     });
 
     test('an edit to an open test file updates its tests before it is saved', async () => {
@@ -168,7 +170,8 @@ suite('Extension against a fake Ceedling', function () {
         const edit = new vscode.WorkspaceEdit();
         edit.insert(document.uri, new vscode.Position(document.lineCount, 0), '\nvoid test_typed(void)\n{\n}\n');
         assert.ok(await vscode.workspace.applyEdit(edit));
-        await waitFor(() => findItem(items(), 'test/test_calc.c::test_typed') !== undefined, 'the typed test to appear');
+        await waitFor(() => findItem(items(), 'test/test_calc.c::test_typed') !== undefined, 'the typed test to appear',
+            () => `Edited '${document.uri.fsPath}' (${document.uri.toString()}); discovered '${item('test/test_calc.c').uri?.fsPath}' (${item('test/test_calc.c').uri?.toString()}).`);
         await vscode.commands.executeCommand('workbench.action.files.revert');
         await waitFor(() => findItem(items(), 'test/test_calc.c::test_typed') === undefined, 'the reverted test to go');
         await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
