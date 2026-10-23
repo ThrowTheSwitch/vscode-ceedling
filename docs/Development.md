@@ -31,7 +31,7 @@ Two reports point at what to fix next: lint findings and unit-test coverage gaps
 
 - Run `just coverage`, or `npm run test:coverage`. It prints a table per `src/*.ts` file: statement, branch, function, and line coverage, plus the uncovered line numbers.
 - `coverage/index.html` shows each file with its uncovered lines highlighted. `coverage/lcov.info` and `coverage/coverage-summary.json` serve other tools.
-- Only unit tests are measured. VS Code adapters such as `testController.ts` and `main.ts` show 0% until their logic moves into tested modules or integration tests cover it.
+- Only unit tests are measured. The VS Code adapters, `testController.ts`, `problemMatcher.ts`, `main.ts`, and `logger.ts`, show 0%. Their decisions live in tested pure modules, and what remains is wiring to the editor.
 
 The unit tests compile into `out-test/`, apart from the extension bundle in `out/`. The test build compiles every file in `src/`, so a file no test touches still appears in the coverage table.
 
@@ -46,13 +46,13 @@ The extension connects Ceedling’s command line to VS Code’s native Testing A
 
 ### Orientation
 
-The code has two layers. Most modules have no `vscode` dependency and are unit-tested in plain Node. A thin layer of VS Code adapters wires them to the editor.
+The code has two layers. Most modules have no `vscode` dependency and are unit-tested in plain Node. A thin layer of VS Code adapters wires them to the editor. A decision an adapter makes belongs in a pure module, where a unit test can reach it.
 
 | Module | Layer | Responsibility |
 |---|---|---|
 | `src/main.ts` | VS Code | Activation, commands, one controller per workspace folder |
-| `src/testController.ts` | VS Code | TestItems, run and debug profiles, reporting into a `TestRun` |
-| `src/problemMatcher.ts` | VS Code | The Problems panel’s `DiagnosticCollection`, keyed by run scope |
+| `src/testController.ts` | VS Code | TestItems, run and debug profiles, watchers, and the `TestRun` sink |
+| `src/problemMatcher.ts` | VS Code | Publishes diagnostics to the Problems panel’s `DiagnosticCollection` |
 | `src/logger.ts` | VS Code | The “Ceedling Explorer” log output channel |
 | `src/ceedlingEngine.ts` | Pure | Orchestration: discover, run, debug build, clean, clobber |
 | `src/ceedlingProjectConfig.ts` | Pure | Settings → projects; resolved configuration → `ProjectState` |
@@ -60,7 +60,11 @@ The code has two layers. Most modules have no `vscode` dependency and are unit-t
 | `src/unityTestDiscovery.ts` | Pure | Test functions and cases in source, named as Unity names them |
 | `src/testResults.ts` | Pure | The CppUnit report, mapped onto discovered ids |
 | `src/runPlan.ts` | Pure | A run request → the fewest Ceedling invocations |
-| `src/testModel.ts` | Pure | The test tree types and the `RunReporter` interface |
+| `src/testModel.ts` | Pure | The test tree types, the `RunReporter` interface, and the controller’s label |
+| `src/testReporting.ts` | Pure | A `RunReporter` that resolves ids to items and builds plain messages for a `RunSink` |
+| `src/debugLaunch.ts` | Pure | The file a debug request debugs, and its launch configuration |
+| `src/watchPolicy.ts` | Pure | What settings changes, file events, and edits make the controller do |
+| `src/diagnosticsStore.ts` | Pure | Each run scope’s diagnostics, shown by file without duplicates |
 | `src/singleFlight.ts` | Pure | Coalesces overlapping discovery requests into one rerun |
 | `src/concurrency.ts` | Pure | Grouped concurrent mapping, a lock per key, and a limit shared by every caller |
 | `src/ceedlingOutputParsing.ts` | Pure | Ceedling stdout, report names, and pretty labels |
@@ -88,9 +92,9 @@ The engine replaces its `projects` map only after every project loads. A failed 
 The controller keeps the tree current without polling. Its refreshes go through a `SingleFlight`, so startup, watchers, and settings changes arriving together cause one discovery plus at most one rerun.
 
 - **Configuration files.** `CeedlingEngine.configurationFiles()` lists every file a project’s configuration can come from, existing or not: both default project files, any alternate project file, and file-path mixins. A `FileSystemWatcher` on each triggers discovery, so creating a project file in an empty folder starts one.
-- **Test sources.** A watcher on each project directory’s `**/*.c` reparses a changed test file alone, through `rediscoverFile()`, with no Ceedling call. A created file that `mayBeTestFile()` accepts, or a deleted test file, triggers discovery, since only `ceedling files:test` knows the full list.
-- **Unsaved edits.** `onDidChangeTextDocument` reparses an open test file from its buffer once typing pauses.
-- **Settings.** A change to a setting in `DISCOVERY_SETTINGS` triggers discovery. Others apply on the next run.
+- **Test sources.** A watcher on each project directory’s `**/*.c` reparses a changed test file alone, through `rediscoverFile()`, with no Ceedling call. A created file that `mayBeTestFile()` accepts, or a deleted test file, triggers discovery, since only `ceedling files:test` knows the full list. `sourceEventEffect()` makes that choice.
+- **Unsaved edits.** `onDidChangeTextDocument` reparses an open test file from its buffer once typing pauses, through a `Debouncer` keyed by file.
+- **Settings.** `settingsChangeEffects()` decides. A change to a setting that shapes discovery, such as `projects` or `mixins`, triggers discovery. Turning problem matching off clears its diagnostics. Others apply on the next run.
 
 The TestController itself exists only while discovery finds a project, so a folder without one adds nothing to the Testing view.
 
@@ -100,7 +104,7 @@ A run turns the request into a plan, then reports each plan entry’s results.
 
 - **Planning.** `buildRunPlan(projects, include, exclude)` returns `RunPlanEntry`s of three kinds. A `project` entry runs `test:all`. A `file` entry runs `test:<file>`. A `function` entry adds `--test-case=<name>`. Excluded items narrow the plan to function granularity at most. The reporter drops their results.
 - **Running.** `runTests()` marks every id started, then takes its project directory’s lock. `buildAndRun()` deletes stale reports in `artifacts/test` and `artifacts/gcov`, runs Ceedling, appends the transcript to the run’s output, updates diagnostics, and reads the newest report.
-- **Reporting.** `testResults(report, leafIds)` yields `passed`, `skipped`, `failed`, and `unreported` results. An `unreported` id gets an error naming the likely cause: discovery and Ceedling disagree about its name. With no report at all, every id errors, and the most severe compiler diagnostic leads the message.
+- **Reporting.** `testResults(report, leafIds)` yields `passed`, `skipped`, `failed`, and `unreported` results. An `unreported` id gets an error naming the likely cause: discovery and Ceedling disagree about its name. With no report at all, every id errors, and the most severe compiler diagnostic leads the message. The controller’s reporter, from `createRunReporter()`, maps each id to its TestItem. It drops results for excluded items and, with a warning, for unknown ids, and turns a crash’s gdb log path into a link.
 - **Edge cases.** A `--test-case` run whose report also names another function, from Ceedling’s substring filter, reruns the whole file. A cancelled run kills only its own process tree, through `CeedlingRunner`, and marks its tests skipped.
 
 **One Ceedling command per project directory at a time.** Every Ceedling command that loads a project, `dumpconfig` and `files:test` included, rewrites the vendored Unity and CMock sources under `build/vendor/` in place. A second command in the same directory can leave a build compiling a half-written header. So `dumpconfig`, `files:test`, runs, debug builds, and clean/clobber each hold their directory’s lock (`KeyedLock`, via `inDirectory()`). `ceedling version` loads no project and needs no lock. Different directories proceed independently, so builds in separate projects may overlap.
@@ -109,7 +113,7 @@ Diagnostics are keyed by run scope: the project key for a project run, `projectK
 
 ### Debugging
 
-`handleDebug()` debugs one test file. `compileForDebug()` runs the file exactly as a run does and reports its real results. It then returns the executable’s path relative to Ceedling’s test output directory, `name/name<executableExtension>`. `resolveLaunchConfig()` splices that path into every `${command:ceedlingExplorer.debugTestExecutable}` in the named launch configuration. A unique `__ceedlingDebugRequest` value in that configuration identifies its debug session among any others.
+`handleDebug()` debugs one test file. `compileForDebug()` runs the file exactly as a run does and reports its real results. It then returns the executable’s path relative to Ceedling’s test output directory, `name/name<executableExtension>`. `resolveLaunchConfig()` in `debugLaunch.ts` splices that path into every `${command:ceedlingExplorer.debugTestExecutable}` in a copy of the named launch configuration. A unique `__ceedlingDebugRequest` value in that configuration identifies its debug session among any others.
 
 ### Test seams
 
