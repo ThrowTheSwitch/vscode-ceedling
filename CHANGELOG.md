@@ -23,7 +23,7 @@ This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 * A test declared with whitespace before its parameter list, such as `void test_example (void)`, no longer stays skipped after it passes. Test discovery names each test, and each padded `TEST_CASE( … )`, exactly as Ceedling’s test runner does ([#14](https://github.com/ThrowTheSwitch/vscode-ceedling/issues/14)).
 * A test whose result never arrives now shows an error saying so, instead of silently ending as skipped. The error names the likely cause: the extension and Ceedling disagree about the test’s name.
-* Cancelling a run now marks its tests skipped instead of errored, and stops only that run’s Ceedling process. _Clean_ and _Clobber_ now wait for a run in progress instead of deleting its build.
+* Cancelling a run now marks its tests skipped instead of errored, and stops only that run’s Ceedling process. Cancelling no longer crashes the extension on Linux systems without `ps`, such as minimal containers. _Clean_ and _Clobber_ now wait for a run in progress instead of deleting its build.
 * Debugging a test now reports the file’s real results instead of marking it passed when the debug session ends. A debug build no longer races a concurrent run for the shared test report.
 * A failed build no longer reports results from an older run’s leftover test report.
 * Saving `project.yml` while tests run no longer makes the rest of that run lose its project configuration.

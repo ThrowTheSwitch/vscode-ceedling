@@ -3,6 +3,7 @@
 // substitute `exec` and `kill` to observe command lines without a Ceedling install.
 
 import child_process from 'child_process';
+import fs from 'fs';
 import stripAnsi from 'strip-ansi';
 import treeKill from 'tree-kill';
 
@@ -64,7 +65,7 @@ export class CeedlingRunner {
 
     constructor(deps: { exec?: typeof child_process.exec, kill?: (pid: number) => void, env?: NodeJS.ProcessEnv } = {}) {
         this.exec = deps.exec ?? child_process.exec;
-        this.kill = deps.kill ?? ((pid) => treeKill(pid));
+        this.kill = deps.kill ?? killProcessTree;
         this.baseEnv = deps.env ?? process.env;
     }
 
@@ -122,4 +123,68 @@ export class CeedlingRunner {
             this.kill(child.pid);
         }
     }
+}
+
+// Kills a process and every process beneath it. Linux reads the tree from /proc. tree-kill would
+// spawn `ps` there, which minimal containers lack, and its unhandled spawn error would crash the
+// extension host. Elsewhere tree-kill uses taskkill (Windows) or pgrep (macOS), both always
+// present. A failure falls back to killing the root process alone.
+export function killProcessTree(pid: number): void {
+    if (process.platform === 'linux') {
+        for (const target of descendantsOf(pid, linuxProcessParents())) {
+            try {
+                process.kill(target, 'SIGTERM');
+            } catch {
+                // Already exited.
+            }
+        }
+        return;
+    }
+    treeKill(pid, 'SIGTERM', (error) => {
+        if (error) {
+            try {
+                process.kill(pid, 'SIGTERM');
+            } catch {
+                // Already exited.
+            }
+        }
+    });
+}
+
+// The root and all its descendants, given each process's parent.
+export function descendantsOf(root: number, parents: ReadonlyMap<number, number>): number[] {
+    const children = new Map<number, number[]>();
+    for (const [pid, parent] of parents) {
+        children.set(parent, [...(children.get(parent) ?? []), pid]);
+    }
+    const found: number[] = [];
+    const pending = [root];
+    while (pending.length > 0) {
+        const pid = pending.pop()!;
+        found.push(pid);
+        pending.push(...(children.get(pid) ?? []));
+    }
+    return found;
+}
+
+// The parent pid from a /proc/<pid>/stat line, `pid (comm) state ppid ...`. The command name may
+// itself contain spaces and parentheses, so fields are read after its last closing parenthesis.
+export function parseProcStatParent(stat: string): number | undefined {
+    const fields = stat.slice(stat.lastIndexOf(')') + 1).trim().split(/\s+/);
+    const parent = parseInt(fields[1], 10);
+    return stat.includes(')') && Number.isFinite(parent) ? parent : undefined;
+}
+
+function linuxProcessParents(): Map<number, number> {
+    const parents = new Map<number, number>();
+    for (const entry of fs.readdirSync('/proc')) {
+        if (!/^\d+$/.test(entry)) continue;
+        try {
+            const parent = parseProcStatParent(fs.readFileSync(`/proc/${entry}/stat`, 'utf8'));
+            if (parent !== undefined) parents.set(Number(entry), parent);
+        } catch {
+            // The process exited while the tree was being read.
+        }
+    }
+    return parents;
 }

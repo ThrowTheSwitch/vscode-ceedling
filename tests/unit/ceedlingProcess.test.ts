@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import * as child_process from 'child_process';
-import { buildCommandLine, Cancellation, CeedlingInvocation, CeedlingRunner, ceedlingEnvironment, quoteIfNeeded } from '../../src/ceedlingProcess';
+import { buildCommandLine, Cancellation, CeedlingInvocation, CeedlingRunner, ceedlingEnvironment, descendantsOf, parseProcStatParent, quoteIfNeeded } from '../../src/ceedlingProcess';
 
 type ExecCall = { command: string, options: child_process.ExecOptions, finish: (error: Error | null, stdout: string, stderr: string) => void };
 
@@ -151,5 +151,25 @@ suite('CeedlingRunner', () => {
         assert.strictEqual((await runner.run(invocation())).stdout, 'sync');
         runner.cancelAll();
         assert.deepStrictEqual(killed, [], 'a finished process is not tracked as live');
+    });
+});
+
+// Linux process-tree killing reads /proc instead of spawning `ps`, which minimal containers lack.
+suite('process tree on Linux', () => {
+    test('parseProcStatParent reads the parent pid after the command name', () => {
+        assert.strictEqual(parseProcStatParent('4242 (ruby) S 4200 4242 4242 0 -1'), 4200);
+    });
+
+    test('parseProcStatParent survives spaces and parentheses in the command name', () => {
+        assert.strictEqual(parseProcStatParent('77 (my (odd) proc) R 12 77 77 0'), 12);
+    });
+
+    test('parseProcStatParent rejects malformed text', () => {
+        assert.strictEqual(parseProcStatParent('garbage'), undefined);
+    });
+
+    test('descendantsOf lists the root and every process beneath it, and nothing else', () => {
+        const parents = new Map([[10, 1], [11, 10], [12, 11], [13, 10], [20, 1], [21, 20]]);
+        assert.deepStrictEqual(descendantsOf(10, parents).sort((a, b) => a - b), [10, 11, 12, 13]);
     });
 });
