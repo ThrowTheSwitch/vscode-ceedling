@@ -1,67 +1,40 @@
 # Sidecar
 
-## Why this exists
+The sidecar is a Docker image that installs, builds, tests, packages, and publishes this extension. Everything else, including editing and `F5` debugging, happens on the host. Docker never touches the editor or the debugger.
 
-Debugging this extension in the Extension Development Host (`F5` → "Ceedling" in
-[`.vscode/launch.json`](../.vscode/launch.json)) requires a GUI-attached VS Code process on the
-host. This repo used to run extension development inside a `.devcontainer/`, but that setup
-actively fought the debugger: a devcontainer has no display server and no built-in support for
-spawning the second, GUI-attached window that `extensionHost` debug launches need, and it also
-lacked a build step and the system libraries required to run tests.
+## Orientation
 
-The sidecar removes Docker from that loop entirely. VS Code, the editor, `F5` debugging, and
-Claude all operate directly on the host checkout — nothing here touches that process. Docker is
-used only for the pieces that benefit from a pinned, reproducible Linux environment: installing
-dependencies, building, testing, packaging, and publishing.
+Debugging the extension needs a VS Code window on the host. `F5` (the “Ceedling” configuration in [`.vscode/launch.json`](../.vscode/launch.json)) opens a second, GUI-attached window, the Extension Development Host. A devcontainer can’t provide one: it has no display server. An earlier devcontainer setup also lacked a build step and the system libraries the tests need.
 
-## What the image is
+So the work splits in two. The host runs VS Code, the editor, `F5` debugging, and any coding assistant, all on the host checkout. The sidecar provides a pinned, reproducible Linux environment for the rest: installing dependencies, building, testing, packaging, and publishing.
 
-`sidecar/Dockerfile` builds a local image (`vscode-ceedling-sidecar`) containing:
+## The image
 
-- Node 22
-- Xvfb plus the Chromium/Electron runtime libraries `@vscode/test-electron` needs to launch a
-  real (headless) VS Code instance for the integration tests
-- [`just`](https://github.com/casey/just), so the same recipes work both from the host and from
-  inside a running container (see below)
+`sidecar/Dockerfile` builds a local image named `vscode-ceedling-sidecar`. It contains:
 
-Nothing in the repo is baked into the image — source is bind-mounted at container run time, so
-the image only needs rebuilding when `sidecar/Dockerfile` itself changes (the root `Justfile`
-does this automatically via each recipe's dependency on `just image`).
+- Node 22.
+- Xvfb, plus the Chromium and Electron libraries `@vscode/test-electron` needs to run a real, headless VS Code for the integration tests.
+- [`just`](https://github.com/casey/just), so the same recipes work from the host and inside a container.
 
-## Using it: the root Justfile
+The image holds none of the repository. The checkout is bind-mounted when a container runs. The image needs rebuilding only when `sidecar/Dockerfile` changes, and each recipe’s dependency on `just image` does that automatically.
 
-All interaction goes through the `Justfile` at the repo root — see `just --list` for the full
-recipe set (`install`, `build`, `watch`, `rebuild`, `test`, `package`, `publish`, `clean`, `shell`,
-`image`). Don't invoke `docker` directly; the recipes handle image builds, volume mounts, and
-environment forwarding consistently.
+## Using it through the Justfile
 
-Two supported ways to run them:
+Every interaction goes through the root `Justfile`. `just --list` shows its recipes: `install`, `build`, `watch`, `rebuild`, `test`, `package`, `publish`, `clean`, `shell`, and `image`. Don’t run `docker` directly. The recipes handle image builds, volume mounts, and environment forwarding consistently.
 
-**One-shot from the host.** `just build`, `just test`, etc. each start a fresh, disposable
-container, run one command, and remove the container. Dependencies (`node_modules`) and the
-downloaded test-VS Code binary (`.vscode-test`) persist across these disposable runs in named
-Docker volumes, not in the container itself or in the host's own `node_modules` — this also keeps
-the container's Linux-native dependency binaries from colliding with your host's (e.g. macOS)
-`node_modules`.
+Recipes run in one of two modes.
 
-**Interactively, inside a live container.** `just shell` opens an interactive session in the same
-image, with the same volumes mounted. Because `just` is installed in the image, the *same* recipe
-names work directly inside that shell (`just build`, `just test`, ...) — they detect they're
-already inside the container and run the underlying command directly instead of trying to launch
-another nested Docker container. This is useful for iterating (e.g. re-running `just test`
-repeatedly) without paying container-startup cost on every command.
+**One-shot from the host.** `just build`, `just test`, and the rest each start a fresh container, run one command, and remove the container. Two named Docker volumes persist between these runs: `node_modules`, and the downloaded test copy of VS Code (`.vscode-test`). Keeping `node_modules` in a volume also keeps its Linux binaries apart from the host’s own, such as a macOS `node_modules`.
+
+**Interactively in one container.** `just shell` opens a session in the same image, with the same volumes. Inside it, the same recipe names work directly. Each recipe detects that it already runs in the container (the `SIDECAR` environment variable) and runs its command in place, without nesting another container. This saves container startup when running `just test` repeatedly.
 
 ## Common workflows
 
-- **First-time setup**: `just install`
-- **Iterating on the extension**: `just build`, `just watch`, or `just test`
-- **Cutting a release**: `just package` to produce a `.vsix`, then `VSCE_PAT=<token> just publish`
-  to publish it (fails fast with a clear error if `VSCE_PAT` isn't set)
-- **Poking around / repeated runs**: `just shell`, then run `just build` / `just test` / plain npm
-  commands as many times as needed inside that one container
+- **First-time setup:** `just install`.
+- **Iterating:** `just build`, `just watch`, or `just test`.
+- **Releasing:** `just package` produces a `.vsix`. `VSCE_PAT=<token> just publish` publishes it, and fails at once if `VSCE_PAT` isn’t set.
+- **Repeated runs:** `just shell`, then `just build`, `just test`, or plain `npm` commands as often as needed.
 
 ## Verifying the extension itself
 
-None of the above replaces `F5`. To confirm your changes actually work in VS Code, debug the
-extension normally from the host — see the root [README](../README.md) and
-[`.vscode/launch.json`](../.vscode/launch.json).
+The sidecar doesn’t replace `F5`. To see a change working in VS Code, debug the extension on the host. See [docs/Development.md](../docs/Development.md) and [`.vscode/launch.json`](../.vscode/launch.json).

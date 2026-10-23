@@ -1,6 +1,6 @@
 # Development
 
-This document is for contributors changing this extension’s own code. It covers: the daily workflow, the code’s architecture, running and debugging locally, key VS Code features, manual testing, and the sidecar.
+This document is for contributors changing the extension’s own code. It starts with the daily workflow and the code’s architecture. Then it covers running and debugging locally, the VS Code features this work relies on, the manual testing plan, and the Docker sidecar.
 
 ---
 
@@ -158,7 +158,7 @@ Command Palette command. For rendering-level issues. Rarely needed here.
 
 Command Palette command. Shows activation time and CPU per extension.
 
-This extension activates on every window. Its `activationEvents` is `["onStartupFinished"]`. Use this command to check that cost.
+This extension activates in every window, once startup finishes, or sooner in a workspace containing `project.yml` or `ceedling.yml`. Use this command to check that cost.
 
 ### The Testing View
 
@@ -178,16 +178,14 @@ In the Development Host: File, Open Folder, pick `tests/manual/`.
 
 This is a separate workspace from this repo’s own root. This repo’s own `.vscode/launch.json` launches the Development Host itself, one level up. `tests/manual/`’s own `.vscode/launch.json` is what the extension uses inside that second window.
 
-Open the Testing view. It discovers the tests in `test_calculator.c` and `test_calculator_parametrized.c`.
-
-Click the refresh icon to re-discover after an edit.
+Open the Testing view. It discovers the tests in all three test files. The tree follows your edits on its own. The refresh icon forces a full rediscovery.
 
 Run all test cases. Each shows its state.
 
 * `test_calculator.c`: Two pass. One fails. One is ignored. `test_add_should_HandleSpaceBeforeParen` has a space before its parameter list, and it still passes.
 * `test_calculator_parametrized.c`: All parameterized test cases pass. `test_add_MatrixCases` lists four `TEST_MATRIX` cases. The commented-out `test_add_CommentedOut` does not appear.
 
-Click a single test’s gutter icon to run just that test. Ceedling still recompiles the whole file — `--test-case` narrows what runs and gets reported, not what gets built. A parametrized function’s cases always run together; Ceedling’s filter can isolate one function, not one case within it.
+Click a single test’s gutter icon to run just that test. Ceedling still recompiles the whole file. Its `--test-case` filter narrows what runs and gets reported, not what gets built. A parametrized function’s cases always run together, since the filter selects functions, not cases.
 
 Click a test’s debug icon to debug it. A breakpoint in `src/Calculator.c` hits through the VS Code debugger.
 
@@ -201,11 +199,11 @@ See [tests/manual/README.md](../tests/manual/README.md) for the `project.yml` se
 
 ## 5. Manual Testing Plan
 
-This is a repeatable checklist. Run it after a change that could affect the extension’s runtime behavior.
+This checklist confirms the extension’s behavior in a real VS Code, where unit and integration tests can’t reach. Run it before a release, against the final code on the integration branch, on Ceedling 1.0.0, 1.1.10, and 1.2.0.
 
-All steps run against [`tests/manual/`](../tests/manual/), opened as its own folder in the Development Host.
+Every step runs against [`tests/manual/`](../tests/manual/), opened as its own folder in the Development Host.
 
-- [ ] **Discovery.** The Testing view lists all test files. Confirms parsing and discovery both work.
+- [ ] **Discovery.** The Testing view lists all three test files, confirming discovery works.
 - [ ] **Run all.** In `test_calculator.c`, two tests pass, one fails, and one is ignored. Each shows the correct message. `test_add_should_HandleSpaceBeforeParen` shows as passed, not skipped.
 - [ ] **Run one.** A single test runs in isolation, from its gutter icon. The Ceedling Explorer log (Trace level) shows `--test-case=` in the invocation.
 - [ ] **Debug.** A breakpoint in `src/Calculator.c` is hit, from a test’s debug icon. The file’s real results show in the Testing view, including the deliberate failure. Starting a Run while the debug build is under way waits for it, then runs.
@@ -220,11 +218,12 @@ All steps run against [`tests/manual/`](../tests/manual/), opened as its own fol
 - [ ] **New test file.** Create `test/test_extra.c` with one test. It appears without a manual refresh. Delete it. It disappears.
 - [ ] **Non-Ceedling folder.** Add a folder with no project file to the workspace. No extra entry appears in the Testing view. The Ceedling entries are labelled with their folder names.
 - [ ] **Parametrized test.** All cases in `test_calculator_parametrized.c` pass, on Ceedling 1.0.0, 1.1.10, and 1.2.0. `test_add_MatrixCases` shows four cases. `test_add_CommentedOut` is not listed.
-- [ ] **Crash handling.** `test_should_crash` in `test_calculator_crash.c` shows as a failed test, at the exact crashing line, on both Ceedling 1.0.0 and 1.1.0.
-- [ ] **Crash log link.** With Ceedling 1.1.0 running on a platform that supports `gdb`, set `:use_backtrace:` ⇒ `:gdb` in `project.yml` and re-run `test_should_crash`. Its failure message ends with a clickable link to the gdb log file. Revert the setting after.
+- [ ] **Crash handling.** `test_should_crash` in `test_calculator_crash.c` shows as a failed test, at the exact crashing line, on every Ceedling version.
+- [ ] **Crash log link.** With Ceedling 1.1.0 or later running on a platform that supports `gdb`, set `:use_backtrace:` ⇒ `:gdb` in `project.yml` and re-run `test_should_crash`. Its failure message ends with a clickable link to the gdb log file. Revert the setting after.
 - [ ] **Diagnostics don’t go stale.** Introduce a syntax error, run just `test_add_should_ReturnSum` alone from its gutter icon. Confirm the error appears in the Problems panel. Fix the error, then run the whole file (not that same test again). Confirm the Problems panel entry is gone.
-- [ ] **No manual plugin setup.** `tests/manual/project.yml` deliberately does not enable `report_tests_log_factory` itself. Discovery and results still work — the bundled mixin enables it. Confirms this on every run of this checklist, not just once.
-- [ ] **Configured mixin.** Add `"ceedlingExplorer.mixins": ["gcc"]` (or another [built-in toolchain target](https://throwtheswitch.github.io/Ceedling/1.1.0/configuration/mixins/#built-in-toolchain-mixins)) to `tests/manual/.vscode/settings.json`. Refresh, run all. The run still succeeds; the Ceedling Explorer log (Trace level) shows the extra `--mixin` flag in the invocation, before the extension’s own bundled mixin. Revert the setting after.
+- [ ] **No manual plugin setup.** `tests/manual/project.yml` deliberately leaves `report_tests_log_factory` disabled. Discovery and results still work, because the bundled mixin enables it. Every pass through this checklist confirms it.
+- [ ] **Configured mixin.** Add `"ceedlingExplorer.mixins": ["gcc"]`, or another [built-in toolchain target](https://throwtheswitch.github.io/Ceedling/1.1.0/configuration/mixins/#built-in-toolchain-mixins), to `tests/manual/.vscode/settings.json`. The tree rediscovers on its own. Run all, and the run still succeeds. The Ceedling Explorer log (Trace level) shows the extra `--mixin` flag, before the extension’s own bundled mixin. Revert the setting after.
+- [ ] **Missing header.** On Ceedling 1.0.0, add `#include "missing.h"` to `test_calculator.c` and run it. The Problems panel shows the error at that `#include` line, in `test_calculator.c`. Revert after.
 
 ## 6. The Sidecar
 
