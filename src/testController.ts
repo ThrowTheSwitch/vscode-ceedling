@@ -165,14 +165,14 @@ export class CeedlingTestController {
             this.projects = [];
         }
         this.rebuildTree();
-        this.updateWatchers();
+        await this.updateWatchers();
     }
 
     // Configuration files rediscover everything. A C source change in a project directory
     // reparses that test file alone. A test file appearing or disappearing rediscovers, since only
     // `ceedling files:test` knows the full list.
-    private updateWatchers(): void {
-        const configurationFiles = new Set(this.engine.configurationFiles());
+    private async updateWatchers(): Promise<void> {
+        const configurationFiles = new Set(await this.engine.configurationFiles());
         const projectDirectories = new Set(this.projects.map((p) => this.engine.getProjectAbsPath(p.projectKey)));
         this.syncWatchers(this.configurationWatchers, configurationFiles,
             (file) => new vscode.RelativePattern(vscode.Uri.file(path.dirname(file)), path.basename(file)),

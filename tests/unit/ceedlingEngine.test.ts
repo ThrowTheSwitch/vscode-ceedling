@@ -33,6 +33,11 @@ class FakeCeedling {
     resolvedConfig = `:plugins:\n  :enabled:\n    - report_tests_log_factory\n:unity:\n  :use_param_tests: true\n`;
     testFiles = ['test/test_calc.c'];
     killed: number[] = [];
+    reads: string[] = [];
+    readsInFlight = 0;
+    maxReadsInFlight = 0;
+    // While set, every file read waits for it, so a test can observe reads in flight.
+    readGate: Promise<void> | undefined;
     private clock = 1;
 
     constructor() {
@@ -48,15 +53,20 @@ class FakeCeedling {
 
     get fileSystem(): EngineFileSystem {
         return {
-            exists: (p) => this.files.has(p),
-            isDirectory: (p) => this.directories.has(p),
+            exists: async (p) => this.files.has(p),
+            isDirectory: async (p) => this.directories.has(p),
             readFile: async (p) => {
+                this.reads.push(p);
+                this.readsInFlight++;
+                this.maxReadsInFlight = Math.max(this.maxReadsInFlight, this.readsInFlight);
+                await this.readGate;
+                this.readsInFlight--;
                 const content = this.files.get(p);
                 if (content === undefined) throw Object.assign(new Error(`ENOENT: ${p}`), { code: 'ENOENT' });
                 return content;
             },
             unlink: async (p) => { this.files.delete(p); },
-            mtimeMs: (p) => this.mtimes.get(p),
+            mtimeMs: async (p) => this.mtimes.get(p),
         };
     }
 
@@ -299,7 +309,7 @@ suite('CeedlingEngine.discover', () => {
         world.resolvedConfig = ':plugins:\n  :enabled: []\n';
         const engine = makeEngine(world);
         await assert.rejects(engine.discover());
-        assert.ok(engine.configurationFiles().includes(`${WS}/project.yml`));
+        assert.ok((await engine.configurationFiles()).includes(`${WS}/project.yml`));
     });
 
     // A failed rediscovery must not leave runs without their --project/--mixin flags and cwd.
@@ -359,7 +369,7 @@ suite('CeedlingEngine with Ceedling 1.2.0', () => {
         const { engine, projects } = await discovered(world);
         assert.strictEqual(projects.length, 1);
         assert.match(world.commands[2].command, new RegExp(`--project ceedling\\.yml --mixin ${BUNDLED_MIXIN}$`));
-        assert.ok(engine.configurationFiles().includes(`${WS}/ceedling.yml`));
+        assert.ok((await engine.configurationFiles()).includes(`${WS}/ceedling.yml`));
     });
 
     // Ceedling itself refuses this ambiguity, but only when no --project names the file.
@@ -376,7 +386,7 @@ suite('CeedlingEngine with Ceedling 1.2.0', () => {
         world.write(`${WS}/fw/project.yml`, ':project: {}\n');
         world.write(`${WS}/fw/ci.yml`, ':project: {}\n');
         const engine = makeEngine(world, { settings: { projects: [{ path: 'fw/ci.yml', debugLaunchConfig: 'dbg' }] } });
-        assert.deepStrictEqual(engine.configurationFiles().sort(), [`${WS}/fw/ceedling.yml`, `${WS}/fw/ci.yml`, `${WS}/fw/project.yml`]);
+        assert.deepStrictEqual((await engine.configurationFiles()).sort(), [`${WS}/fw/ceedling.yml`, `${WS}/fw/ci.yml`, `${WS}/fw/project.yml`]);
     });
 
     // 1.2.0 nests each executable under its test file's directory, relative to the test path.
@@ -680,16 +690,16 @@ suite('CeedlingEngine against real Ceedling output', () => {
 
 suite('CeedlingEngine for watchers and editing', () => {
     // A project file that doesn't exist yet is watched too, so creating one starts discovery.
-    test("configuration files include absent default project files and each project's file-path mixins", () => {
+    test("configuration files include absent default project files and each project's file-path mixins", async () => {
         const world = new FakeCeedling();
         world.directories.add(`${WS}/fw`);
         const engine = makeEngine(world, { settings: { projects: [{ path: 'fw', debugLaunchConfig: 'dbg', mixins: ['gcc', 'mixins/cov.yml'] }] } });
-        assert.deepStrictEqual(engine.configurationFiles().sort(), [`${WS}/fw/ceedling.yml`, `${WS}/fw/mixins/cov.yml`, `${WS}/fw/project.yml`]);
+        assert.deepStrictEqual((await engine.configurationFiles()).sort(), [`${WS}/fw/ceedling.yml`, `${WS}/fw/mixins/cov.yml`, `${WS}/fw/project.yml`]);
     });
 
-    test('configuration files are empty, not an error, when settings name a missing directory', () => {
+    test('configuration files are empty, not an error, when settings name a missing directory', async () => {
         const engine = makeEngine(new FakeCeedling(), { settings: { projects: [{ path: 'nope', debugLaunchConfig: 'dbg' }] } });
-        assert.deepStrictEqual(engine.configurationFiles(), []);
+        assert.deepStrictEqual((await engine.configurationFiles()), []);
     });
 
     test('a discovered test file is found by its absolute path', async () => {
@@ -736,5 +746,132 @@ suite('CeedlingEngine for watchers and editing', () => {
         await discovered(world, { settings: { ceedlingCommand: 'bundle exec ceedling' } });
         assert.ok(world.commands.length > 0);
         assert.ok(world.commands.every((c) => c.command.startsWith('bundle exec ceedling ')));
+    });
+});
+
+// Each Ceedling start costs a Ruby startup, so discovery overlaps work it can. Two Ceedling
+// processes in one project directory could collide on its build files, so that never overlaps.
+suite('CeedlingEngine concurrent discovery', () => {
+    function twoProjects(world: FakeCeedling, a: string, b: string) {
+        for (const dir of new Set([a, b].map((p) => p.replace(/\/[^/]*\.yml$/, '')))) {
+            world.directories.add(`${WS}/${dir}`);
+            world.write(`${WS}/${dir}/project.yml`, ':project: {}\n');
+        }
+        for (const file of [a, b].filter((p) => p.endsWith('.yml'))) world.write(`${WS}/${file}`, ':project: {}\n');
+        return { projects: [{ path: a, debugLaunchConfig: 'dbg' }, { path: b, debugLaunchConfig: 'dbg' }] };
+    }
+    const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+    test('projects in different directories are checked at the same time', async () => {
+        const world = new FakeCeedling();
+        let release!: () => void;
+        const held = new Promise<Reply>((resolve) => { release = () => resolve({ stdout: 'Ceedling => 1.2.0\n' }); });
+        world.handlers.push((command) => /^ceedling version/.test(command) ? held : undefined);
+        const discovery = makeEngine(world, { settings: twoProjects(world, 'a', 'b') }).discover();
+        await settle();
+        assert.deepStrictEqual(world.commands.filter((c) => /version/.test(c.command)).map((c) => c.cwd).sort(), [`${WS}/a`, `${WS}/b`]);
+        release();
+        assert.strictEqual((await discovery).length, 2);
+    });
+
+    test('projects sharing a directory are loaded one after the other', async () => {
+        const world = new FakeCeedling();
+        let release!: () => void;
+        const held = new Promise<Reply>((resolve) => { release = () => resolve({ stdout: 'Ceedling => 1.2.0\n' }); });
+        world.handlers.push((command) => /^ceedling version/.test(command) && world.commandsMatching(/version/).length === 1 ? held : undefined);
+        const discovery = makeEngine(world, { settings: twoProjects(world, 'fw/ci.yml', 'fw/other.yml') }).discover();
+        await settle();
+        assert.strictEqual(world.commandsMatching(/version/).length, 1);
+        release();
+        assert.strictEqual((await discovery).length, 2);
+    });
+
+    test('load errors name the first failing project in settings order, however the checks finish', async () => {
+        const world = new FakeCeedling();
+        world.handlers.push((command, cwd) => /^ceedling version/.test(command)
+            ? (cwd.endsWith('/a')
+                ? new Promise<Reply>((resolve) => setTimeout(() => resolve({ error: true }), 20))
+                : { error: true })
+            : undefined);
+        await assert.rejects(makeEngine(world, { settings: twoProjects(world, 'a', 'b') }).discover(),
+            (e: unknown) => e instanceof CeedlingLoadError && /project 'a'/.test(e.message));
+    });
+
+    test('several failed configurations are reported together, in settings order', async () => {
+        const world = new FakeCeedling();
+        world.handlers.push((command, cwd) => /dumpconfig/.test(command)
+            ? (cwd.endsWith('/a')
+                ? new Promise<Reply>((resolve) => setTimeout(() => resolve({ error: true }), 20))
+                : { error: true })
+            : undefined);
+        await assert.rejects(makeEngine(world, { settings: twoProjects(world, 'a', 'b') }).discover(),
+            (e: unknown) => e instanceof CeedlingLoadError && e.message.indexOf("'a'") < e.message.indexOf("'b'") && e.message.includes("'a'"));
+    });
+
+    // Every Ceedling command that loads a project rewrites the Unity copy in its build directory, so
+    // a configuration check during a build in the same directory could corrupt that build.
+    test("a rediscovery's configuration check waits for a build in the same directory", async () => {
+        const world = new FakeCeedling();
+        const { engine, file } = await discovered(world);
+        let release!: () => void;
+        world.handlers.push((command) => /^ceedling test:/.test(command) ? new Promise<Reply>((resolve) => { release = () => resolve({}); }) : undefined);
+        const run = engine.runFile('default', file, recordingReporter(), token());
+        await settle();
+        const before = world.commandsMatching(/dumpconfig/).length;
+        const rediscovery = engine.discover();
+        await settle();
+        await settle();
+        assert.strictEqual(world.commandsMatching(/dumpconfig/).length, before, 'no dumpconfig while the build runs');
+        release();
+        await Promise.all([run, rediscovery]);
+        assert.strictEqual(world.commandsMatching(/dumpconfig/).length, before + 1);
+    });
+
+    test('builds in different directories may run at once', async () => {
+        const world = new FakeCeedling();
+        world.testFiles = ['test/test_calc.c'];
+        for (const dir of ['a', 'b']) world.write(`${WS}/${dir}/test/test_calc.c`, 'void test_add(void) {}\n');
+        const { engine, projects } = await discovered(world, { settings: twoProjects(world, 'a', 'b') });
+        const held: Array<() => void> = [];
+        world.handlers.push((command) => /^ceedling test:/.test(command) ? new Promise<Reply>((resolve) => { held.push(() => resolve({})); }) : undefined);
+        const runs = projects.map((p) => engine.runFile(p.projectKey, p.files[0], recordingReporter(), token()));
+        await settle();
+        assert.deepStrictEqual(world.commands.filter((c) => /^ceedling test:/.test(c.command)).map((c) => c.cwd).sort(), [`${WS}/a`, `${WS}/b`]);
+        held.forEach((release) => release());
+        await Promise.all(runs);
+    });
+
+    // Many watcher events at once, e.g. from a branch checkout, must not exhaust file descriptors.
+    test('reads stay within one shared limit across rediscoveries and reparses', async () => {
+        const world = new FakeCeedling();
+        world.testFiles = Array.from({ length: 40 }, (_, i) => `test/test_m${i}.c`);
+        for (const file of world.testFiles) world.write(`${WS}/${file}`, 'void test_a(void) {}\n');
+        const { engine } = await discovered(world);
+        let open!: () => void;
+        world.readGate = new Promise((resolve) => { open = resolve; });
+        world.maxReadsInFlight = 0;
+        const work = [engine.discover(), ...world.testFiles.map((file) => engine.rediscoverFile('default', file))];
+        await settle();
+        await settle();
+        open();
+        await Promise.all(work);
+        assert.ok(world.maxReadsInFlight <= 16, `at most 16 reads at once, saw ${world.maxReadsInFlight}`);
+        assert.ok(world.maxReadsInFlight > 1, 'reads still overlap');
+    });
+
+    test('test files are read at the same time, and keep their listed order', async () => {
+        const world = new FakeCeedling();
+        world.testFiles = ['test/test_calc.c', 'test/test_more.c'];
+        world.write(`${WS}/test/test_more.c`, 'void test_more(void) {}\n');
+        let open!: () => void;
+        world.readGate = new Promise((resolve) => { open = resolve; });
+        const discovery = makeEngine(world).discover();
+        // eslint-disable-next-line no-await-in-loop -- polls until discovery reaches listing
+        while (!world.commandsMatching(/files:test/).length) await settle();
+        await settle();
+        assert.deepStrictEqual(world.reads.filter((r) => r.includes('/test/')), [`${WS}/test/test_calc.c`, `${WS}/test/test_more.c`]);
+        open();
+        const [project] = await discovery;
+        assert.deepStrictEqual(project.files.map((f) => f.id), ['test/test_calc.c', 'test/test_more.c']);
     });
 });
