@@ -17,6 +17,10 @@ This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 * New `ceedlingExplorer.mixins` and `ceedlingExplorer.projects[].mixins` settings expose Ceedling’s own mixin mechanism, so you can layer toolchain targets, CI overrides, or other configuration without hand-editing `project.yml`. See [Mixins](README.md#mixins).
 * A one-time warning notification when `project.yml` or a configured mixin sets a non-default CppUnit XML report filename, naming the project and the resolved filename.
 
+## 💪 Fixed
+
+* A test declared with whitespace before its parameter list, such as `void test_example (void)`, no longer stays skipped after it passes. Test discovery names each test, and each padded `TEST_CASE( … )`, exactly as Ceedling’s test runner does ([#14](https://github.com/ThrowTheSwitch/vscode-ceedling/issues/14)).
+
 ---
 
 # [2.0.1] — 2026-08-31
