@@ -40,12 +40,10 @@ suite('buildProjectArgs', () => {
         assert.strictEqual(args[args.length - 1], '/ext/bundled.yml');
     });
 
-    test('a path-like value containing whitespace is double-quoted; one without is left alone', () => {
+    // Quoting happens once, when CeedlingRunner builds the command line (see ceedlingProcess.test.ts).
+    test('a value containing whitespace is passed through unquoted', () => {
         const args = buildProjectArgs('project.yml', [], '/Program Files/ext/bundled.yml');
-        assert.deepStrictEqual(args, [
-            '--project', 'project.yml',
-            '--mixin', '"/Program Files/ext/bundled.yml"',
-        ]);
+        assert.deepStrictEqual(args, ['--project', 'project.yml', '--mixin', '/Program Files/ext/bundled.yml']);
     });
 
     test('--project itself is never quoted - it is always the literal "project.yml"', () => {

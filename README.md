@@ -172,7 +172,9 @@ This looks like a VS Code command variable. The extension substitutes it directl
 
 Starting the same launch configuration from F5 or the Run and Debug panel skips that substitution entirely. A guard shows a clear error in that case, instead of a confusing “path does not exist” failure. Always start debugging from a test’s debug icon, not F5 or the Run and Debug panel.
 
-Note: Individual test debugging is not supported — clicking “debug” on a single parametrized test case still runs and debugs its entire containing test file, since Ceedling always compiles and runs a whole test file’s executable at a time. Set or skip breakpoints accordingly.
+Debugging builds and runs the test file first, then starts the debugger. The _Testing_ view shows that run’s real results.
+
+Note: Individual test debugging is not supported — clicking “debug” on a single parametrized test case still runs and debugs its entire containing test file, since Ceedling always compiles and runs a whole test file’s executable at a time. Set or skip breakpoints accordingly. Debugging several files at once debugs only the first, with a notification saying so.
 
 Example configuration with Native Debug (`webfreak.debug`):
 ```json

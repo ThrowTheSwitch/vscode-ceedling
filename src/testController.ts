@@ -1,48 +1,38 @@
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import util from 'util';
 import vscode from 'vscode';
-import {
-    CeedlingEngine,
-    CeedlingFileNode,
-    CeedlingLoadError,
-    CeedlingProjectNode,
-    CeedlingTestFunction,
-    RunReporter,
-} from './ceedlingEngine';
+import { CeedlingEngine, CeedlingLoadError } from './ceedlingEngine';
 import { extractGdbLogReference } from './ceedlingOutputParsing';
 import { Logger } from './logger';
 import { ProblemMatcher } from './problemMatcher';
+import { buildRunPlan, PlanTarget, RunPlanEntry } from './runPlan';
+import { CeedlingFileNode, CeedlingProjectNode, CeedlingTestFunction, RunReporter } from './testModel';
 
-type ItemMeta =
-    | { kind: 'project', projectKey: string }
-    | { kind: 'file' | 'function' | 'case', projectKey: string, file: CeedlingFileNode };
+// Names the launch configuration of one debug request, so its debug session can be told apart
+// from any other session VS Code starts meanwhile.
+const DEBUG_REQUEST_KEY = '__ceedlingDebugRequest';
 
-type RunPlanEntry =
-    | { kind: 'project', projectKey: string, files: CeedlingFileNode[] }
-    | { kind: 'file', projectKey: string, file: CeedlingFileNode }
-    | { kind: 'function', projectKey: string, file: CeedlingFileNode, fn: CeedlingTestFunction };
-
-// Owns one native vscode.TestController for a workspace folder, mirroring the CeedlingEngine's
-// discovery/run output onto TestItem/TestRun. One controller may show multiple Ceedling projects
-// (ceedlingExplorer.projects) as sibling roots.
+// Owns one native vscode.TestController for a workspace folder, mirroring CeedlingEngine's
+// discovery and results onto TestItems and TestRuns. Several Ceedling projects in one folder
+// (ceedlingExplorer.projects) appear as sibling root items.
 export class CeedlingTestController {
 
     private readonly controller: vscode.TestController;
     private readonly engine: CeedlingEngine;
     private readonly disposables: vscode.Disposable[] = [];
 
-    private readonly itemMeta = new WeakMap<vscode.TestItem, ItemMeta>();
-    private readonly idToItem = new Map<string, vscode.TestItem>();
+    private readonly targets = new WeakMap<vscode.TestItem, PlanTarget>();
+    // Item ids are unique only within a project, so lookups are scoped by project key.
+    private readonly items = new Map<string, Map<string, vscode.TestItem>>();
     private readonly watchedReloadFiles = new Set<string>();
     private projects: CeedlingProjectNode[] = [];
-
-    private activeDebugSession: vscode.DebugSession | undefined;
 
     constructor(
         public readonly workspaceFolder: vscode.WorkspaceFolder,
         private readonly logger: Logger,
-        private readonly isDevelopmentMode: boolean,
+        isDevelopmentMode: boolean,
         extensionPath: string,
     ) {
         this.logger.debug(`CeedlingTestController created for ${workspaceFolder.uri.toString()}`);
@@ -51,10 +41,7 @@ export class CeedlingTestController {
             problemMatcher: new ProblemMatcher(logger),
             bundledMixinPath: path.join(extensionPath, 'assets', 'mixins', 'report-tests-log-factory.yml'),
         });
-        this.controller = vscode.tests.createTestController(
-            `ceedlingExplorer:${workspaceFolder.uri.toString()}`,
-            'Ceedling',
-        );
+        this.controller = vscode.tests.createTestController(`ceedlingExplorer:${workspaceFolder.uri.toString()}`, 'Ceedling');
         this.disposables.push(this.controller);
 
         this.controller.resolveHandler = async (item) => {
@@ -66,15 +53,10 @@ export class CeedlingTestController {
             await this.refresh();
         };
 
-        const runProfile = this.controller.createRunProfile(
-            'Run', vscode.TestRunProfileKind.Run,
-            (request, token) => this.handleRun(request, token), true,
+        this.disposables.push(
+            this.controller.createRunProfile('Run', vscode.TestRunProfileKind.Run, (request, token) => this.handleRun(request, token), true),
+            this.controller.createRunProfile('Debug', vscode.TestRunProfileKind.Debug, (request, token) => this.handleDebug(request, token), true),
         );
-        const debugProfile = this.controller.createRunProfile(
-            'Debug', vscode.TestRunProfileKind.Debug,
-            (request, token) => this.handleDebug(request, token), true,
-        );
-        this.disposables.push(runProfile, debugProfile);
 
         this.disposables.push(vscode.workspace.onDidChangeConfiguration(event => {
             if (event.affectsConfiguration("ceedlingExplorer.problemMatching", this.workspaceFolder.uri)) {
@@ -93,37 +75,17 @@ export class CeedlingTestController {
             }
         }));
 
-        // Proactively populate on creation instead of waiting for VS Code to call
-        // resolveHandler, so the tree isn't empty until the user expands something.
+        // Populate now rather than when VS Code first calls resolveHandler, so gutter icons appear
+        // in open test files before the Testing view is ever opened.
         this.refresh();
     }
 
     async clean(): Promise<void> {
-        this.logger.trace(`clean()`);
-        const results = await vscode.window.withProgress(
-            { title: "Ceedling Clean", cancellable: true, location: vscode.ProgressLocation.Notification },
-            async (_progress, token) => {
-                token.onCancellationRequested(() => this.engine.cancel());
-                return this.engine.clean();
-            }
-        );
-        if (results.some((x) => x.error)) {
-            this.logger.showError("Ceedling clean failed");
-        }
+        await this.runTask('Clean', (token) => this.engine.clean(token));
     }
 
     async clobber(): Promise<void> {
-        this.logger.trace(`clobber()`);
-        const results = await vscode.window.withProgress(
-            { title: "Ceedling Clobber", cancellable: true, location: vscode.ProgressLocation.Notification },
-            async (_progress, token) => {
-                token.onCancellationRequested(() => this.engine.cancel());
-                return this.engine.clobber();
-            }
-        );
-        if (results.some((x) => x.error)) {
-            this.logger.showError("Ceedling clobber failed");
-        }
+        await this.runTask('Clobber', (token) => this.engine.clobber(token));
     }
 
     dispose(): void {
@@ -137,6 +99,17 @@ export class CeedlingTestController {
         this.engine.dispose();
     }
 
+    private async runTask(name: string, task: (token: vscode.CancellationToken) => Promise<boolean>): Promise<void> {
+        this.logger.trace(`${name.toLowerCase()}()`);
+        const succeeded = await vscode.window.withProgress(
+            { title: `Ceedling ${name}`, cancellable: true, location: vscode.ProgressLocation.Notification },
+            (_progress, token) => task(token),
+        );
+        if (!succeeded) {
+            this.logger.showError(`Ceedling ${name.toLowerCase()} failed`);
+        }
+    }
+
     private async refresh(): Promise<void> {
         this.logger.trace(`refresh()`);
         try {
@@ -148,63 +121,53 @@ export class CeedlingTestController {
             this.projects = [];
         }
         this.rebuildTree();
-        // Prunes any Problems-panel diagnostic left over under an id (a file, or a whole
-        // project) that no longer exists after this refresh - e.g. a deleted or renamed test
-        // file, or a changed ceedlingExplorer.projects setting. Nothing else ever prunes these;
-        // a run only ever adds or replaces its own id's entry.
-        this.engine.problemMatcher.setActualIds(this.currentDiagnosticsIds());
         this.watchFilesForReload(this.engine.getYmlProjectPaths());
     }
 
-    // Every id CeedlingEngine.runInternal ever uses as a diagnosticsId: a project key (a
-    // whole-project run) or a file id (a file or single-function run - both key their
-    // diagnostics under the file, see CeedlingEngine.runFunction).
-    private currentDiagnosticsIds(): string[] {
-        return this.projects.flatMap((project) => [project.projectKey, ...project.files.map((file) => file.id)]);
-    }
-
     private rebuildTree(): void {
-        this.idToItem.clear();
+        this.items.clear();
         const multiProject = this.projects.length > 1;
         const rootItems: vscode.TestItem[] = [];
         for (const project of this.projects) {
-            const fileItems = project.files.map((file) => this.buildFileItem(project.projectKey, file));
+            const projectItems = new Map<string, vscode.TestItem>();
+            this.items.set(project.projectKey, projectItems);
+            const fileItems = project.files.map((file) => this.buildFileItem(project.projectKey, file, projectItems));
             if (multiProject) {
                 const projectItem = this.controller.createTestItem(project.projectKey, project.label);
                 projectItem.children.replace(fileItems);
-                this.itemMeta.set(projectItem, { kind: 'project', projectKey: project.projectKey });
+                this.targets.set(projectItem, { kind: 'project', projectKey: project.projectKey });
                 rootItems.push(projectItem);
             } else {
                 rootItems.push(...fileItems);
             }
         }
         this.controller.items.replace(rootItems);
-        this.logger.debug(`rebuildTree: ${this.projects.length} project(s), ${this.idToItem.size} file/function/case item(s)`);
+        this.logger.debug(`rebuildTree: ${this.projects.length} project(s)`);
     }
 
-    private buildFileItem(projectKey: string, file: CeedlingFileNode): vscode.TestItem {
+    private buildFileItem(projectKey: string, file: CeedlingFileNode, projectItems: Map<string, vscode.TestItem>): vscode.TestItem {
         const uri = vscode.Uri.file(file.absPath);
         const fileItem = this.controller.createTestItem(file.id, file.label, uri);
-        this.itemMeta.set(fileItem, { kind: 'file', projectKey, file });
-        this.idToItem.set(file.id, fileItem);
-        fileItem.children.replace(file.functions.map((fn) => this.buildFunctionItem(projectKey, file, fn, uri)));
+        this.targets.set(fileItem, { kind: 'file', projectKey, fileId: file.id });
+        projectItems.set(file.id, fileItem);
+        fileItem.children.replace(file.functions.map((fn) => this.buildFunctionItem(projectKey, file, fn, uri, projectItems)));
         return fileItem;
     }
 
-    private buildFunctionItem(projectKey: string, file: CeedlingFileNode, fn: CeedlingTestFunction, uri: vscode.Uri): vscode.TestItem {
+    private buildFunctionItem(
+        projectKey: string, file: CeedlingFileNode, fn: CeedlingTestFunction, uri: vscode.Uri, projectItems: Map<string, vscode.TestItem>,
+    ): vscode.TestItem {
         const item = this.controller.createTestItem(fn.id, fn.label, uri);
         item.range = new vscode.Range(fn.line, 0, fn.line, 0);
-        this.itemMeta.set(item, { kind: 'function', projectKey, file });
-        this.idToItem.set(fn.id, item);
-        if (fn.cases.length > 0) {
-            item.children.replace(fn.cases.map((testCase) => {
-                const caseItem = this.controller.createTestItem(testCase.id, testCase.label, uri);
-                caseItem.range = new vscode.Range(testCase.line, 0, testCase.line, 0);
-                this.itemMeta.set(caseItem, { kind: 'case', projectKey, file });
-                this.idToItem.set(testCase.id, caseItem);
-                return caseItem;
-            }));
-        }
+        this.targets.set(item, { kind: 'function', projectKey, fileId: file.id, functionId: fn.id });
+        projectItems.set(fn.id, item);
+        item.children.replace(fn.cases.map((testCase) => {
+            const caseItem = this.controller.createTestItem(testCase.id, testCase.label, uri);
+            caseItem.range = new vscode.Range(testCase.line, 0, testCase.line, 0);
+            this.targets.set(caseItem, { kind: 'case', projectKey, fileId: file.id, functionId: fn.id, caseId: testCase.id });
+            projectItems.set(testCase.id, caseItem);
+            return caseItem;
+        }));
         return item;
     }
 
@@ -220,104 +183,72 @@ export class CeedlingTestController {
         }
     }
 
-    // Ceedling always compiles a whole test file at a time, but can run and report just one
-    // function within it via --test-case (see CeedlingEngine.runFunction). A single function or
-    // case click narrows to that function; a whole file, project, or "run everything" runs the
-    // full file. A case never isolates further than its own function - Ceedling's --test-case
-    // filter has function-level granularity only, so all of a parametrized function's cases run
-    // (and get reported) together.
-    private buildRunPlan(include: readonly vscode.TestItem[] | undefined): RunPlanEntry[] {
-        const plan: RunPlanEntry[] = [];
-        const seenFiles = new Set<string>();
-        const seenFunctions = new Set<string>();
-        const seenProjects = new Set<string>();
-
-        const addFile = (projectKey: string, file: CeedlingFileNode) => {
-            const key = `${projectKey}::${file.id}`;
-            if (seenFiles.has(key)) return;
-            seenFiles.add(key);
-            // A whole-file run already covers any function of this file added narrower, earlier
-            // in the same request - drop those so the file doesn't run twice.
-            for (let i = plan.length - 1; i >= 0; i--) {
-                const entry = plan[i];
-                if (entry.kind === 'function' && entry.projectKey === projectKey && entry.file.id === file.id) {
-                    plan.splice(i, 1);
-                }
+    private planFor(request: vscode.TestRunRequest): RunPlanEntry[] {
+        const toTargets = (items: readonly vscode.TestItem[]) => items.flatMap((item) => {
+            const target = this.targets.get(item);
+            if (!target) {
+                this.logger.warn(`planFor: no target for TestItem '${item.id}', skipping`);
             }
-            plan.push({ kind: 'file', projectKey, file });
-        };
-        const addFunction = (projectKey: string, file: CeedlingFileNode, fn: CeedlingTestFunction) => {
-            const key = `${projectKey}::${fn.id}`;
-            if (seenFiles.has(`${projectKey}::${file.id}`) || seenFunctions.has(key)) return;
-            seenFunctions.add(key);
-            plan.push({ kind: 'function', projectKey, file, fn });
-        };
-        const addProject = (projectKey: string, files: CeedlingFileNode[]) => {
-            if (seenProjects.has(projectKey)) return;
-            seenProjects.add(projectKey);
-            plan.push({ kind: 'project', projectKey, files });
-        };
-
-        if (include === undefined) {
-            // Run everything: always per-file, never the bulk "test:all" shortcut, which is only
-            // used when a project-level node is explicitly targeted (see addProject below).
-            for (const project of this.projects) {
-                for (const file of project.files) {
-                    addFile(project.projectKey, file);
-                }
-            }
-            return plan;
-        }
-
-        for (const item of include) {
-            const meta = this.itemMeta.get(item);
-            if (!meta) {
-                this.logger.warn(`buildRunPlan: no metadata for requested TestItem '${item.id}', skipping`);
-                continue;
-            }
-            if (meta.kind === 'project') {
-                const project = this.projects.find((p) => p.projectKey === meta.projectKey);
-                if (project) addProject(meta.projectKey, project.files);
-            } else if (meta.kind === 'file') {
-                addFile(meta.projectKey, meta.file);
-            } else if (meta.kind === 'function') {
-                const fn = meta.file.functions.find((f) => f.id === item.id);
-                if (fn) addFunction(meta.projectKey, meta.file, fn); else addFile(meta.projectKey, meta.file);
-            } else {
-                // 'case': narrows to its containing function, not to just this one case.
-                const fn = meta.file.functions.find((f) => f.cases.some((c) => c.id === item.id));
-                if (fn) addFunction(meta.projectKey, meta.file, fn); else addFile(meta.projectKey, meta.file);
-            }
-        }
-        return plan;
+            return target ? [target] : [];
+        });
+        return buildRunPlan(this.projects, request.include && toTargets(request.include), toTargets(request.exclude ?? []));
     }
 
-    private makeReporter(run: vscode.TestRun): RunReporter {
-        const warnUnmapped = (callback: string, id: string) => {
-            this.logger.warn(`makeReporter.${callback}: no TestItem found for id '${id}', dropping this result`);
+    // Every item an entry runs, for marking them enqueued before any of them starts.
+    private itemsOf(entry: RunPlanEntry): vscode.TestItem[] {
+        const items = this.items.get(entry.projectKey);
+        const roots = entry.kind === 'project' ? entry.files.map((f) => items?.get(f.id))
+            : entry.kind === 'file' ? [items?.get(entry.file.id)]
+                : [items?.get(entry.fn.id)];
+        const all: vscode.TestItem[] = [];
+        const collect = (item: vscode.TestItem | undefined) => {
+            if (!item) return;
+            all.push(item);
+            item.children.forEach(collect);
+        };
+        roots.forEach(collect);
+        return all;
+    }
+
+    // Excluded items and everything beneath them. A run that can't leave them out of what
+    // Ceedling runs, such as one case of a function, still reports nothing for them.
+    private excludedItems(request: vscode.TestRunRequest): Set<vscode.TestItem> {
+        const excluded = new Set<vscode.TestItem>();
+        const collect = (item: vscode.TestItem) => {
+            excluded.add(item);
+            item.children.forEach(collect);
+        };
+        (request.exclude ?? []).forEach(collect);
+        return excluded;
+    }
+
+    private makeReporter(run: vscode.TestRun, projectKey: string, excluded: Set<vscode.TestItem>): RunReporter {
+        const items = this.items.get(projectKey);
+        const lookup = (callback: string, id: string): vscode.TestItem | undefined => {
+            const item = items?.get(id);
+            if (!item) {
+                this.logger.warn(`makeReporter.${callback}: no TestItem for '${id}' in project '${projectKey}', dropping this result`);
+            }
+            return item && !excluded.has(item) ? item : undefined;
         };
         return {
             started: (id) => {
-                const item = this.idToItem.get(id);
-                if (item) run.started(item); else warnUnmapped('started', id);
+                const item = lookup('started', id);
+                if (item) run.started(item);
             },
             passed: (id) => {
-                const item = this.idToItem.get(id);
-                if (item) run.passed(item); else warnUnmapped('passed', id);
+                const item = lookup('passed', id);
+                if (item) run.passed(item);
             },
             failed: (id, message, line) => {
-                const item = this.idToItem.get(id);
-                if (!item) { warnUnmapped('failed', id); return; }
-                const meta = this.itemMeta.get(item);
+                const item = lookup('failed', id);
+                if (!item) return;
+                // Ceedling 1.1.0+'s :use_backtrace: :gdb ends a crash message with a gdb log
+                // path, relative to the project directory. It becomes a clickable link.
                 const { text, logPath } = extractGdbLogReference(message);
-                // Ceedling 1.1.0+'s :use_backtrace: :gdb references a per-test-case gdb log file
-                // at the end of a crash message. Turn that reference into an actual clickable
-                // link, resolved against the project's absolute path (the reference itself is
-                // relative to the project directory). Ceedling 1.0.0 output never matches this
-                // pattern, so this is always a plain message there.
-                const testMessage = (logPath !== undefined && meta)
+                const testMessage = logPath !== undefined
                     ? new vscode.TestMessage(new vscode.MarkdownString(
-                        `${text}\n\n[${logPath}](${vscode.Uri.file(path.resolve(this.engine.getProjectAbsPath(meta.projectKey), logPath)).toString()})`
+                        `${text}\n\n[${logPath}](${vscode.Uri.file(path.resolve(this.engine.getProjectAbsPath(projectKey), logPath)).toString()})`
                     ))
                     : new vscode.TestMessage(message);
                 if (line !== undefined && item.uri) {
@@ -326,16 +257,15 @@ export class CeedlingTestController {
                 run.failed(item, testMessage);
             },
             skipped: (id) => {
-                const item = this.idToItem.get(id);
-                if (item) run.skipped(item); else warnUnmapped('skipped', id);
+                const item = lookup('skipped', id);
+                if (item) run.skipped(item);
             },
             errored: (id, message, location) => {
-                const item = this.idToItem.get(id);
-                if (!item) { warnUnmapped('errored', id); return; }
+                const item = lookup('errored', id);
+                if (!item) return;
                 const testMessage = new vscode.TestMessage(message);
                 if (location) {
-                    // The diagnostic's own file, not item.uri. The failing line can be in an
-                    // included header, not necessarily the test file itself.
+                    // The diagnostic's own file, which may be a header rather than the test file.
                     testMessage.location = new vscode.Location(vscode.Uri.file(location.file), new vscode.Position(location.line, 0));
                 }
                 run.errored(item, testMessage);
@@ -344,15 +274,19 @@ export class CeedlingTestController {
         };
     }
 
+    // Cancellation reaches Ceedling through `token`, which stops only this run's processes.
     private async handleRun(request: vscode.TestRunRequest, token: vscode.CancellationToken): Promise<void> {
         const run = this.controller.createTestRun(request);
-        token.onCancellationRequested(() => this.engine.cancel());
-        const reporter = this.makeReporter(run);
         try {
-            const plan = this.buildRunPlan(request.include);
-            this.logger.debug(`handleRun: starting, plan has ${plan.length} entr${plan.length === 1 ? 'y' : 'ies'}`);
+            const plan = this.planFor(request);
+            const excluded = this.excludedItems(request);
+            this.logger.debug(`handleRun: plan has ${plan.length} entr${plan.length === 1 ? 'y' : 'ies'}`);
+            for (const item of plan.flatMap((entry) => this.itemsOf(entry))) {
+                if (!excluded.has(item)) run.enqueued(item);
+            }
             for (const entry of plan) {
                 if (token.isCancellationRequested) break;
+                const reporter = this.makeReporter(run, entry.projectKey, excluded);
                 if (entry.kind === 'project') {
                     await this.engine.runProjectAll(entry.projectKey, entry.files, reporter, token);
                 } else if (entry.kind === 'function') {
@@ -364,84 +298,78 @@ export class CeedlingTestController {
         } catch (e) {
             this.logger.error(`handleRun error: ${util.format(e)}`);
         } finally {
-            this.logger.debug(`handleRun: done`);
             run.end();
         }
     }
 
+    // Debugs one test file. Ceedling builds a whole file into one executable, so a request
+    // naming several files debugs the first and says so. The build also runs the file's tests,
+    // whose real results are reported before the debugger starts.
     private async handleDebug(request: vscode.TestRunRequest, token: vscode.CancellationToken): Promise<void> {
         const run = this.controller.createTestRun(request);
-        token.onCancellationRequested(() => {
-            this.engine.cancel();
-            if (this.activeDebugSession) {
-                vscode.debug.stopDebugging(this.activeDebugSession);
-            }
-        });
+        const listeners: vscode.Disposable[] = [];
         try {
-            // Only whole-file debugging is supported (Ceedling always builds/runs a whole test
-            // file's executable) - if multiple items are targeted, debug just the first.
-            const plan = this.buildRunPlan(request.include);
-            const first = plan[0];
-            if (!first) {
-                this.logger.debug(`handleDebug: empty run plan, nothing to debug`);
-                return;
-            }
-            const { projectKey, file } = first.kind === 'project'
-                ? { projectKey: first.projectKey, file: first.files[0] }
-                : first;
+            const plan = this.planFor(request);
+            const files = plan.flatMap((entry) => entry.kind === 'project' ? entry.files : [entry.file]);
+            const file = files[0];
             if (!file) {
-                this.logger.debug(`handleDebug: no file resolved from plan entry (project=${projectKey})`);
+                this.logger.debug(`handleDebug: nothing to debug`);
                 return;
             }
+            if (new Set(files.map((f) => `${f.projectKey}::${f.id}`)).size > 1) {
+                vscode.window.showInformationMessage(`Debugging ${file.id} only. Ceedling debugs one test file at a time.`);
+            }
 
-            const reporter = this.makeReporter(run);
-            const executableSubpath = await this.engine.compileForDebug(projectKey, file, reporter);
+            const reporter = this.makeReporter(run, file.projectKey, this.excludedItems(request));
+            const executableSubpath = await this.engine.compileForDebug(file.projectKey, file, reporter, token);
             if (executableSubpath === undefined || token.isCancellationRequested) {
-                this.logger.debug(`handleDebug: compile failed or cancelled for ${file.id}, not starting debugger`);
+                this.logger.debug(`handleDebug: build failed or cancelled for ${file.id}, not starting the debugger`);
                 return;
             }
 
-            const debugLaunchConfig = this.engine.getDebugLaunchConfig(projectKey);
-            const resolvedConfig = this.resolveLaunchConfig(debugLaunchConfig, executableSubpath);
-            if (!resolvedConfig) {
-                this.logger.warn(`handleDebug: no debug configuration named '${debugLaunchConfig}' found in launch.json`);
-                reporter.failed(file.id, `No debug configuration named '${debugLaunchConfig}' found in launch.json.`);
+            const debugLaunchConfig = this.engine.getDebugLaunchConfig(file.projectKey);
+            const config = this.resolveLaunchConfig(debugLaunchConfig, executableSubpath);
+            if (!config) {
+                this.logger.warn(`handleDebug: no debug configuration named '${debugLaunchConfig}' in launch.json`);
+                vscode.window.showErrorMessage(`No debug configuration named '${debugLaunchConfig}' found in launch.json.`);
                 return;
             }
 
+            const requestId = crypto.randomUUID();
+            config[DEBUG_REQUEST_KEY] = requestId;
+            let session: vscode.DebugSession | undefined;
             const terminated = new Promise<void>((resolve) => {
-                const disposable = vscode.debug.onDidTerminateDebugSession((session) => {
-                    if (session.name === resolvedConfig.name) {
-                        this.logger.debug(`handleDebug: debug session '${session.name}' terminated`);
-                        this.activeDebugSession = undefined;
-                        disposable.dispose();
+                listeners.push(
+                    vscode.debug.onDidStartDebugSession((started) => {
+                        if (started.configuration[DEBUG_REQUEST_KEY] === requestId) session = started;
+                    }),
+                    vscode.debug.onDidTerminateDebugSession((ended) => {
+                        if (ended.configuration[DEBUG_REQUEST_KEY] === requestId) resolve();
+                    }),
+                    token.onCancellationRequested(() => {
+                        if (session) vscode.debug.stopDebugging(session);
                         resolve();
-                    }
-                });
+                    }),
+                );
             });
-
-            const started = await vscode.debug.startDebugging(this.workspaceFolder, resolvedConfig);
-            if (!started) {
-                this.logger.warn(`handleDebug: vscode.debug.startDebugging returned false for config '${resolvedConfig.name}'`);
-                reporter.failed(file.id, 'Debugger could not be started. Check your ceedlingExplorer.projects parameter in settings.');
+            if (!await vscode.debug.startDebugging(this.workspaceFolder, config)) {
+                this.logger.warn(`handleDebug: vscode.debug.startDebugging returned false for '${config.name}'`);
+                vscode.window.showErrorMessage(`The debugger could not be started with '${config.name}'. Check ceedlingExplorer.projects and launch.json.`);
                 return;
             }
-            this.activeDebugSession = vscode.debug.activeDebugSession;
-            this.logger.debug(`handleDebug: debug session '${resolvedConfig.name}' started`);
+            this.logger.debug(`handleDebug: debug session '${config.name}' started`);
             await terminated;
-            reporter.passed(file.id);
         } catch (e) {
             this.logger.error(`Debug error: ${util.format(e)}`);
         } finally {
+            listeners.forEach((listener) => listener.dispose());
             run.end();
         }
     }
 
-    // Splices the resolved test executable's relative path into every occurrence of
-    // ${command:ceedlingExplorer.debugTestExecutable} in the user's named launch.json
-    // configuration, so debugging no longer depends on VS Code resolving a registered command
-    // against extension-held mutable state at an unpredictable time (the root cause behind
-    // issue #2's "wrong executable" reports).
+    // Splices the built test executable's relative path into every occurrence of
+    // ${command:ceedlingExplorer.debugTestExecutable} in the named launch.json configuration.
+    // VS Code never resolves the token itself, so debugging doesn't depend on when it would.
     private resolveLaunchConfig(debugLaunchConfig: string, executableSubpath: string): vscode.DebugConfiguration | undefined {
         const configurations = vscode.workspace
             .getConfiguration('launch', this.workspaceFolder.uri)
@@ -453,7 +381,7 @@ export class CeedlingTestController {
         }
         this.logger.debug(`resolveLaunchConfig: resolved '${debugLaunchConfig}' with executableSubpath='${executableSubpath}'`);
         return JSON.parse(
-            JSON.stringify(found).replace(/\$\{command:ceedlingExplorer\.debugTestExecutable\}/g, executableSubpath)
+            JSON.stringify(found).replace(/\$\{command:ceedlingExplorer\.debugTestExecutable\}/g, () => executableSubpath)
         );
     }
 }
