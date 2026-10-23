@@ -12,11 +12,15 @@ Project configuration is now resolved with Ceedling’s own `ceedling dumpconfig
 
 The `report_tests_log_factory` plugin’s `cppunit` report, which the Testing view depends on to read results, is now enabled automatically via a mixin bundled with the extension. Manually editing `project.yml` to enable it is no longer necessary. New `ceedlingExplorer.mixins` and `ceedlingExplorer.projects[].mixins` settings expose Ceedling’s own mixin mechanism directly, for anyone who wants to layer toolchain targets, CI overrides, or other configuration. See [Mixins](../README.md#mixins).
 
-Test discovery now names tests exactly as Ceedling’s own test runner does. A test declared with a space before its parameter list, or with its body on one line, previously stayed skipped even when it passed ([#14](https://github.com/ThrowTheSwitch/vscode-ceedling/issues/14)).
+Test discovery now follows Ceedling’s own test runner exactly. Every test name, and every parametrized case name, matches what Ceedling reports. A test declared with a space before its parameter list, or with its body on one line, previously stayed skipped even when it passed ([#14](https://github.com/ThrowTheSwitch/vscode-ceedling/issues/14)). Commented-out tests no longer appear. Unity’s `TEST_MATRIX()` and exclusive `TEST_RANGE(<start, end, step>)` cases now appear individually.
 
 `:unity: :test_prefix:` was never a real Ceedling setting — a misunderstanding inherited from the original extension — and is no longer read. If you want to change the recognized prefix of test-case functions, set `:test_runner: :test_prefix:`, which Ceedling actually supports.
 
 ## 🚨 Important Changes
+
+The `ceedlingExplorer.testCaseMacroAliases` and `ceedlingExplorer.testRangeMacroAliases` settings are removed. Ceedling recognizes only the literal `TEST_CASE`, `TEST_RANGE`, and `TEST_MATRIX` markers, so these settings never worked. See [BreakingChanges.md](BreakingChanges.md).
+
+Parametrized cases now appear in the _Testing_ view only when `:unity` ↳ `:use_param_tests` is enabled, matching how Ceedling runs them. With it disabled, Ceedling runs a marked function once, and the view shows it once.
 
 Existing `project.yml` files that already enable `report_tests_log_factory` themselves continue to work unchanged; the extension’s mixin is additive.
 

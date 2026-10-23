@@ -4,6 +4,10 @@ Complemented by three other documents: [../CHANGELOG.md](../CHANGELOG.md), [Rele
 
 ---
 
+## Ceedling versions before 1.2.0
+
+1. A parametrized test whose arguments contain `<` or `&` (e.g. `TEST_CASE(1 < 2)`) makes every test in its file show an error. Ceedling before 1.2.0 writes these characters unescaped into its XML test report, and the extension cannot read the malformed report. Ceedling 1.2.0 fixes this.
+
 ## All versions
 
 1. Individual parametrized test-case debugging is not supported — Ceedling always builds and runs a whole test file’s executable, so debugging always targets the containing file, never a single `TEST_CASE`/`TEST_RANGE` case.
