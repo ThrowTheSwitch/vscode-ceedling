@@ -8,7 +8,9 @@ import type { CeedlingExplorerApi } from '../../src/main';
 
 const EXTENSION_ID = 'throw-the-switch.vscode-ceedling';
 
-suite('Extension in VS Code', () => {
+suite('Extension in VS Code', function () {
+    // Setup waits for discovery, which runs Node processes and outlasts mocha's default 2s.
+    this.timeout(60000);
     suiteSetup(async () => {
         const api = await vscode.extensions.getExtension<CeedlingExplorerApi | undefined>(EXTENSION_ID)!.activate();
         // Clean acts on discovered projects, so discovery must have finished first.
