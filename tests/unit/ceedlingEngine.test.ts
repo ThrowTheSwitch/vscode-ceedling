@@ -4,7 +4,9 @@ import * as fs from 'fs';
 import yaml from 'js-yaml';
 import * as path from 'path';
 import type vscode from 'vscode';
-import { CeedlingEngine } from '../../src/ceedlingEngine';
+import * as xml2js from 'xml2js';
+import { CeedlingEngine, CeedlingFileNode } from '../../src/ceedlingEngine';
+import { getTestListFromXmlReport } from '../../src/ceedlingXmlReport';
 import type { Logger } from '../../src/logger';
 import type { ProblemMatcher } from '../../src/problemMatcher';
 
@@ -357,4 +359,33 @@ suite('loadProjectPaths: mixins are logged for diagnosis', () => {
         assert.ok(line, 'expected a loadProjectPaths debug log line');
         assert.match(line!.message, /mixins.*gcc/);
     });
+});
+
+const fixturesRoot = path.resolve(__dirname, '..', '..', '..', 'tests', 'fixtures');
+
+function parseXmlFixture(...segments: string[]): Promise<any> {
+    const data = fs.readFileSync(path.resolve(fixturesRoot, ...segments), 'utf8');
+    return new xml2js.Parser({ explicitArray: false }).parseStringPromise(data);
+}
+
+// The ids a run reports results against: a parametrized function's cases, or the function itself.
+function leafIds(file: CeedlingFileNode): string[] {
+    return file.functions.flatMap((fn) => fn.cases.length > 0 ? fn.cases.map((c) => c.id) : [fn.id]);
+}
+
+// Discovery must produce exactly the test names Ceedling reports, or a result has no item to land
+// on and the item ends the run as skipped. Each report was captured by running
+// tests/fixtures/source/test_whitespace.c through that Ceedling version, as test/test_whitespace.c.
+suite('getTestFileNodes: discovered ids equal real Ceedling report names', () => {
+    for (const version of ['ceedling-1.0.0', 'ceedling-1.1.10', 'ceedling-1.2.0']) {
+        test(`${version}: test_whitespace.c`, async () => {
+            const engine = makeEngine();
+            withProject(engine, 'proj', { absPath: path.resolve(fixturesRoot, 'source'), ymlFileName: 'project.yml' });
+            const [file] = Array.from((engine as any).getTestFileNodes('proj', ['test_whitespace.c']) as Iterable<CeedlingFileNode>);
+            const report = await parseXmlFixture(version, 'cppunit-report-whitespace.xml');
+            const reported = getTestListFromXmlReport(report, 'SuccessfulTests')
+                .map((t: any) => (t['Name'] as string).replace(/^test\//, ''));
+            assert.deepStrictEqual(leafIds(file), reported);
+        });
+    }
 });
