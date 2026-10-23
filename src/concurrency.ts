@@ -6,8 +6,9 @@ type Failure = { reason: unknown };
 
 // Runs `work` for every item, concurrently across groups and one item at a time within a group.
 // Results keep the items' order. At the first failure no new work starts, work already in flight
-// finishes, and then the first failure rejects, so nothing keeps running after the caller moves on. Two Ceedling processes in one project directory, for example,
-// could collide on its build files, while different directories can't.
+// finishes, and then the first failure rejects, so nothing keeps running after the caller moves
+// on. Two Ceedling processes in one project directory, for example, could collide on its build
+// files, while different directories can't.
 export async function mapGrouped<T, R>(items: readonly T[], groupOf: (item: T) => string, work: (item: T) => Promise<R>): Promise<R[]> {
     const groups = new Map<string, Array<Entry<T>>>();
     items.forEach((item, index) => {

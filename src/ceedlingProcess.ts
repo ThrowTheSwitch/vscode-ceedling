@@ -125,12 +125,16 @@ export class CeedlingRunner {
     }
 }
 
+// The one tree-kill call made, without its overloads, so a test double is easy to write.
+type TreeKill = (pid: number, signal: string, callback: (error?: Error) => void) => void;
+
 // Kills a process and every process beneath it. Linux reads the tree from /proc. tree-kill would
 // spawn `ps` there, which minimal containers lack, and its unhandled spawn error would crash the
 // extension host. Elsewhere tree-kill uses taskkill (Windows) or pgrep (macOS), both always
-// present. A failure falls back to killing the root process alone.
-export function killProcessTree(pid: number): void {
-    if (process.platform === 'linux') {
+// present. A failure falls back to killing the root process alone. Tests substitute `platform`
+// and `treeKill` to reach that fallback.
+export function killProcessTree(pid: number, deps: { platform?: NodeJS.Platform, treeKill?: TreeKill } = {}): void {
+    if ((deps.platform ?? process.platform) === 'linux') {
         for (const target of descendantsOf(pid, linuxProcessParents())) {
             try {
                 process.kill(target, 'SIGTERM');
@@ -140,7 +144,7 @@ export function killProcessTree(pid: number): void {
         }
         return;
     }
-    treeKill(pid, 'SIGTERM', (error) => {
+    (deps.treeKill ?? treeKill)(pid, 'SIGTERM', (error) => {
         if (error) {
             try {
                 process.kill(pid, 'SIGTERM');

@@ -1,9 +1,10 @@
 import * as assert from 'assert';
 import type * as child_process from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import type vscode from 'vscode';
-import { CeedlingEngine, type EngineFileSystem } from '../../src/ceedlingEngine';
+import { CeedlingEngine, type EngineFileSystem, nodeFileSystem } from '../../src/ceedlingEngine';
 import { type Cancellation, CeedlingRunner } from '../../src/ceedlingProcess';
 import { CeedlingLoadError } from '../../src/ceedlingProjectConfig';
 import type { Logger } from '../../src/logger';
@@ -27,7 +28,7 @@ class FakeCeedling {
     files = new Map<string, string>();
     mtimes = new Map<string, number>();
     directories = new Set<string>([WS]);
-    commands: Array<{ command: string, cwd: string }> = [];
+    commands: Array<{ command: string, cwd: string, shell?: string }> = [];
     handlers: Handler[] = [];
     version = '1.2.0';
     resolvedConfig = `:plugins:\n  :enabled:\n    - report_tests_log_factory\n:unity:\n  :use_param_tests: true\n`;
@@ -36,6 +37,8 @@ class FakeCeedling {
     reads: string[] = [];
     readsInFlight = 0;
     maxReadsInFlight = 0;
+    // Paths that refuse to be deleted, as a file held open on Windows does.
+    undeletable = new Set<string>();
     // While set, every file read waits for it, so a test can observe reads in flight.
     readGate: Promise<void> | undefined;
     private clock = 1;
@@ -65,7 +68,10 @@ class FakeCeedling {
                 if (content === undefined) throw Object.assign(new Error(`ENOENT: ${p}`), { code: 'ENOENT' });
                 return content;
             },
-            unlink: async (p) => { this.files.delete(p); },
+            unlink: async (p) => {
+                if (this.undeletable.has(p)) throw Object.assign(new Error(`EPERM: ${p}`), { code: 'EPERM' });
+                this.files.delete(p);
+            },
             mtimeMs: async (p) => this.mtimes.get(p),
         };
     }
@@ -74,7 +80,7 @@ class FakeCeedling {
         let pid = 1000;
         const exec = ((command: string, options: child_process.ExecOptions, callback: any) => {
             const cwd = String(options.cwd);
-            this.commands.push({ command, cwd });
+            this.commands.push({ command, cwd, shell: options.shell });
             void Promise.resolve(this.reply(command, cwd)).then((reply) => {
                 for (const [file, content] of Object.entries(reply.writes ?? {})) this.write(file, content);
                 callback(reply.error ? new Error(`exit 1: ${command}`) : null, reply.stdout ?? '', reply.stderr ?? '');
@@ -139,7 +145,8 @@ class FakeProblemMatcher {
         for (const id of [...this.entries.keys()]) if (!keep(id)) this.entries.delete(id);
     }
     clear() { this.entries.clear(); }
-    dispose() { }
+    disposed = false;
+    dispose() { this.disposed = true; }
 }
 
 function diagnostic(file: string, line: number, severity: number, message: string): FileDiagnostic {
@@ -304,6 +311,43 @@ suite('CeedlingEngine.discover', () => {
         assert.ok(logs.some((l) => l.level === 'warn' && /test_missing/.test(l.message)));
     });
 
+    test('dumpconfig output that is not YAML is a load error, with the parse error logged', async () => {
+        const world = new FakeCeedling();
+        world.resolvedConfig = ':plugins: [unclosed\n';
+        const logs: LogCall[] = [];
+        await assert.rejects(makeEngine(world, { logs }).discover(), (e: unknown) => e instanceof CeedlingLoadError && /dumpconfig/.test(e.message));
+        assert.ok(logs.some((l) => l.level === 'error' && /could not parse dumpconfig output/.test(l.message)));
+    });
+
+    test('a failed test listing is logged, and leaves the project without test files', async () => {
+        const world = new FakeCeedling();
+        world.handlers.push((command) => /^ceedling files:test/.test(command) ? { error: true, stderr: 'boom' } : undefined);
+        const logs: LogCall[] = [];
+        const { projects } = await discovered(world, { logs });
+        assert.deepStrictEqual(projects[0].files, []);
+        assert.ok(logs.some((l) => l.level === 'error' && /files:test/.test(l.message)));
+    });
+
+    test("a test file's discovery warnings are logged, naming the file", async () => {
+        const world = new FakeCeedling();
+        world.write(`${WS}/test/test_calc.c`, 'TEST_RANGE([0, 2, 0])\nvoid test_z(int x) {}\n');
+        const logs: LogCall[] = [];
+        await discovered(world, { logs });
+        assert.ok(logs.some((l) => l.level === 'warn' && /test\/test_calc\.c/.test(l.message) && /zero step/.test(l.message)));
+    });
+
+    test('a test file prefix that is not a valid pattern leaves file labels plain, with a warning', async () => {
+        const world = new FakeCeedling();
+        world.resolvedConfig += ':project:\n  :test_file_prefix: "test_("\n';
+        world.testFiles = ['test/test_(calc.c'];
+        world.write(`${WS}/test/test_(calc.c`, 'void test_add(void) {}\n');
+        const logs: LogCall[] = [];
+        const { file } = await discovered(world, { logs });
+        assert.strictEqual(file.label, 'test/test_(calc.c');
+        assert.strictEqual(file.functions[0].label, 'add');
+        assert.ok(logs.some((l) => l.level === 'warn' && /Pretty labels are unavailable/.test(l.message)));
+    });
+
     test('the project file is watched even when discovery fails', async () => {
         const world = new FakeCeedling();
         world.resolvedConfig = ':plugins:\n  :enabled: []\n';
@@ -334,6 +378,35 @@ suite('CeedlingEngine with Ceedling before 1.2.0', () => {
         await discovered(world);
         assert.match(world.commands[1].command, new RegExp(`^ceedling dumpconfig /tmp/\\S+\\.yml ${PROJECT_ARGS}$`));
         assert.ok(![...world.files.keys()].some((f) => f.startsWith('/tmp/')));
+    });
+
+    test('a failed dumpconfig is a load error, logged', async () => {
+        const world = new FakeCeedling();
+        world.version = '1.1.10';
+        world.handlers.push((command) => /^ceedling dumpconfig/.test(command) ? { error: true } : undefined);
+        const logs: LogCall[] = [];
+        await assert.rejects(makeEngine(world, { logs }).discover(), CeedlingLoadError);
+        assert.ok(logs.some((l) => l.level === 'error' && /'ceedling dumpconfig' failed/.test(l.message)));
+    });
+
+    test('a dumpconfig that writes no file is a load error, logged', async () => {
+        const world = new FakeCeedling();
+        world.version = '1.1.10';
+        world.handlers.push((command) => /^ceedling dumpconfig/.test(command) ? {} : undefined);
+        const logs: LogCall[] = [];
+        await assert.rejects(makeEngine(world, { logs }).discover(), CeedlingLoadError);
+        assert.ok(logs.some((l) => l.level === 'error' && /could not read dumpconfig output/.test(l.message)));
+    });
+
+    test("a temporary file that can't be removed doesn't fail discovery", async () => {
+        const world = new FakeCeedling();
+        world.version = '1.1.10';
+        world.handlers.push((command) => {
+            const dump = /^ceedling dumpconfig (\S+)/.exec(command);
+            if (dump) world.undeletable.add(dump[1]);
+            return undefined;
+        });
+        assert.strictEqual((await makeEngine(world).discover()).length, 1);
     });
 
     test("test tasks name the file alone and don't force a rerun", async () => {
@@ -443,6 +516,28 @@ suite('CeedlingEngine runs', () => {
         assert.match(String(errored[0][2]), /reported no result/);
     });
 
+    test('an ignored test is skipped', async () => {
+        const world = new FakeCeedling();
+        const { engine, file } = await discovered(world);
+        world.handlers.push((command) => /^ceedling test:/.test(command)
+            ? { writes: world.reportWrite(cppunit({ passed: ['test/test_calc.c::test_add'], ignored: ['test/test_calc.c::test_sub'] })) }
+            : undefined);
+        const reporter = recordingReporter();
+        await engine.runFunction('default', file, file.functions[1], reporter, token());
+        assert.deepStrictEqual(reporter.of('skipped').map((c) => c[1]), ['test/test_calc.c::test_sub']);
+    });
+
+    test('results matching no discovered test are logged', async () => {
+        const world = new FakeCeedling();
+        const logs: LogCall[] = [];
+        const { engine, file } = await discovered(world, { logs });
+        world.handlers.push((command) => /^ceedling test:/.test(command)
+            ? { writes: world.reportWrite(cppunit({ passed: ['test/test_calc.c::test_add', 'test/test_calc.c::test_gone'] })) }
+            : undefined);
+        await engine.runFunction('default', file, file.functions[0], recordingReporter(), token());
+        assert.ok(logs.some((l) => l.level === 'warn' && /test_gone/.test(l.message)));
+    });
+
     test('a failure without a location still reports, without a line', async () => {
         const world = new FakeCeedling();
         const { engine, file } = await discovered(world);
@@ -480,6 +575,18 @@ suite('CeedlingEngine runs', () => {
         await engine.runFile('default', file, reporter, token());
         assert.deepStrictEqual(reporter.of('passed'), []);
         assert.strictEqual(reporter.of('errored').length, 6);
+    });
+
+    test("a stale report that can't be deleted is warned about, and the run goes on", async () => {
+        const world = new FakeCeedling();
+        const logs: LogCall[] = [];
+        const { engine, file } = await discovered(world, { logs });
+        const stale = `${WS}/build/artifacts/test/cppunit_tests_report.xml`;
+        world.write(stale, cppunit({}));
+        world.undeletable.add(stale);
+        await engine.runFile('default', file, recordingReporter(), token());
+        assert.ok(logs.some((l) => l.level === 'warn' && l.message.includes(stale)));
+        assert.strictEqual(world.commandsMatching(/^ceedling test:/).length, 1);
     });
 
     test('a cancelled run marks its tests skipped, not errored', async () => {
@@ -551,6 +658,15 @@ suite('CeedlingEngine runs', () => {
         const { engine, file } = await discovered(world, { developmentMode: true });
         await engine.runFile('default', file, recordingReporter(), token());
         assert.match(world.commandsMatching(/^ceedling test:/)[0], / --verbosity debug$/);
+    });
+
+    test("development mode logs a run's stdout and stderr", async () => {
+        const world = new FakeCeedling();
+        const logs: LogCall[] = [];
+        const { engine, file } = await discovered(world, { logs, developmentMode: true });
+        world.handlers.push((command) => /^ceedling test:/.test(command) ? { stdout: 'OUT', stderr: 'ERR' } : undefined);
+        await engine.runFile('default', file, recordingReporter(), token());
+        assert.ok(logs.some((l) => l.level === 'debug' && /^stdout:\nOUT\nstderr:\nERR$/.test(l.message)));
     });
 
     test('runs wait for one another', async () => {
@@ -626,6 +742,19 @@ suite('CeedlingEngine.compileForDebug', () => {
         assert.strictEqual(await engine.compileForDebug('default', file, reporter, token()), undefined);
         assert.strictEqual(reporter.of('errored').length, 6);
         assert.deepStrictEqual(reporter.of('failed'), []);
+    });
+
+    test('a cancelled build marks its tests skipped and returns no executable', async () => {
+        const world = new FakeCeedling();
+        const { engine, file } = await discovered(world);
+        const cancel = token();
+        world.handlers.push((command) => /^ceedling test:/.test(command)
+            ? new Promise<Reply>((resolve) => setImmediate(() => { cancel.fire(); resolve({ error: true }); }))
+            : undefined);
+        const reporter = recordingReporter();
+        assert.strictEqual(await engine.compileForDebug('default', file, reporter, cancel), undefined);
+        assert.deepStrictEqual(reporter.of('skipped').map((c) => c[1]), leafIds(file.functions));
+        assert.deepStrictEqual(reporter.of('errored'), []);
     });
 
     test('waits for a run in progress', async () => {
@@ -746,6 +875,119 @@ suite('CeedlingEngine for watchers and editing', () => {
         await discovered(world, { settings: { ceedlingCommand: 'bundle exec ceedling' } });
         assert.ok(world.commands.length > 0);
         assert.ok(world.commands.every((c) => c.command.startsWith('bundle exec ceedling ')));
+    });
+
+    test('a blank Ceedling command means ceedling', async () => {
+        const world = new FakeCeedling();
+        await discovered(world, { settings: { ceedlingCommand: '  ' } });
+        assert.ok(world.commands.every((c) => c.command.startsWith('ceedling ')));
+    });
+
+    // VS Code settings can hold the string "null" where the JSON null was meant.
+    test('the configured shell runs every invocation, and "null" means the default shell', async () => {
+        const configured = new FakeCeedling();
+        await discovered(configured, { settings: { shellPath: '/bin/bash' } });
+        assert.ok(configured.commands.every((c) => c.shell === '/bin/bash'));
+        const literalNull = new FakeCeedling();
+        await discovered(literalNull, { settings: { shellPath: 'null' } });
+        assert.ok(literalNull.commands.every((c) => c.shell === undefined));
+    });
+});
+
+suite('CeedlingEngine lookups and lifecycle', () => {
+    test("a project's debug configuration and directory are found by its key", async () => {
+        const world = new FakeCeedling();
+        world.directories.add(`${WS}/fw`);
+        world.write(`${WS}/fw/project.yml`, ':project: {}\n');
+        const { engine } = await discovered(world, { settings: { projects: [{ path: 'fw', debugLaunchConfig: 'gdb (fw)' }] } });
+        assert.strictEqual(engine.getDebugLaunchConfig('fw'), 'gdb (fw)');
+        assert.strictEqual(engine.getProjectAbsPath('fw'), `${WS}/fw`);
+    });
+
+    test('an unknown project key is an error naming it', async () => {
+        const { engine, file } = await discovered(new FakeCeedling());
+        assert.throws(() => engine.getProjectAbsPath('nope'), /Unknown Ceedling project 'nope'/);
+        await assert.rejects(engine.runFile('nope', file, recordingReporter(), token()), /Unknown Ceedling project 'nope'/);
+    });
+
+    test('rediscovering a file in an unknown project finds nothing', async () => {
+        const { engine, file } = await discovered(new FakeCeedling());
+        assert.strictEqual(await engine.rediscoverFile('nope', file.id, ''), undefined);
+    });
+
+    test('cancel stops every running Ceedling process', async () => {
+        const world = new FakeCeedling();
+        const { engine, file } = await discovered(world);
+        let release!: () => void;
+        world.handlers.push((command) => /^ceedling test:/.test(command) ? new Promise<Reply>((resolve) => { release = () => resolve({}); }) : undefined);
+        const run = engine.runFile('default', file, recordingReporter(), token());
+        await new Promise((resolve) => setImmediate(resolve));
+        engine.cancel();
+        assert.strictEqual(world.killed.length, 1);
+        release();
+        await run;
+    });
+
+    test('dispose stops running processes and disposes the problem matcher', async () => {
+        const world = new FakeCeedling();
+        const problems = new FakeProblemMatcher();
+        const { engine, file } = await discovered(world, { problems });
+        let release!: () => void;
+        world.handlers.push((command) => /^ceedling test:/.test(command) ? new Promise<Reply>((resolve) => { release = () => resolve({}); }) : undefined);
+        const run = engine.runFile('default', file, recordingReporter(), token());
+        await new Promise((resolve) => setImmediate(resolve));
+        engine.dispose();
+        assert.strictEqual(world.killed.length, 1);
+        assert.strictEqual(problems.disposed, true);
+        release();
+        await run;
+    });
+
+    // Default dependencies: the real filesystem and process runner.
+    test('with only its required dependencies, a folder without a project file on disk is no project', async () => {
+        const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'ceedling-engine-'));
+        try {
+            const engine = new CeedlingEngine(
+                { uri: { fsPath: folder, toString: () => `file://${folder}` }, name: 'empty', index: 0 } as unknown as vscode.WorkspaceFolder,
+                fakeLogger(), false,
+                {
+                    configProvider: () => ({ get: (_key: string, fallback?: unknown) => fallback }) as unknown as vscode.WorkspaceConfiguration,
+                    problemMatcher: new FakeProblemMatcher() as unknown as ProblemMatcher,
+                    bundledMixinPath: BUNDLED_MIXIN,
+                },
+            );
+            assert.deepStrictEqual(await engine.discover(), []);
+        } finally {
+            fs.rmSync(folder, { recursive: true, force: true });
+        }
+    });
+});
+
+suite('nodeFileSystem', () => {
+    let folder: string;
+    setup(() => { folder = fs.mkdtempSync(path.join(os.tmpdir(), 'ceedling-fs-')); });
+    teardown(() => { fs.rmSync(folder, { recursive: true, force: true }); });
+
+    test('a file exists, has a modification time, reads back, and is gone once unlinked', async () => {
+        const file = path.join(folder, 'project.yml');
+        fs.writeFileSync(file, ':project: {}\n');
+        assert.strictEqual(await nodeFileSystem.exists(file), true);
+        assert.strictEqual(await nodeFileSystem.isDirectory(file), false);
+        assert.strictEqual(typeof await nodeFileSystem.mtimeMs(file), 'number');
+        assert.strictEqual(await nodeFileSystem.readFile(file), ':project: {}\n');
+        await nodeFileSystem.unlink(file);
+        assert.strictEqual(await nodeFileSystem.exists(file), false);
+    });
+
+    test('a directory is a directory', async () => {
+        assert.strictEqual(await nodeFileSystem.isDirectory(folder), true);
+    });
+
+    test('a missing path does not exist, is no directory, and has no modification time, without an error', async () => {
+        const missing = path.join(folder, 'missing');
+        assert.strictEqual(await nodeFileSystem.exists(missing), false);
+        assert.strictEqual(await nodeFileSystem.isDirectory(missing), false);
+        assert.strictEqual(await nodeFileSystem.mtimeMs(missing), undefined);
     });
 });
 

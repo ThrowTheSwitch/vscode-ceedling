@@ -42,10 +42,11 @@ suite('mapGrouped', () => {
     test('a failure stops its own and other groups from starting more, then rejects', async () => {
         const g = gate();
         const done = mapGrouped(['xfail', 'y1', 'x2', 'y2'], (item) => item.startsWith('x') ? 'x' : 'y', (item) => g.work(item === 'xfail' ? 'fail-x' : item));
+        const rejected = assert.rejects(done, /fail-x/);
         await settle();
         await g.finish('fail-x');
         await g.finish('y1');
-        await assert.rejects(done, /fail-x/);
+        await rejected;
         assert.deepStrictEqual(g.log.started, ['fail-x', 'y1']);
     });
 });
@@ -78,11 +79,11 @@ suite('KeyedLock', () => {
     test('a failure releases the key for the next work, and reaches its own caller', async () => {
         const g = gate();
         const lock = new KeyedLock();
-        const failing = lock.run('dir', () => g.work('fail1'));
+        const failing = assert.rejects(lock.run('dir', () => g.work('fail1')), /fail1/);
         const next = lock.run('dir', () => g.work('n1'));
         await settle();
         await g.finish('fail1');
-        await assert.rejects(failing, /fail1/);
+        await failing;
         await g.finish('n1');
         assert.strictEqual(await next, 'N1');
     });
@@ -113,11 +114,11 @@ suite('Limiter', () => {
     test('a failure frees its slot and reaches its own caller', async () => {
         const g = gate();
         const limiter = new Limiter(1);
-        const failing = limiter.run(() => g.work('fail1'));
+        const failing = assert.rejects(limiter.run(() => g.work('fail1')), /fail1/);
         const next = limiter.run(() => g.work('n1'));
         await settle();
         await g.finish('fail1');
-        await assert.rejects(failing, /fail1/);
+        await failing;
         await g.finish('n1');
         assert.strictEqual(await next, 'N1');
     });

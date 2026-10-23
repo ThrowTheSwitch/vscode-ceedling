@@ -96,6 +96,10 @@ suite('buildRunPlan', () => {
             assert.deepStrictEqual(summarize(plan), ['function:test/test_a.c::test_1', 'function:test/test_a.c::test_2']);
         });
 
+        test('excluding a function outside the selection changes nothing', () => {
+            assert.deepStrictEqual(summarize(buildRunPlan(projects, [fileTarget(fileA)], [fn(fileB, 'test_3'), fn(fileQ, 'test_4')])), ['file:test/test_a.c']);
+        });
+
         test('excluding every function of a file leaves nothing to run', () => {
             assert.deepStrictEqual(buildRunPlan(projects, [fileTarget(fileB)], [fn(fileB, 'test_3')]), []);
         });

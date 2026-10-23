@@ -1,6 +1,8 @@
 import * as assert from 'assert';
-import type * as child_process from 'child_process';
-import { buildCommandLine, type Cancellation, type CeedlingInvocation, CeedlingRunner, ceedlingEnvironment, descendantsOf, parseProcStatParent, quoteIfNeeded } from '../../src/ceedlingProcess';
+import * as child_process from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
+import { buildCommandLine, type Cancellation, type CeedlingInvocation, CeedlingRunner, ceedlingEnvironment, descendantsOf, killProcessTree, parseProcStatParent, quoteIfNeeded } from '../../src/ceedlingProcess';
 
 type ExecCall = { command: string, options: child_process.ExecOptions, finish: (error: Error | null, stdout: string, stderr: string) => void };
 
@@ -151,6 +153,96 @@ suite('CeedlingRunner', () => {
         assert.strictEqual((await runner.run(invocation())).stdout, 'sync');
         runner.cancelAll();
         assert.deepStrictEqual(killed, [], 'a finished process is not tracked as live');
+    });
+
+    test('with no doubles, runs a real process in the given directory with Ceedling\'s environment', async () => {
+        const cwd = fs.realpathSync(os.tmpdir());
+        const script = '"console.log(process.env.CEEDLING_DECORATORS + process.cwd())"';
+        const result = await new CeedlingRunner().run(invocation({ command: quoteIfNeeded(process.execPath), args: ['-e', script], cwd }));
+        assert.strictEqual(result.error, null);
+        assert.strictEqual(result.stdout.trim(), `false${cwd}`);
+    });
+});
+
+// Above Linux's largest pid, and odd, as no Windows pid is: no process ever has it.
+const NONEXISTENT_PID = 4194305;
+
+// Gone, or a zombie waiting for a parent to reap it: either way, no longer running.
+function running(pid: number): boolean {
+    if (process.platform === 'linux') {
+        try {
+            return !/^\S+ \(.*\) Z/.test(fs.readFileSync(`/proc/${pid}/stat`, 'utf8'));
+        } catch {
+            return false;
+        }
+    }
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch (e) {
+        return (e as NodeJS.ErrnoException).code === 'EPERM';
+    }
+}
+
+async function stopped(pid: number, timeoutMs = 10000): Promise<boolean> {
+    for (const deadline = Date.now() + timeoutMs; Date.now() < deadline;) {
+        if (!running(pid)) return true;
+        // eslint-disable-next-line no-await-in-loop -- polling
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return false;
+}
+
+// A Node process that starts a child of its own, as Ceedling starts compilers and test executables.
+async function processTree(): Promise<{ root: child_process.ChildProcess, child: number }> {
+    const idle = 'setInterval(() => {}, 1000)';
+    const script = `const c = require('child_process').spawn(process.execPath, ['-e', ${JSON.stringify(idle)}], { stdio: 'ignore' }); console.log(c.pid); ${idle}`;
+    const root = child_process.spawn(process.execPath, ['-e', script], { stdio: ['ignore', 'pipe', 'ignore'] });
+    const child = await new Promise<number>((resolve, reject) => {
+        root.stdout.once('data', (data: Buffer) => resolve(Number(String(data).trim())));
+        root.once('error', reject);
+    });
+    return { root, child };
+}
+
+suite('killProcessTree', () => {
+    test('stops a process and the processes it started', async function () {
+        this.timeout(20000);
+        const { root, child } = await processTree();
+        try {
+            killProcessTree(root.pid!);
+            assert.ok(await stopped(root.pid!), 'the root process is still running');
+            assert.ok(await stopped(child), 'its child process is still running');
+        } finally {
+            for (const pid of [root.pid!, child]) if (running(pid)) process.kill(pid);
+        }
+    });
+
+    test('a process that has already exited is no error', () => {
+        assert.doesNotThrow(() => killProcessTree(NONEXISTENT_PID));
+    });
+
+    // tree-kill depends on pgrep (macOS) or taskkill (Windows), either of which could fail.
+    test('where tree-kill fails, the root process is stopped alone', async function () {
+        this.timeout(20000);
+        const root = child_process.spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+        const calls: unknown[][] = [];
+        const failing = (...args: unknown[]) => {
+            calls.push(args.slice(0, 2));
+            (args[2] as (error?: Error) => void)(new Error('pgrep: not found'));
+        };
+        try {
+            killProcessTree(root.pid!, { platform: 'darwin', treeKill: failing });
+            assert.deepStrictEqual(calls, [[root.pid, 'SIGTERM']]);
+            assert.ok(await stopped(root.pid!), 'the root process is still running');
+        } finally {
+            if (running(root.pid!)) process.kill(root.pid!);
+        }
+    });
+
+    test('where tree-kill fails for a process that has already exited, that is no error', () => {
+        const failing = (_pid: number, _signal: string, callback: (error?: Error) => void) => callback(new Error('no such process'));
+        assert.doesNotThrow(() => killProcessTree(NONEXISTENT_PID, { platform: 'darwin', treeKill: failing }));
     });
 });
 
