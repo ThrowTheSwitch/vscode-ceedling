@@ -2,6 +2,8 @@ import util from 'util';
 import vscode from 'vscode';
 import { LogLevel, LogOutputChannel } from 'vscode';
 
+// Writes to the "Ceedling Explorer" log output channel, created on first use. Its level follows
+// VS Code's own log level setting for the channel.
 export class Logger {
     private _channel?: LogOutputChannel
 
@@ -36,12 +38,6 @@ export class Logger {
     public error(...args: unknown[]) {
         const message = this.format(...args);
         this.channel.error(message);
-    }
-
-    public showInfo(...args: unknown[]) {
-        const message = this.format(...args);
-        this.info(message);
-        vscode.window.showInformationMessage(message);
     }
 
     public showWarning(...args: unknown[]) {

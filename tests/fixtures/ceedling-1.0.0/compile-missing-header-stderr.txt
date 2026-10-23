@@ -1,0 +1,6 @@
+EXCEPTION: 'Default Test Compiler' (gcc) terminated with exit code [1] and output >>
+test/test_missing.c:2:10: fatal error: missing_header.h: No such file or directory
+    2 | #include "missing_header.h"
+      |          ^~~~~~~~~~~~~~~~~~
+compilation terminated.
+Ceedling could not complete operations because of errors

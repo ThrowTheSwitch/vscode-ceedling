@@ -18,6 +18,7 @@ import { Logger } from './logger';
 
 export { ProblemMatchingPattern } from './problemMatching';
 
+// A Diagnostic with the absolute path of the file it belongs to.
 export interface FileDiagnostic {
     file: string;
     diagnostic: Diagnostic;

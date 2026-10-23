@@ -12,6 +12,7 @@
     "strict": true,
     "noImplicitReturns": true,
     "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "removeComments": true,
     "skipLibCheck": true
   },

@@ -1,6 +1,6 @@
 # VSCode-Ceedling Known Issues
 
-Complemented by three other documents: [../CHANGELOG.md](../CHANGELOG.md), [ReleaseNotes.md](ReleaseNotes.md), and [BreakingChanges.md](BreakingChanges.md).
+This document lists the problems currently known, grouped by the Ceedling versions they affect. The [Changelog](../CHANGELOG.md), [ReleaseNotes.md](ReleaseNotes.md), and [BreakingChanges.md](BreakingChanges.md) complete the set.
 
 ---
 
@@ -10,5 +10,5 @@ Complemented by three other documents: [../CHANGELOG.md](../CHANGELOG.md), [Rele
 
 ## All versions
 
-1. Individual parametrized test-case debugging is not supported — Ceedling always builds and runs a whole test file’s executable, so debugging always targets the containing file, never a single `TEST_CASE`/`TEST_RANGE` case.
-2. Test-case discovery in the Testing view is based on matching `:test_runner:test_prefix` against function names in source text. If a project uses Unity's `UNITY_SKIP_DEFAULT_RUNNER`/custom `RUN_TEST` to hand-write its own runner and invoke functions that don't follow the configured prefix convention, this extension cannot correlate those functions to test results — this is a fundamental limit of prefix-based source scanning, not something a configuration change can fix.
+1. Debugging a single parametrized test case is not supported. Ceedling builds and runs a whole test file as one executable, so debugging always covers the containing file, never one `TEST_CASE`, `TEST_RANGE`, or `TEST_MATRIX` case.
+2. A hand-written test runner is not supported. The extension finds tests by matching `:test_runner` ↳ `:test_prefix` against function names in source, as Ceedling’s generated runner does. A project that writes its own runner with Unity’s `UNITY_SKIP_DEFAULT_RUNNER` and `RUN_TEST`, calling functions outside that convention, can’t have those results matched to tests. No setting changes this.

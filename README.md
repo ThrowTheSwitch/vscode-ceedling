@@ -1,6 +1,6 @@
 # 🌱 Ceedling Visual Studio Code Extension
 
-[Ceedling] is a handy-dandy build system for C projects. This Visual Studio Code [extension][marketplace] runs your Ceedling test suite using VS Code’s built-in _Testing_ view.
+This Visual Studio Code [extension][marketplace] runs your [Ceedling] test suite from VS Code’s built-in _Testing_ view. Ceedling is a handy-dandy build system for C projects.
 
 ![Screenshot](img/screenshot.png)
 
@@ -23,13 +23,19 @@ Ceedling and its complementary [ThrowTheSwitch] pieces and parts are and always 
 
 # Features
 
-* Displays all detected tests and suites with their state in VS Code’s built-in Test Explorer (the Testing view).
-* Adds gutter run/debug icons and CodeLens-style affordances to your test files, generated automatically from each test’s location.
-* Shows a failed test’s message and failing line directly in the Test Explorer and the editor.
-* Runs a single test function in isolation, without running the rest of its file.
-* Can be configured to report compiler and linker problems inline in the editor and in the Problems panel.
+The extension brings your Ceedling tests into VS Code’s own testing tools.
+
+* Lists every test file, test function, and parametrized test case in the _Testing_ view, with each one’s state.
+* Adds run and debug icons beside each test in the editor’s gutter.
+* Shows a failed test’s message at its failing line, in the _Testing_ view and in the editor.
+* Runs a single test function without running the rest of its file.
+* Keeps the test list current as you edit, add, or remove tests.
+* Reports compiler and linker problems in the editor and the _Problems_ panel, when configured.
+* Supports several Ceedling projects per workspace, and Ceedling mixins.
 
 # Requirements
+
+The extension needs a recent VS Code and Ceedling 1.0.0 or later.
 
 ## VS Code
 
@@ -43,82 +49,91 @@ _[Ceedling documentation](https://throwtheswitch.github.io/Ceedling/latest/)_
 
 ## Parameterized Unity test cases
 
-Parametrized tests using Unity’s `TEST_CASE()`, `TEST_RANGE()`, and `TEST_MATRIX()` require `:unity` ↳ `:use_param_tests:` ⇒ `true` in your project configuration. The _Testing_ view lists each case individually only when this setting is enabled, just as Ceedling runs them.
+Parametrized tests need one project setting. Unity’s `TEST_CASE()`, `TEST_RANGE()`, and `TEST_MATRIX()` require `:unity` ↳ `:use_param_tests:` ⇒ `true`. The _Testing_ view lists each case separately only when this setting is enabled, just as Ceedling runs them.
 
-Ceedling 1.0.0 also requires test-file preprocessing disabled (`:project` ↳ `:use_test_preprocessor` ⇒ `:none` (default) or `:mocks`). Ceedling 1.0.0 cannot preserve these macros through preprocessing, but Ceedling 1.1.0 supports parametrized tests with or without preprocessing.
+Ceedling 1.0.0 also needs test-file preprocessing off. Set `:project` ↳ `:use_test_preprocessor` to `:none` (the default) or `:mocks`. Ceedling 1.0.0 loses these markers in preprocessing. Ceedling 1.1.0 and later support parametrized tests with or without it.
 
 # Getting started
 
-* Install the extension and restart VS Code.
-* Open the workspace or folder containing your Ceedling project.
-* Configure your Ceedling project configuration filepath in VS Code’s settings if required [see below](#options).
-* Configure the shell path where Ceedling is installed in VS Code’s settings if required (Windows) [see below](#options).
-* Open the Testing view.
-* Run your tests using the run/debug icons in VS Code’s _Testing_ view or in your test file’s gutter.
+Most projects need no configuration at all.
+
+* Install the extension.
+* Open the folder or workspace containing your Ceedling project.
+* If your project file isn’t at the folder’s root, set its path in [`ceedlingExplorer.projects`](#options).
+* If Ceedling runs only in a particular shell (common on Windows), set [`ceedlingExplorer.shellPath`](#options).
+* Open the _Testing_ view, and run tests from it or from the gutter icons.
+
+The extension reads your project’s configuration with [`ceedling dumpconfig`][dumpconfig-docs]. It always applies its own [mixin](#mixins), which enables the `report_tests_log_factory` plugin’s `cppunit` report. That XML report is where the extension reads results, so no manual plugin setup is required.
 
 The _Testing_ view keeps itself current. Editing a test file updates its tests as you type, even before you save. Adding or removing a test file, or changing `project.yml` or a mixin file, rediscovers the project.
-
-The extension resolves your project’s configuration with [`ceedling dumpconfig`][dumpconfig-docs] and always applies its own [mixin](#mixins) enabling the `report_tests_log_factory` plugin’s `cppunit` report — the XML report this extension depends on. No manual plugin setup is required.
 
 [dumpconfig-docs]: https://throwtheswitch.github.io/Ceedling/1.1.0/getting-started/command-line/#ceedling-dumpconfig-filepath-sections
 
 # Running and debugging tests
 
-Run and debug tests from the Testing view, or from the gutter next to a test in the editor.
+Run and debug tests from the _Testing_ view, or from the gutter beside a test in the editor.
 
 <img src="img/run.png" alt="Running tests" width="276">
 
-The Testing view’s toolbar also has Clean and Clobber buttons. They run `ceedling clean` and `ceedling clobber` in every Ceedling project in the workspace, after any test run in progress finishes.
+Running a single test function runs only that function. Ceedling still compiles its whole file. All the cases of a parametrized function run together, since Ceedling selects tests by function.
+
+The _Testing_ view’s toolbar also has Clean and Clobber buttons. They run `ceedling clean` and `ceedling clobber` in every Ceedling project in the workspace, after any test run in progress finishes.
 
 # Configuration
 
+Settings live under `ceedlingExplorer` in VS Code’s settings.
+
 ## Options
 
-This table of options should be read as `ceedlingExplorer.<property>`.
+Read each property below as `ceedlingExplorer.<property>`.
 
 | `ceedlingExplorer` Property | Description |
 |---|---|
-| `.projects` | An array of objects with the path to the Ceedling project (or yml-file) to use (relative to the workspace folder). See below for its `path`, `debugLaunchConfig`, `name`, and `mixins` properties. |
-| `.mixins` | An array of [Ceedling mixins](#mixins) — names, built-in toolchain targets (e.g. `gcc`, `clang`), or file paths — applied to every project that doesn’t define its own `mixins` (see `.projects` below), lowest to highest priority. By default it is `[]`. |
-| `.shellPath` | The path to the shell where Ceedling is installed. By default (or if this option is set to `null`), it uses the OS default shell. |
+| `.projects` | An array of the Ceedling projects to use, each with a path relative to the workspace folder. See [below](#ceedlingexplorerprojects-properties) for its `path`, `debugLaunchConfig`, `name`, and `mixins` properties. |
+| `.mixins` | An array of [Ceedling mixins](#mixins), lowest to highest priority, applied to every project that doesn’t define its own `mixins`. Each is a name, a built-in toolchain target (e.g. `gcc` or `clang`), or a file path. By default it is `[]`. |
+| `.shellPath` | The path to the shell Ceedling runs in. By default, or when set to `null`, it is the operating system’s default shell. |
 | `.ceedlingCommand` | The command that runs Ceedling. By default it is `ceedling`. Set it to, e.g., `bundle exec ceedling` or the path to a vendored Ceedling. |
-| `.prettyTestLabel` | Shortens the test label in the _Testing_ explorer by dropping its leading prefix (e.g. inactive `test_BlinkTaskShouldToggleLed` vs. active `BlinkTaskShouldToggleLed`).<br><br>Inactive:<br><img src="img/prettyTestLabelInactive.png" alt="prettyTestLabelInactive" width="420"><br><br> Active:<br><img src="img/prettyTestLabelActive.png" alt="prettyTestLabelActive" width="420">|
-| `.prettyTestFileLabel` | Shortens the test file label in the _Testing_ explorer by dropping its path, leading prefix, and file type (e.g. inactive `test/LEDs/test_BlinkTask.c` vs. active `BlinkTask`).<br><br>Inactive:<br><img src="img/prettyTestFileLabelInactive.png" alt="prettyTestFileLabelInactive" width="320"><br><br> Active:<br><img src="img/prettyTestFileLabelActive.png" alt="prettyTestFileLabelActive" width="320"> |
-| `.testCommandArgs` | The command line arguments used to run Ceedling tests. The first argument has to literally contain the `${TEST_ID}` tag, which becomes the test file to run. With Ceedling 1.2.0 and later it is the file’s project-relative path (e.g. `test/unit/test_foo.c`), which tells same-named test files apart. With earlier versions it is the file’s name alone. The value `["test:${TEST_ID}"]` is used by default. For example, the arguments `"test:${TEST_ID}", "gcov:${TEST_ID}", "utils:gcov"` can be used to run tests and generate a gcov report. |
-| `.problemMatching` | Configuration of compiler/linker problem matching. See the [Problem matching](#problem%20matching) section for details. |
-| `.ansiEscapeSequencesRemoved` | Whether ANSI escape sequences are removed from Ceedling `$stdout` and `$stderr`. By default it is `true`. |
+| `.prettyTestLabel` | Shortens each test’s label in the _Testing_ view by dropping its prefix, e.g. `test_BlinkTaskShouldToggleLed` becomes `BlinkTaskShouldToggleLed`. By default it is `true`.<br><br>Inactive:<br><img src="img/prettyTestLabelInactive.png" alt="prettyTestLabelInactive" width="420"><br><br> Active:<br><img src="img/prettyTestLabelActive.png" alt="prettyTestLabelActive" width="420">|
+| `.prettyTestFileLabel` | Shortens each test file’s label by dropping its path, prefix, and extension, e.g. `test/LEDs/test_BlinkTask.c` becomes `BlinkTask`. By default it is `true`.<br><br>Inactive:<br><img src="img/prettyTestFileLabelInactive.png" alt="prettyTestFileLabelInactive" width="320"><br><br> Active:<br><img src="img/prettyTestFileLabelActive.png" alt="prettyTestFileLabelActive" width="320"> |
+| `.testCommandArgs` | The command line arguments that run a test file. The first must contain the `${TEST_ID}` tag, which becomes the test file. With Ceedling 1.2.0 and later that is the file’s project-relative path (e.g. `test/unit/test_foo.c`), which tells same-named test files apart. With earlier versions it is the file’s name alone. By default it is `["test:${TEST_ID}"]`. For example, `"test:${TEST_ID}", "gcov:${TEST_ID}", "utils:gcov"` runs tests and generates a gcov report. |
+| `.problemMatching` | Compiler and linker problem matching. See [Problem matching](#problem-matching). |
+| `.ansiEscapeSequencesRemoved` | Whether ANSI escape sequences are removed from Ceedling’s output. By default it is `true`. |
 
 ### `ceedlingExplorer.projects` properties
 
-- `path`: can point either to a directory containing a `project.yml` file or directly to another .yml file (with the respective `project.yml` in the same directory). With Ceedling 1.2.0 and later, `ceedling.yml` works in place of `project.yml`; a directory may not hold both. This path should be relative to the workspace root directory.
-- `debugLaunchConfig`: must be the *name* property of the launch config (launch.json) that is used for this project. The `${command:ceedlingExplorer.debugTestExecutable}` must still be used.
-- `name` (optional): used as the name for the folder containing the tests in the test explorer.
-- `mixins` (optional): this project’s own [mixins](#mixins), lowest to highest priority. When omitted entirely, `ceedlingExplorer.mixins` is used instead; set to `[]` explicitly to opt this project out of that workspace-wide list rather than falling back to it.
+Each `ceedlingExplorer.projects` entry describes one Ceedling project.
+
+- `path` names the project. It is either a directory holding a `project.yml` file, or another .yml file applied over the `project.yml` beside it. With Ceedling 1.2.0 and later, `ceedling.yml` works in place of `project.yml`, but a directory may not hold both. The path is relative to the workspace folder.
+- `debugLaunchConfig` is the *name* of the `launch.json` configuration that debugs this project’s tests. See [Debugging](#debugging).
+- `name` (optional) labels the project’s tests in the _Testing_ view.
+- `mixins` (optional) are this project’s own [mixins](#mixins), lowest to highest priority. Without it, the project uses `ceedlingExplorer.mixins`. An explicit `[]` opts the project out of that workspace-wide list.
 
 ## Mixins
 
-A [Ceedling mixin][mixins-docs] is a YAML fragment merged into a project’s configuration at build time — useful for toolchain targets, CI-specific overrides, or any configuration you don’t want duplicated into every `project.yml`. Configure them with `ceedlingExplorer.mixins` and `ceedlingExplorer.projects[].mixins` (see [Options](#options)): later entries win on conflicts, matching Ceedling’s own `--mixin` precedence.
+A [Ceedling mixin][mixins-docs] is a YAML fragment merged into a project’s configuration at build time. Mixins suit toolchain targets, CI-specific overrides, and any configuration you don’t want copied into every `project.yml`. Configure them with `ceedlingExplorer.mixins` and `ceedlingExplorer.projects[].mixins` (see [Options](#options)). Later entries win on conflicts, matching Ceedling’s own `--mixin` precedence.
 
-The extension always applies one more mixin after any you configure: it enables the `report_tests_log_factory` plugin’s `cppunit` report, which the Testing view depends on to read results. This mixin is not configurable and always has the highest priority, so nothing you set here can disable test reporting — even if you also enable `report_tests_log_factory` yourself, applying it twice is harmless.
+The extension always applies one more mixin, after any you configure. It enables the `report_tests_log_factory` plugin’s `cppunit` report, which the _Testing_ view reads results from. This mixin always has the highest priority, so no setting of yours can disable test reporting. Enabling `report_tests_log_factory` yourself as well is harmless.
 
-If `project.yml` or one of your own mixins sets `:report_tests_log_factory` ↳ `:cppunit` ↳ `:filename` to something other than Ceedling’s default, the extension shows a one-time warning naming the project and the resolved filename — it still uses that filename correctly, the warning only calls out that the report lives somewhere non-default in case that wasn’t intentional.
+The extension warns once if the CppUnit report has a non-default name. That happens when `project.yml` or one of your mixins sets `:report_tests_log_factory` ↳ `:cppunit` ↳ `:filename`. The extension still finds the report. The warning only points out the unusual location in case it wasn’t intended.
 
 [mixins-docs]: https://throwtheswitch.github.io/Ceedling/1.1.0/configuration/mixins/
 
 ## Problem matching
 
-Problem matching is the mechanism that scans Ceedling output text for known error/warning/info strings and reports these inline in the editor and in the Problems panel. It mimics VS Code’s _Tasks_ `problemMatchers` mechanism.
+Problem matching reports compiler and linker problems in the editor and the _Problems_ panel. It scans Ceedling’s output for known error, warning, and info lines, much as VS Code’s _Tasks_ `problemMatchers` do.
 
 <img src="img/problems.png" alt="Problems" width="540">
 
 ### Problem matching configuration options
 
+Two properties select the patterns used.
+
 | Property | Description |
 |---|---|
-| `mode` | Mode of problem matching: either "disabled", a preset (e.g. "gcc"), or custom "patterns" from the patterns array. Default is "disabled". |
-| `patterns` | Array of custom pattern objects used for problem matching. If mode is set to "patterns", Ceedling output is scanned line by line using each pattern provided in this array. Default is an empty array. |
+| `mode` | `"disabled"`, a preset such as `"gcc"`, or `"patterns"` for the custom patterns below. By default it is `"disabled"`. |
+| `patterns` | Custom pattern objects. With `mode` set to `"patterns"`, each scans Ceedling’s output line by line. By default it is `[]`. |
 
-Example configuration which is sufficient in most cases:
+The `gcc` preset suits most projects:
 ```json
 "ceedlingExplorer.problemMatching": {
 	"mode": "gcc"
@@ -127,21 +142,23 @@ Example configuration which is sufficient in most cases:
 
 ### Problem matching pattern options
 
+Each custom pattern is a regular expression plus the indexes of its capture groups.
+
 | Property | Description |
 |---|---|
-| `scanStdout` | Scan stdout output for problems. Default is false. |
-| `scanStderr` | Scan stderr output for problems. Default is true. |
-| `severity` | Severity of messages found by this pattern. Correct values are "error", "warning" and "info". Default is "info". |
-| `filePrefix` | Used to determine the file’s absolute path if the file location is relative. ${projectPath} is replaced with the project path. An empty string means the file location in the message is absolute. Default is an empty string. |
-| `regexp` | The regular expression used to find an error, warning, or info in the output line. ECMAScript (JavaScript) flavor. Tip: you may find [regex101](https://regex101.com/) useful while experimenting with patterns. This property is required. |
-| `message` | Index of the problem’s message in the regular expression. This property is required. |
-| `file` | Index of the problem’s filename in the regular expression. This property is required. |
-| `line` | Index of the problem’s (first) line in the regular expression. Not used if null or not defined. |
-| `lastLine` | Index of the problem’s last line in the regular expression. Not used if null or not defined. |
-| `column` | Index of the problem’s (first) column in the regular expression. Not used if null or not defined. |
-| `lastColumn` | Index of the problem’s last column in the regular expression. Not used if null or not defined. |
+| `scanStdout` | Scan Ceedling’s stdout for problems. By default it is `false`. |
+| `scanStderr` | Scan Ceedling’s stderr for problems. Compilers write their diagnostics there. By default it is `true`. |
+| `severity` | The severity of problems this pattern finds: `"error"`, `"warning"`, or `"info"`. By default it is `"info"`. |
+| `filePrefix` | Prepended to a relative file path to make it absolute. `${projectPath}` becomes the project’s directory. An empty string, the default, means reported paths are already absolute. |
+| `regexp` | The regular expression matching a problem line, in ECMAScript (JavaScript) syntax. [regex101](https://regex101.com/) helps while experimenting. Required. |
+| `message` | The capture group holding the problem’s message. Required. |
+| `file` | The capture group holding the problem’s file. Required. |
+| `line` | The capture group holding the problem’s (first) line. Unused when `null` or absent. |
+| `lastLine` | The capture group holding the problem’s last line. Unused when `null` or absent. |
+| `column` | The capture group holding the problem’s (first) column. Unused when `null` or absent. |
+| `lastColumn` | The capture group holding the problem’s last column. Unused when `null` or absent. |
 
-Example pattern object (GCC compiler warnings):
+This pattern matches GCC compiler warnings:
 ```json
 {
     "severity": "warning",
@@ -156,7 +173,7 @@ Example pattern object (GCC compiler warnings):
 
 # Commands
 
-The following commands are available in VS Code’s command palette. Use the ID to add them to your keyboard shortcuts. Both also appear as toolbar buttons in the Testing view. Running, debugging, and reloading tests are done from VS Code’s built-in Testing view (or its toolbar/gutter icons) rather than extension-specific commands.
+Two commands are available in the Command Palette and as _Testing_ view toolbar buttons. Use their IDs to bind keyboard shortcuts. Running, debugging, and refreshing tests use VS Code’s own _Testing_ view commands.
 
 | ID | Command |
 |---|---|
@@ -165,21 +182,17 @@ The following commands are available in VS Code’s command palette. Use the ID 
 
 # Debugging
 
-To set up debugging, create a Debug Configuration in `launch.json` and reference its *name* as the `debugLaunchConfig` property of the corresponding entry in `ceedlingExplorer.projects` (see [Options](#options)). If `ceedlingExplorer.projects` isn’t configured at all, the extension falls back to a single default project expecting a launch configuration literally named `ceedling`.
+Debugging a test uses a `launch.json` configuration you provide. Reference its *name* as the `debugLaunchConfig` of the project’s `ceedlingExplorer.projects` entry (see [Options](#options)). Without any `ceedlingExplorer.projects` entry, the extension expects a configuration literally named `ceedling`.
 
-Migrating from the original _Ceedling Test Explorer_ extension? Its flat `ceedlingExplorer.debugConfiguration` string setting no longer exists. Use `ceedlingExplorer.projects[].debugLaunchConfig` instead, as above.
-
-`${command:ceedlingExplorer.debugTestExecutable}` can be used in the `program` property to reference the test executable being debugged. Depending on your Ceedling configuration, it is found under `projectPath/build/test/out/`.
-
-This looks like a VS Code command variable. The extension substitutes it directly with the resolved executable path before starting the debug session. That substitution only happens when debugging starts from a test’s own debug icon in the Testing view.
-
-Starting the same launch configuration from F5 or the Run and Debug panel skips that substitution entirely. A guard shows a clear error in that case, instead of a confusing “path does not exist” failure. Always start debugging from a test’s debug icon, not F5 or the Run and Debug panel.
+Use `${command:ceedlingExplorer.debugTestExecutable}` in the configuration’s `program` to name the test executable. It is a path under `build/test/out/` in the project. Debugging must start from a test’s debug icon in the _Testing_ view, where the extension replaces this token with the executable’s path. Starting the same configuration with F5 or from the _Run and Debug_ panel skips that step. A clear error then explains what happened, instead of a confusing “path does not exist” failure.
 
 Debugging builds and runs the test file first, then starts the debugger. The _Testing_ view shows that run’s real results.
 
-Note: Individual test debugging is not supported — clicking “debug” on a single parametrized test case still runs and debugs its entire containing test file, since Ceedling always compiles and runs a whole test file’s executable at a time. Set or skip breakpoints accordingly. Debugging several files at once debugs only the first, with a notification saying so.
+Debugging always covers a whole test file. Ceedling compiles and runs each test file as one executable, so debugging a single parametrized case still debugs its entire file. Set or skip breakpoints accordingly. Debugging several files at once debugs only the first, with a notification saying so.
 
-Example configuration with Native Debug (`webfreak.debug`):
+Migrating from the original _Ceedling Test Explorer_ extension? Its `ceedlingExplorer.debugConfiguration` setting no longer exists. Use `ceedlingExplorer.projects[].debugLaunchConfig` instead.
+
+This example configuration uses Microsoft’s C/C++ extension (`ms-vscode.cpptools`):
 ```json
 {
     "name": "Ceedling Test Explorer Debug",
@@ -205,35 +218,37 @@ Example configuration with Native Debug (`webfreak.debug`):
 
 # Crashes and `:use_backtrace`
 
-A crashing test doesn’t need the debugger to be caught. Ceedling’s own `:use_backtrace` project setting, [documented here][use-backtrace-docs], reports a crash as a normal failed test, at the exact crashing line, instead of a bare timeout or a silently stopped run. This extension shows that result the same way it shows any other failed test. No extra configuration is needed.
+A crashing test is caught without the debugger. Ceedling’s own `:use_backtrace` project setting, [documented here][use-backtrace-docs], reports a crash as a normal failed test at the crashing line. Without it, a crash ends in a bare timeout or a silently stopped run. This extension shows that result like any other failed test, with no extra configuration.
 
-It defaults to `:simple`. `:simple` reruns each test case individually to isolate which one crashed. It needs no gdb. It works with a simulator-based test fixture, not just native hardware.
+The default, `:simple`, reruns each test case alone to find which one crashed. It needs no gdb. It also works with a simulator-based test fixture, not just native hardware.
 
-`:gdb` additionally identifies the exact crashing line and, on Ceedling 1.1.0 and later, a per-test-case gdb log file. This extension turns a reference to that log into a clickable link in the failing test’s message. `:gdb` needs gdb installed. It only supports the native build platform, not a cross-compiled or simulator-based test fixture. Stay on `:simple` if either applies.
+`:gdb` also finds the exact crashing line. On Ceedling 1.1.0 and later it writes a gdb log file per test case, and this extension turns the log’s reference into a clickable link. `:gdb` needs gdb installed. It supports only the native build platform, not a cross-compiled or simulator-based test fixture. Stay on `:simple` if either applies.
 
 [use-backtrace-docs]: https://throwtheswitch.github.io/Ceedling/1.1.0/configuration/reference/project/#use_backtrace
 
 # Troubleshooting
 
-If you think you’ve found a bug, please check [Known Issues](docs/KnownIssues.md) and, if it’s not there, [file a bug report](https://github.com/throwtheswitch/vscode-ceedling/issues).
+Check [Known Issues](docs/KnownIssues.md) first if you think you’ve found a bug. If it isn’t there, please [file a bug report](https://github.com/throwtheswitch/vscode-ceedling/issues).
 
 # Documentation
 
+Four companion documents cover changes and contributions.
+
 * [Changelog](CHANGELOG.md) — a terse, itemized record of what changed in each release.
-* [Release Notes](docs/ReleaseNotes.md) — the narrative version, highlights worth reading before upgrading.
+* [Release Notes](docs/ReleaseNotes.md) — the narrative version, with the highlights worth reading before upgrading.
 * [Known Issues](docs/KnownIssues.md) — currently open issues, by version.
 * [Breaking Changes](docs/BreakingChanges.md) — what to expect when upgrading across a compatibility boundary.
-* [Development](docs/Development.md) — the workflow for working on this extension itself.
+* [Development](docs/Development.md) — how to work on this extension itself.
 
 # Contributing
 
-Want to work on this extension itself? See [docs/Development.md](docs/Development.md) for the development workflow, local debugging, and the development environment sidecar.
+Contributions are welcome. See [docs/Development.md](docs/Development.md) for the code’s architecture, the development workflow, local debugging, and the development sidecar.
 
 # Acknowledgments
 
-This VS Code extension is a fork of the original _Ceedling Test Explorer_ extension [[Github][ceedling-test-explorer-github], [Marketplace][ceedling-test-explorer-marketplace]] authored by [Kin Numaru](https://github.com/numaru) and taken over by the [ThrowTheSwitch](https://throwtheswitch.org) community, the authors and maintainers of Ceedling itself. Kin gave their blessing to taking up this work.
+This VS Code extension is a fork of the original _Ceedling Test Explorer_ extension [[Github][ceedling-test-explorer-github], [Marketplace][ceedling-test-explorer-marketplace]] authored by [Kin Numaru](https://github.com/numaru). It was taken over by the [ThrowTheSwitch](https://throwtheswitch.org) community, the authors and maintainers of Ceedling itself, with Kin’s blessing.
 
-Ceedling 1.0.0 compatibility was added to the original extension project by merging a [PR][1.0.0-pr] authored by [@simeon-s1](https://github.com/simeon-s1).
+Ceedling 1.0.0 compatibility was added to the original extension by merging a [PR][1.0.0-pr] authored by [@simeon-s1](https://github.com/simeon-s1).
 
 Thank you to Kin, @simeon-s1, and all those who contributed to the original repository.
 

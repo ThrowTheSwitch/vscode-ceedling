@@ -51,9 +51,10 @@
     "rebuild": "npm run clean && npm run build",
     "package": "vsce package",
     "publish": "vsce publish",
-    "test:unit": "tsc -p test.tsconfig.json && mocha --ui tdd \"out/tests/unit/**/*.test.js\"",
-    "test:integration": "tsc -p test.tsconfig.json && node ./out/tests/integration/main.js",
-    "test": "npm run test:unit && npm run test:integration"
+    "test:unit": "rimraf out/tests && tsc -p test.tsconfig.json && mocha --ui tdd \"out/tests/unit/**/*.test.js\"",
+    "test:integration": "npm run -s build && tsc -p test.tsconfig.json && node ./out/tests/integration/main.js",
+    "test": "npm run -s typecheck && npm run -s test:unit && npm run -s test:integration",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "async-mutex": "^0.1.3",

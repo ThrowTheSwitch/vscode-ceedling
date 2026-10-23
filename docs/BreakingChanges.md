@@ -1,6 +1,6 @@
 # VSCode-Ceedling Breaking Changes
 
-Complemented by three other documents: [../CHANGELOG.md](../CHANGELOG.md), [ReleaseNotes.md](ReleaseNotes.md), and [KnownIssues.md](KnownIssues.md).
+This document explains each change that can break an existing setup, and what to do about it. The [Changelog](../CHANGELOG.md), [ReleaseNotes.md](ReleaseNotes.md), and [KnownIssues.md](KnownIssues.md) complete the set.
 
 ---
 
@@ -22,10 +22,10 @@ The `ceedlingExplorer.testCaseMacroAliases` and `ceedlingExplorer.testRangeMacro
 
 ## Native Testing API replaces the Test Explorer UI extension dependency
 
-Previous versions of this extension required the third-party [Test Explorer UI](https://marketplace.visualstudio.com/items?itemName=hbenl.vscode-test-explorer) extension (`hbenl.vscode-test-explorer`) to render the test tree, run/debug icons, and results. This version drops that dependency entirely in favor of Visual Studio Code’s own native Testing API (`vscode.tests`).
+The extension now uses Visual Studio Code’s own Testing API (`vscode.tests`) instead of the third-party [Test Explorer UI](https://marketplace.visualstudio.com/items?itemName=hbenl.vscode-test-explorer) extension (`hbenl.vscode-test-explorer`). Earlier versions required that extension to show the test tree, run and debug icons, and results.
 
 **What changes for you:**
 - The test tree now appears in VS Code’s built-in _Testing_ view (the flask icon in the Activity Bar), not the third-party _Test Explorer_ view.
 - `hbenl.vscode-test-explorer` is no longer installed as a dependency of this extension and may be uninstalled if nothing else on your machine needs it.
 - Any settings or keybindings that specifically targeted the _Test Explorer_ UI’s own commands/views no longer apply. Use VS Code’s native Testing view/commands instead.
-- `launch.json` configurations using `${command:ceedlingExplorer.debugTestExecutable}` continue to work unchanged; the resolution mechanism behind that token changed internally, but its usage did not.
+- `launch.json` configurations using `${command:ceedlingExplorer.debugTestExecutable}` work unchanged. Only how the extension resolves that token changed.

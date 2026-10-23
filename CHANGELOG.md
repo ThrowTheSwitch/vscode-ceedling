@@ -1,6 +1,6 @@
 # VSCode-Ceedling Changelog
 
-This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Complemented by three other documents: [docs/ReleaseNotes.md](docs/ReleaseNotes.md), [docs/KnownIssues.md](docs/KnownIssues.md), and [docs/BreakingChanges.md](docs/BreakingChanges.md).
+This document is the terse, itemized record of what changed in each release. Its format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). [docs/ReleaseNotes.md](docs/ReleaseNotes.md), [docs/KnownIssues.md](docs/KnownIssues.md), and [docs/BreakingChanges.md](docs/BreakingChanges.md) complete the set.
 
 ---
 
@@ -8,43 +8,46 @@ This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## ⚠️ Changed
 
-* Project configuration is now resolved with Ceedling’s own `ceedling dumpconfig` instead of the extension parsing and merging `project.yml` (and any mixin) itself. This reflects Ceedling’s actual merge — plugin defaults included — rather than a parallel one the extension maintained on its own.
 * Requires VS Code 1.74.0 or later.
+* Project configuration is now resolved with Ceedling’s own `ceedling dumpconfig`, instead of the extension parsing and merging `project.yml` and any mixins itself. The extension now sees exactly the configuration a real build sees, plugin defaults included.
+* `:unity` ↳ `:test_prefix` is no longer read, nor the Unity compilation defines once sniffed to select it. Neither was ever a real Ceedling option. `:test_runner` ↳ `:test_prefix` remains the way to change the test function prefix.
 * A workspace folder without a Ceedling project no longer adds an empty _Ceedling_ entry to the _Testing_ view. With several workspace folders, each entry names its folder.
 * Discovery checks the Ceedling version in each project’s own directory, so a project’s `:project` ↳ `:which_ceedling` is respected. It no longer runs `ceedling summary`.
-* Dropped erroneous recognition of `:unity` ↳ `:test_prefix` from project configuration processing and the Unity compilation define sniffing that was used to select it. These were never real Ceedling options; the only supported way to change the test-case function prefix is `:test_runner` ↳ `:test_prefix`, which this extension continues to support unchanged.
 
 ## 🌟 Added
 
-* The `report_tests_log_factory` plugin’s `cppunit` report — the XML report this extension depends on — is now enabled automatically via a bundled [mixin](README.md#mixins). Manually enabling it in `project.yml` is no longer required.
-* New `ceedlingExplorer.mixins` and `ceedlingExplorer.projects[].mixins` settings expose Ceedling’s own mixin mechanism, so you can layer toolchain targets, CI overrides, or other configuration without hand-editing `project.yml`. See [Mixins](README.md#mixins).
-* A one-time warning notification when `project.yml` or a configured mixin sets a non-default CppUnit XML report filename, naming the project and the resolved filename.
 * Support for Ceedling 1.2.0:
   * A project directory may use `ceedling.yml` instead of `project.yml`. A directory holding both is reported as an error, as Ceedling itself reports it.
   * Same-named test files in different directories (e.g. `test/unit/test_foo.c` and `test/integration/test_foo.c`) each run, report, and debug correctly.
   * Project configuration is read through `ceedling dumpconfig --stdout`, without a temporary file.
   * Every run reruns its tests. Ceedling 1.2.0’s delta builds otherwise reuse cached results that ignore which single test a run selected.
+* The `report_tests_log_factory` plugin’s `cppunit` report, which this extension reads results from, is now enabled automatically by a bundled [mixin](README.md#mixins). Enabling it in `project.yml` is no longer required.
+* New `ceedlingExplorer.mixins` and `ceedlingExplorer.projects[].mixins` settings apply Ceedling mixins, for toolchain targets, CI overrides, or other configuration, without editing `project.yml`. See [Mixins](README.md#mixins).
 * The _Testing_ view updates as you edit a test file, before you save. Adding or removing a test file, or editing `project.yml` or a mixin file, rediscovers the project without a manual refresh.
-* New `ceedlingExplorer.ceedlingCommand` setting for running Ceedling through another command, e.g. `bundle exec ceedling`.
 * Unity’s `TEST_MATRIX()` parametrized tests and exclusive `TEST_RANGE(<start, end, step>)` ranges now appear in the _Testing_ view as individual test cases.
+* New `ceedlingExplorer.ceedlingCommand` setting for running Ceedling through another command, e.g. `bundle exec ceedling`.
+* A one-time warning when `project.yml` or a configured mixin sets a non-default CppUnit report filename, naming the project and the filename.
 
 ## 💪 Fixed
 
 * A test declared with whitespace before its parameter list, such as `void test_example (void)`, no longer stays skipped after it passes. Test discovery names each test, and each padded `TEST_CASE( … )`, exactly as Ceedling’s test runner does ([#14](https://github.com/ThrowTheSwitch/vscode-ceedling/issues/14)).
+* Test discovery now follows Ceedling’s own test runner rules. Tests inside comments no longer appear in the _Testing_ view. Floating-point `TEST_RANGE()` cases carry the names Ceedling reports. Parametrized cases appear only when `:unity` ↳ `:use_param_tests` is enabled.
 * A test whose result never arrives now shows an error saying so, instead of silently ending as skipped. The error names the likely cause: the extension and Ceedling disagree about the test’s name.
-* Cancelling a run now marks its tests skipped instead of errored, and stops only that run’s Ceedling process. Cancelling no longer crashes the extension on Linux systems without `ps`, such as minimal containers. _Clean_ and _Clobber_ now wait for a run in progress instead of deleting its build.
-* Debugging a test now reports the file’s real results instead of marking it passed when the debug session ends. A debug build no longer races a concurrent run for the shared test report.
+* Debugging a test now reports the file’s real results, instead of marking it passed when the debug session ends. A debug build no longer races a concurrent run for the shared test report.
+* Cancelling a run now marks its tests skipped instead of errored, and stops only that run’s Ceedling process. Cancelling no longer crashes the extension on Linux systems without `ps`, such as minimal containers.
+* _Clean_ and _Clobber_ now wait for a run in progress, instead of deleting its build.
 * A failed build no longer reports results from an older run’s leftover test report.
 * Saving `project.yml` while tests run no longer makes the rest of that run lose its project configuration.
 * A failure Ceedling reports without a source location, or a very large test output, no longer aborts the whole run.
+* A missing header now appears in the _Problems_ panel at its `#include` line. GCC reports it as a “fatal error”, which problem matching misread as a different file and line.
 * Compiler problems in the _Problems_ panel no longer go stale when whole-project and single-file runs alternate.
 * Two projects in one folder with the same test file path no longer mix up their results.
 * Tests excluded from a run, such as hidden tests, are no longer reported.
 * Ceedling 1.0.0’s encoding crash on non-ASCII source is now prevented on every platform, including macOS. The extension no longer overrides your locale to do so.
 * When Ceedling can’t run at all, the error now says so and points to `ceedlingExplorer.shellPath`, instead of reporting an unsupported “version 0.0.0”.
 * Changing `ceedlingExplorer.mixins`, `ceedlingExplorer.shellPath`, or `ceedlingExplorer.ceedlingCommand` now rediscovers tests. Changing problem-matching settings no longer clears the _Problems_ panel unless problem matching is turned off.
+* Pretty file labels now apply to test files at a project’s root and on Windows-style paths.
 * Routine errors no longer pull the _Ceedling Explorer_ log into view and take focus.
-* Test discovery now follows Ceedling’s own test runner rules. Tests inside comments no longer appear in the _Testing_ view. Floating-point `TEST_RANGE()` cases carry the same names Ceedling reports. Parametrized cases appear only when `:unity` ↳ `:use_param_tests` is enabled.
 
 ## 👋 Removed
 

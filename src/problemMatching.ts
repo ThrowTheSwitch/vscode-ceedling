@@ -1,9 +1,6 @@
-// Pure, `vscode`-free problem-matching logic: preset patterns, applying a pattern's regex to
-// Ceedling's stdout/stderr, and resolving each match's file path. Kept free of any `vscode`
-// dependency so it can be unit-tested directly in plain Node (see
-// tests/unit/problemMatching.test.ts), the same way ceedlingOutputParsing.ts is. problemMatcher.ts
-// holds a Logger, which needs a real VS Code output channel - that class can only run inside the
-// Extension Host, so this logic lives here instead.
+// Problem matching without the editor: the preset patterns, applying a pattern to Ceedling's
+// output, and resolving each match's file. It has no `vscode` dependency, so it is unit-tested in
+// plain Node. problemMatcher.ts publishes the results to the Problems panel.
 
 import path from 'path';
 
@@ -21,9 +18,8 @@ export interface ProblemMatchingPattern {
     lastColumn: number | null;
 }
 
-// One matched problem, independent of vscode.Diagnostic. Line and column are already 0-based,
-// matching vscode.Position's own convention - a caller builds a real Diagnostic from this
-// directly, with no further index math.
+// One matched problem, independent of vscode.Diagnostic. Line and column are 0-based, as in
+// vscode.Position, so a caller builds a Diagnostic from it without index arithmetic.
 export interface MatchedProblem {
     file: string;
     message: string;
@@ -34,10 +30,9 @@ export interface MatchedProblem {
     endColumn: number;
 }
 
-// Sanitizes a settings-provided patterns array. VS Code's WorkspaceConfiguration.get<T> does not
-// actually guarantee the requested type - user JSON can contain anything. `valid` keeps every
-// well-shaped pattern, defaulted the same way the "gcc" preset's own patterns are shaped.
-// `invalid` keeps whatever was dropped, for a caller to log.
+// Sanitizes patterns from settings. WorkspaceConfiguration.get<T> doesn't enforce its type, and
+// user JSON can hold anything. `valid` holds each well-shaped pattern, with defaults filled in as
+// the "gcc" preset's are. `invalid` holds the rest, for the caller to log.
 export function normalizePatterns(patterns: ProblemMatchingPattern[]): { valid: ProblemMatchingPattern[], invalid: unknown[] } {
     const valid: ProblemMatchingPattern[] = [];
     const invalid: unknown[] = [];
@@ -69,16 +64,17 @@ export function normalizePatterns(patterns: ProblemMatchingPattern[]): { valid: 
     return { valid, invalid };
 }
 
-// The built-in "gcc" mode: GCC/Clang warnings and errors, plus a catch-all for a linker error -
-// neither GCC nor Clang tag a linker error with "warning:"/"error:"/"note:", so it needs its own
-// pattern.
+// The built-in "gcc" mode: GCC/Clang warnings and errors, plus a catch-all for a linker error.
+// Neither GCC nor Clang tags a linker error with "warning:"/"error:"/"note:", so it needs its own
+// pattern. GCC reports a missing header as "fatal error:", which the error pattern accepts and the
+// catch-all excludes. Otherwise the catch-all's greedy file group reads `file.c:2:10:` as file
+// `file.c:2`, line 10.
 //
-// The catch-all's optional `(?:\([^)]*\):)?` segment exists for GNU ld's "undefined reference"
-// line. Confirmed against two real ld versions: an older one prints
-// "file:line: undefined reference to 'sym'" directly; a newer one inserts a section+offset first,
-// "file:line:(.text+0xNN): undefined reference to 'sym'". Both must still require the whitespace
-// that follows - making it optional too let the catch-all wrongly swallow real
-// warning:/error:/note: lines instead (confirmed empirically while fixing this).
+// The catch-all's optional `(?:\([^)]*\):)?` segment serves GNU ld's "undefined reference"
+// line. An older ld prints `file:line: undefined reference to 'sym'`. A newer one inserts a
+// section and offset, `file:line:(.text+0xNN): undefined reference to 'sym'`. The whitespace after
+// either form stays required. Without it, the catch-all also swallows real warning:/error:/note:
+// lines.
 export function getGccPatternsPreset(): ProblemMatchingPattern[] {
     return [
         {
@@ -99,7 +95,7 @@ export function getGccPatternsPreset(): ProblemMatchingPattern[] {
             scanStderr: true,
             severity: 'error',
             filePrefix: '${projectPath}',
-            regexp: '^(.*):(\\d+):(\\d+):\\s+error:\\s+(.*)$',
+            regexp: '^(.*):(\\d+):(\\d+):\\s+(?:fatal\\s+)?error:\\s+(.*)$',
             message: 4,
             file: 1,
             line: 2,
@@ -112,7 +108,7 @@ export function getGccPatternsPreset(): ProblemMatchingPattern[] {
             scanStderr: true,
             severity: 'error',
             filePrefix: '',
-            regexp: '^(.*):(\\d+):(?:\\([^)]*\\):)?\\s+(?!(warning:|error:|note:))(.*)$',
+            regexp: '^(.*):(\\d+):(?:\\([^)]*\\):)?\\s+(?!(warning:|error:|note:|fatal error:))(.*)$',
             message: 4,
             file: 1,
             line: 2,
@@ -127,11 +123,9 @@ export function getPatternsPreset(patternsPreset: string): ProblemMatchingPatter
     return patternsPreset === 'gcc' ? getGccPatternsPreset() : [];
 }
 
-// Resolves a matched file path against a pattern's configured prefix. An already-absolute
-// matched path is used as-is, regardless of `filePrefix` - a compiler or linker can emit one even
-// under a non-empty prefix meant for its usual relative paths (confirmed: GNU ld's "undefined
-// reference" line reports an absolute path). Joining a prefix onto an already-absolute path
-// produces a nonsense combined path instead.
+// Resolves a matched file against a pattern's prefix. An absolute match is used as is. A compiler
+// or linker may report one even where the prefix serves its relative paths, as GNU ld's
+// "undefined reference" line does.
 export function resolveDiagnosticFilePath(matchedFile: string, filePrefix: string): string {
     if (filePrefix === '' || path.isAbsolute(matchedFile)) {
         return path.normalize(matchedFile);
@@ -139,9 +133,8 @@ export function resolveDiagnosticFilePath(matchedFile: string, filePrefix: strin
     return path.join(path.normalize(filePrefix), path.normalize(matchedFile));
 }
 
-// Turns one regex match into a MatchedProblem. Rejects the match, returning undefined, when a
-// configured group index is out of bounds or a captured line/column value isn't a number - the
-// same validation problemMatcher.ts always applied, kept identical here.
+// Turns one regex match into a MatchedProblem. undefined when a configured group index is out of
+// range, or a captured line or column isn't a number.
 export function matchToProblem(
     matches: RegExpExecArray, file: number, message: number, severity: string, filePrefix: string,
     line: number | null, lastLine: number | null, column: number | null, lastColumn: number | null
@@ -178,11 +171,9 @@ export function matchToProblem(
     };
 }
 
-// Applies one pattern's regex to every line of stdout/stderr (as the pattern configures),
-// returning every match. `projectPath` fills in a literal `${projectPath}` placeholder in the
-// pattern's own `filePrefix`. Throws if `pattern.regexp` is not a valid regular expression - a
-// caller with several patterns to run (e.g. every custom pattern from settings) should catch this
-// per pattern, so one malformed pattern does not stop the rest from being scanned.
+// Every match of one pattern, line by line, in the streams it scans. `projectPath` replaces a
+// literal `${projectPath}` in the pattern's `filePrefix`. Throws for an invalid `regexp`, so a
+// caller running several patterns catches per pattern and one bad pattern spares the rest.
 export function getPatternProblems(stdout: string, stderr: string, projectPath: string, pattern: ProblemMatchingPattern): MatchedProblem[] {
     const input = ((pattern.scanStdout ? stdout : '') + '\n' + (pattern.scanStderr ? stderr : '')).split(/\r?\n/);
     const regexp = new RegExp(pattern.regexp);
