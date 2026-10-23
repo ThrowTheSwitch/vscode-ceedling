@@ -5,7 +5,13 @@ import * as path from 'path';
 // root tsconfig.json, which production code relies on for `import xml2js from 'xml2js'`), and
 // @types/xml2js has no default export - only this form type-checks here.
 import * as xml2js from 'xml2js';
-import { getCoverageFromCoberturaReport, CoveredFile } from '../../src/gcovrCoberturaReport';
+import { type CoveredFile, mergeCoverage, parseCoberturaReport, readCoberturaReport, reportedFiles } from '../../src/gcovrCoberturaReport';
+
+// Each file at its first candidate path, which is its only one in these single-source reports.
+function getCoverageFromCoberturaReport(xmlReportData: unknown, baseDir: string): CoveredFile[] {
+    return reportedFiles(readCoberturaReport(xmlReportData), baseDir, path)
+        .map(({ candidates, lines, functions }) => ({ path: candidates[0], lines, functions }));
+}
 
 // __dirname at runtime is out/tests/unit (tsc mirrors the source tree under outDir); fixtures are
 // plain data files tsc doesn't copy into out/, so walk back up to the repo root to find them.
@@ -15,7 +21,7 @@ function parseFixture(...segments: string[]): Promise<any> {
     const data = fs.readFileSync(path.resolve(fixturesRoot, ...segments), 'utf8');
     const parser = new xml2js.Parser({ explicitArray: false });
     return new Promise((resolve, reject) => {
-        parser.parseString(data, (error: any, result: any) => error ? reject(error) : resolve(result));
+        parser.parseString(data, (error: any, result: any) => error ? reject(error instanceof Error ? error : new Error(String(error))) : resolve(result));
     });
 }
 
@@ -27,7 +33,7 @@ const outsideRoot = path.resolve('/home/dev/gcovr_probe/lib/Clamp.c');
 
 function byPath(files: CoveredFile[], filePath: string): CoveredFile {
     const found = files.find(file => file.path === filePath);
-    assert.ok(found, `expected a coverage entry for ${filePath}, got ${files.map(file => file.path)}`);
+    assert.ok(found, `expected a coverage entry for ${filePath}, got ${files.map(file => file.path).join(', ')}`);
     return found;
 }
 
@@ -87,5 +93,87 @@ suite('getCoverageFromCoberturaReport (degenerate reports)', () => {
     test('skips a class that has no filename', () => {
         const report = { coverage: { packages: { package: { classes: { class: { $: {} } } } } } };
         assert.deepStrictEqual(getCoverageFromCoberturaReport(report, projectDir), []);
+    });
+});
+
+suite('parseCoberturaReport', () => {
+    test('rejects malformed or truncated XML', async () => {
+        await assert.rejects(parseCoberturaReport('<coverage><packages>'));
+    });
+
+    test('rejects a document that is not a Cobertura report', async () => {
+        await assert.rejects(parseCoberturaReport('<TestRun/>'), /<coverage>/);
+    });
+});
+
+// A Cobertura <filename> is relative to one of the report's <source> roots, or absolute. Which
+// source isn't recorded, so each gives a candidate, in the report's order.
+suite('reportedFiles', () => {
+    const report = (sources: string[], filename: string) => ({ sources, files: [{ filename, lines: [], functions: [] }] });
+    const candidates = (r: ReturnType<typeof report>, baseDir: string, rules = path.posix) => reportedFiles(r, baseDir, rules)[0].candidates;
+
+    test('a relative filename has one candidate per source, each resolved against the directory the tool ran in', () => {
+        assert.deepStrictEqual(candidates(report(['.', 'src', '../lib'], './src/Calculator.c'), '/p/project'),
+            ['/p/project/src/Calculator.c', '/p/project/src/src/Calculator.c', '/p/lib/src/Calculator.c']);
+    });
+
+    test('an absolute filename is its only candidate', () => {
+        assert.deepStrictEqual(candidates(report(['.', 'src'], '/p/lib/Clamp.c'), '/p/project'), ['/p/lib/Clamp.c']);
+    });
+
+    test('an absolute source stands on its own', () => {
+        assert.deepStrictEqual(candidates(report(['/p/project'], 'src/a.c'), '/elsewhere'), ['/p/project/src/a.c']);
+    });
+
+    test('with no sources, a relative filename resolves against the directory the tool ran in', () => {
+        assert.deepStrictEqual(candidates(report([], 'src/a.c'), '/p/project'), ['/p/project/src/a.c']);
+    });
+
+    test('duplicate candidates appear once', () => {
+        assert.deepStrictEqual(candidates(report(['.', './'], 'a.c'), '/p'), ['/p/a.c']);
+    });
+
+    test('Windows paths follow Windows rules', () => {
+        assert.deepStrictEqual(candidates(report(['.'], 'src\\a.c'), 'C:\\ws\\fw', path.win32), ['C:\\ws\\fw\\src\\a.c']);
+        assert.deepStrictEqual(candidates(report(['.'], 'D:/lib/b.c'), 'C:\\ws\\fw', path.win32), ['D:\\lib\\b.c']);
+    });
+});
+
+// A request's coverage runs leave one report per build directory. Each report already counts the
+// counters every earlier build of the request left there, so the last one read supersedes the rest.
+suite('mergeCoverage', () => {
+    const file = (filePath: string, lines: Array<[number, number, boolean[]?]>, functions: Array<[string, number, number]> = []): CoveredFile =>
+        ({ path: filePath, lines: lines.map(([line, hits, branches = []]) => ({ line, hits, branches })), functions: functions.map(([name, line, hits]) => ({ name, line, hits })) });
+    const exact = (p: string) => p;
+
+    test("a later report at the same path replaces an earlier one", () => {
+        const merged = mergeCoverage([
+            { path: '/p/build/report.xml', files: [file('/p/a.c', [[1, 1]]), file('/p/b.c', [[1, 1]])] },
+            { path: '/p/build/report.xml', files: [file('/p/a.c', [[1, 3]])] },
+        ], exact);
+        assert.deepStrictEqual(merged, [file('/p/a.c', [[1, 3]])]);
+    });
+
+    test('reports at different paths add up per file: hits, taken branches, and function hits', () => {
+        const merged = mergeCoverage([
+            { path: '/p/build/report.xml', files: [file('/lib/c.c', [[1, 1, [true, false]], [2, 0]], [['f', 1, 1]])] },
+            { path: '/q/build/report.xml', files: [file('/lib/c.c', [[1, 2, [false, true]], [3, 1]], [['f', 1, 2]]), file('/q/d.c', [[1, 1]])] },
+        ], exact);
+        assert.deepStrictEqual(merged, [
+            file('/lib/c.c', [[1, 3, [true, true]], [2, 0], [3, 1]], [['f', 1, 3]]),
+            file('/q/d.c', [[1, 1]]),
+        ]);
+    });
+
+    test('paths are compared through the given key, e.g. ignoring case on Windows', () => {
+        const merged = mergeCoverage([
+            { path: 'C:\\p\\report.xml', files: [file('C:\\lib\\c.c', [[1, 1]])] },
+            { path: 'c:\\P\\REPORT.xml', files: [file('c:\\lib\\c.c', [[1, 5]])] },
+        ], (p) => p.toLowerCase());
+        assert.deepStrictEqual(merged, [file('c:\\lib\\c.c', [[1, 5]])]);
+    });
+
+    test('no reports, no coverage', () => {
+        assert.deepStrictEqual(mergeCoverage([], exact), []);
     });
 });

@@ -192,6 +192,12 @@
           ],
           "scope": "resource"
         },
+        "ceedlingExplorer.coverageResetsCounters": {
+          "markdownDescription": "Whether **Run with Coverage** clears the coverage counters earlier runs left in each project's build directory, so its results show only what that run executed. Turn it off to accumulate coverage across runs, as Ceedling itself does until `ceedling clobber`.",
+          "type": "boolean",
+          "default": true,
+          "scope": "resource"
+        },
         "ceedlingExplorer.problemMatching": {
           "markdownDescription": "Configuration of mechanism that scans Ceedling output text for known error/warning/info strings and reports these inline in the editor and in the Problems panel.&nbsp;The mechanism tries to resemble the one used in VSCode Tasks problemMatchers.",
           "type": "object",

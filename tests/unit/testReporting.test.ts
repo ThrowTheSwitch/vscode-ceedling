@@ -15,6 +15,7 @@ function recordingSink(): RunSink<Item> & { calls: SinkCall[] } {
         skipped: (item) => calls.push(['skipped', item.id]),
         errored: (item, message) => calls.push(['errored', item.id, message]),
         appendOutput: (text) => calls.push(['appendOutput', text]),
+        coverage: (outcome) => calls.push(['coverage', outcome]),
     };
 }
 
@@ -41,6 +42,14 @@ suite('createRunReporter', () => {
         reporter.skipped('b');
         reporter.appendOutput('text\r\n');
         assert.deepStrictEqual(sink.calls, [['started', 'a'], ['passed', 'a'], ['skipped', 'b'], ['appendOutput', 'text\r\n']]);
+    });
+
+    // Coverage belongs to the run, not to any one test, so no item lookup applies.
+    test('coverage reaches the test run as reported', () => {
+        const { reporter, sink, warnings } = reporterFor([]);
+        reporter.coverage({ kind: 'missing', message: 'no report' });
+        assert.deepStrictEqual(sink.calls, [['coverage', { kind: 'missing', message: 'no report' }]]);
+        assert.deepStrictEqual(warnings, []);
     });
 
     test('a result for an id with no item is dropped, with a warning naming the id and project', () => {

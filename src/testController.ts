@@ -2,13 +2,15 @@ import crypto from 'crypto';
 import path from 'path';
 import util from 'util';
 import vscode from 'vscode';
-import { CeedlingEngine, CeedlingLoadError } from './ceedlingEngine';
+import { CeedlingEngine, CeedlingLoadError, coverageMode, type RunMode } from './ceedlingEngine';
+import { pathKey } from './ceedlingProjectConfig';
 import { debugTarget, resolveLaunchConfig } from './debugLaunch';
+import { type CoveredFile, mergeCoverage } from './gcovrCoberturaReport';
 import { type Logger } from './logger';
 import { ProblemMatcher } from './problemMatcher';
 import { buildRunPlan, type PlanTarget, type RunPlanEntry } from './runPlan';
 import { SingleFlight } from './singleFlight';
-import { type CeedlingFileNode, type CeedlingProjectNode, type CeedlingTestFunction, type RunReporter } from './testModel';
+import { type CeedlingFileNode, type CeedlingProjectNode, type CeedlingTestFunction, type CoverageOutcome, type RunReporter } from './testModel';
 import { createRunReporter, type ReportMessage } from './testReporting';
 import { Debouncer, settingsChangeEffects, type SourceEvent, sourceEventEffect, watcherChanges } from './watchPolicy';
 
@@ -45,6 +47,14 @@ export class CeedlingTestController {
     private projects: CeedlingProjectNode[] = [];
     private readonly reported = new vscode.EventEmitter<ReportedResult>();
     readonly onDidReport = this.reported.event;
+    // Each coverage run's per-file coverage, for the integration tests.
+    private readonly coverageReported = new vscode.EventEmitter<vscode.FileCoverage>();
+    readonly onDidReportCoverage = this.coverageReported.event;
+    // Offered only while some project enables Ceedling's gcov plugin.
+    private coverageProfile: vscode.TestRunProfile | undefined;
+    // VS Code asks for a file's details after its run ends, with the same FileCoverage it was given.
+    // Keying by that object keeps an older run's details its own.
+    private readonly coverageDetails = new WeakMap<vscode.FileCoverage, vscode.FileCoverageDetail[]>();
     // A discovery in flight at disposal must not build a TestController or watchers afterwards.
     private disposed = false;
 
@@ -92,11 +102,17 @@ export class CeedlingTestController {
         return this.refresh();
     }
 
-    // Runs a request as the Run profile does. A folder without a TestController has nothing to run.
-    async run(request: vscode.TestRunRequest, token: vscode.CancellationToken): Promise<void> {
+    // Runs a request as the Run profile does, or the Coverage profile with `coverage`. A folder
+    // without a TestController has nothing to run.
+    async run(request: vscode.TestRunRequest, token: vscode.CancellationToken, coverage = false): Promise<void> {
         if (this.controller) {
-            await this.handleRun(request, token);
+            await this.handleRun(request, token, coverage);
         }
+    }
+
+    // Whether the Testing view offers Run with Coverage for this folder.
+    get offersCoverage(): boolean {
+        return this.coverageProfile !== undefined;
     }
 
     async clean(): Promise<void> {
@@ -115,6 +131,7 @@ export class CeedlingTestController {
         this.disposeController();
         this.engine.dispose();
         this.reported.dispose();
+        this.coverageReported.dispose();
     }
 
     // The TestController, its handlers, and its run profiles, created on first need.
@@ -139,6 +156,8 @@ export class CeedlingTestController {
     }
 
     private disposeController(): void {
+        this.coverageProfile?.dispose();
+        this.coverageProfile = undefined;
         this.controllerDisposables.forEach((d) => { d.dispose(); });
         this.controllerDisposables = [];
         this.controller = undefined;
@@ -205,7 +224,23 @@ export class CeedlingTestController {
             this.projects = [];
         }
         this.rebuildTree();
+        this.syncCoverageProfile();
         await this.updateWatchers();
+    }
+
+    // Creates or disposes the non-default Coverage profile as projects gain or lose the gcov plugin.
+    // A coverage run rebuilds with instrumentation, which is slower, so it stays behind its own button.
+    private syncCoverageProfile(): void {
+        const controller = this.controller;
+        const wanted = controller !== undefined && this.engine.coverageEnabled();
+        if (wanted && !this.coverageProfile) {
+            const profile = controller.createRunProfile('Coverage', vscode.TestRunProfileKind.Coverage, (request, token) => this.handleRun(request, token, true), false);
+            profile.loadDetailedCoverage = (_run, fileCoverage) => Promise.resolve(this.coverageDetails.get(fileCoverage) ?? []);
+            this.coverageProfile = profile;
+        } else if (!wanted && this.coverageProfile) {
+            this.coverageProfile.dispose();
+            this.coverageProfile = undefined;
+        }
     }
 
     // Configuration files rediscover everything. C sources in a project directory follow
@@ -390,7 +425,7 @@ export class CeedlingTestController {
         return excluded;
     }
 
-    private makeReporter(run: vscode.TestRun, projectKey: string, excluded: Set<vscode.TestItem>): RunReporter {
+    private makeReporter(run: vscode.TestRun, projectKey: string, excluded: Set<vscode.TestItem>, coverage: (outcome: CoverageOutcome) => void = () => { }): RunReporter {
         const items = this.items.get(projectKey);
         return createRunReporter<vscode.TestItem>({
             sink: {
@@ -408,6 +443,7 @@ export class CeedlingTestController {
                     this.reported.fire({ item, outcome: 'errored', message: shown });
                 },
                 appendOutput: (text) => { run.appendOutput(text); },
+                coverage,
             },
             projectKey,
             find: (id) => items?.get(id),
@@ -417,9 +453,20 @@ export class CeedlingTestController {
         });
     }
 
-    // Cancellation reaches Ceedling through `token`, which stops only this run's processes.
-    private async handleRun(request: vscode.TestRunRequest, token: vscode.CancellationToken): Promise<void> {
+    // Cancellation reaches Ceedling through `token`, which stops only this run's processes. A
+    // coverage run shows what its completed builds measured, even when cancelled partway.
+    private async handleRun(request: vscode.TestRunRequest, token: vscode.CancellationToken, coverage = false): Promise<void> {
         const run = this.ensureController().createTestRun(request);
+        const mode: RunMode | undefined = coverage ? coverageMode() : undefined;
+        const reports: Array<{ path: string, files: CoveredFile[] }> = [];
+        const problems = new Set<string>();
+        const onCoverage = (outcome: CoverageOutcome) => {
+            if (outcome.kind === 'report') {
+                reports.push(outcome);
+            } else {
+                problems.add(outcome.message);
+            }
+        };
         try {
             const plan = this.planFor(request);
             const excluded = this.excludedItems(request);
@@ -432,16 +479,22 @@ export class CeedlingTestController {
             /* eslint-disable no-await-in-loop -- sequential by design, see above */
             for (const entry of plan) {
                 if (token.isCancellationRequested) break;
-                const reporter = this.makeReporter(run, entry.projectKey, excluded);
+                const reporter = this.makeReporter(run, entry.projectKey, excluded, onCoverage);
                 if (entry.kind === 'project') {
-                    await this.engine.runProjectAll(entry.projectKey, entry.files, reporter, token);
+                    await this.engine.runProjectAll(entry.projectKey, entry.files, reporter, token, mode);
                 } else if (entry.kind === 'function') {
-                    await this.engine.runFunction(entry.projectKey, entry.file, entry.fn, reporter, token);
+                    await this.engine.runFunction(entry.projectKey, entry.file, entry.fn, reporter, token, mode);
                 } else {
-                    await this.engine.runFile(entry.projectKey, entry.file, reporter, token);
+                    await this.engine.runFile(entry.projectKey, entry.file, reporter, token, mode);
                 }
             }
             /* eslint-enable no-await-in-loop */
+            this.addCoverage(run, reports);
+            for (const problem of problems) {
+                this.logger.warn(problem);
+                run.appendOutput(`${problem}\r\n`);
+                void vscode.window.showWarningMessage(problem);
+            }
         } catch (e) {
             this.logger.error(`handleRun error: ${util.format(e)}`);
         } finally {
@@ -510,6 +563,21 @@ export class CeedlingTestController {
         } finally {
             listeners.forEach((listener) => { listener.dispose(); });
             run.end();
+        }
+    }
+
+    // Each covered file's lines, branches, and functions, as VS Code's coverage API takes them.
+    // Cobertura numbers lines from 1, and VS Code positions from 0.
+    private addCoverage(run: vscode.TestRun, reports: Array<{ path: string, files: CoveredFile[] }>): void {
+        for (const file of mergeCoverage(reports, (filePath) => pathKey(filePath, process.platform))) {
+            const details: vscode.FileCoverageDetail[] = [
+                ...file.lines.map((line) => new vscode.StatementCoverage(line.hits, new vscode.Position(line.line - 1, 0), line.branches.map((taken) => new vscode.BranchCoverage(taken)))),
+                ...file.functions.map((fn) => new vscode.DeclarationCoverage(fn.name, fn.hits, new vscode.Position(fn.line - 1, 0))),
+            ];
+            const fileCoverage = vscode.FileCoverage.fromDetails(vscode.Uri.file(file.path), details);
+            this.coverageDetails.set(fileCoverage, details);
+            run.addCoverage(fileCoverage);
+            this.coverageReported.fire(fileCoverage);
         }
     }
 
