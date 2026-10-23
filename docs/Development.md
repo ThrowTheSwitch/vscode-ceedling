@@ -62,6 +62,7 @@ The code has two layers. Most modules have no `vscode` dependency and are unit-t
 | `src/runPlan.ts` | Pure | A run request → the fewest Ceedling invocations |
 | `src/testModel.ts` | Pure | The test tree types and the `RunReporter` interface |
 | `src/singleFlight.ts` | Pure | Coalesces overlapping discovery requests into one rerun |
+| `src/concurrency.ts` | Pure | Grouped concurrent mapping, a lock per key, and a limit shared by every caller |
 | `src/ceedlingOutputParsing.ts` | Pure | Ceedling stdout, report names, and pretty labels |
 | `src/ceedlingMixinArgs.ts` | Pure | The `--project`/`--mixin` flags for a project |
 | `src/problemMatching.ts` | Pure | Compiler-output patterns and their matches |
@@ -74,9 +75,11 @@ Two Ceedling constraints shape everything else. Ceedling always compiles a whole
 
 1. `projectsFromSettings()` turns `ceedlingExplorer.projects` and `ceedlingExplorer.mixins` into `CeedlingProject`s: key, absolute path, project file, launch configuration name, and mixins. Projects whose project file exists become the engine’s `candidates`.
 2. For each candidate, `checkCeedlingVersion()` runs `ceedling version` in the project directory and requires 1.0.0 or later. `semver.coerce()` reads a build suffix such as `1.2.0-13a540f` as its release.
-3. `resolveConfig()` runs `ceedling dumpconfig <temp file>` with the project’s flags and parses the YAML. `projectState()` reads the `ProjectState` from it: `buildRoot`, `reportFilename`, `testPrefix`, `testFilePrefix`, `executableExtension`, `useParamTests`, and `reportPluginEnabled`.
+3. `resolveConfig()` runs `ceedling dumpconfig` with the project’s flags and parses the YAML. Ceedling 1.2.0 writes it to stdout (`--stdout`). Earlier versions write it to a uniquely named temporary file, which is then removed. `projectState()` reads the `ProjectState` from it: `buildRoot`, `reportFilename`, `testPrefix`, `testFilePrefix`, `executableExtension`, `useParamTests`, and `reportPluginEnabled`.
 4. `listTestFiles()` runs `ceedling files:test` and parses its bullets with `parseFileListBullets()`.
 5. `testFileNodes()` reads each file and calls `discoverTests(source, { testPrefix, useParamTests })`. A function’s id is `file::name`, and a case’s is `file::name(args)`, exactly the names in Ceedling’s report.
+
+Discovery overlaps the work it safely can, since every Ceedling start costs a Ruby startup. Steps 2 through 4 run concurrently across project directories and one project at a time within a directory (`mapGrouped()`). Outcomes apply in settings order, so errors read the same however the work interleaves. Test sources are read concurrently, within one limit of 16 open reads shared by every discovery and reparse (`Limiter`), and parsed in listed order.
 
 The engine replaces its `projects` map only after every project loads. A failed discovery throws `CeedlingLoadError` and leaves the last good map in place for runs. The controller then turns the tree into TestItems. It keeps a `PlanTarget` for each item, and item lookups per project, since ids are unique only within one project.
 
@@ -96,9 +99,11 @@ The TestController itself exists only while discovery finds a project, so a fold
 A run turns the request into a plan, then reports each plan entry’s results.
 
 - **Planning.** `buildRunPlan(projects, include, exclude)` returns `RunPlanEntry`s of three kinds. A `project` entry runs `test:all`. A `file` entry runs `test:<file>`. A `function` entry adds `--test-case=<name>`. Excluded items narrow the plan to function granularity at most. The reporter drops their results.
-- **Running.** `runTests()` marks every id started, then takes the engine’s mutex. `buildAndRun()` deletes stale reports in `artifacts/test` and `artifacts/gcov`, runs Ceedling, appends the transcript to the run’s output, updates diagnostics, and reads the newest report.
+- **Running.** `runTests()` marks every id started, then takes its project directory’s lock. `buildAndRun()` deletes stale reports in `artifacts/test` and `artifacts/gcov`, runs Ceedling, appends the transcript to the run’s output, updates diagnostics, and reads the newest report.
 - **Reporting.** `testResults(report, leafIds)` yields `passed`, `skipped`, `failed`, and `unreported` results. An `unreported` id gets an error naming the likely cause: discovery and Ceedling disagree about its name. With no report at all, every id errors, and the most severe compiler diagnostic leads the message.
 - **Edge cases.** A `--test-case` run whose report also names another function, from Ceedling’s substring filter, reruns the whole file. A cancelled run kills only its own process tree, through `CeedlingRunner`, and marks its tests skipped.
+
+**One Ceedling command per project directory at a time.** Every Ceedling command that loads a project, `dumpconfig` and `files:test` included, rewrites the vendored Unity and CMock sources under `build/vendor/` in place. A second command in the same directory can leave a build compiling a half-written header. So `dumpconfig`, `files:test`, runs, debug builds, and clean/clobber each hold their directory’s lock (`KeyedLock`, via `inDirectory()`). `ceedling version` loads no project and needs no lock. Different directories proceed independently, so builds in separate projects may overlap.
 
 Diagnostics are keyed by run scope: the project key for a project run, `projectKey::fileId` for a file or function run. A project run replaces its own entry and drops its files’ entries. A file run replaces its own entry and drops the project entry’s diagnostics located in that file.
 

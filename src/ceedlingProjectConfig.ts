@@ -75,14 +75,15 @@ export function capabilitiesOf(version: string): CeedlingCapabilities {
 
 // Projects in settings order. With none configured, one default project sits at the workspace
 // root. A later entry with a duplicate key replaces an earlier one. `exists` decides which
-// default project file a directory uses.
-export function projectsFromSettings(
+// default project file a directory uses. Every project's filesystem checks run concurrently, and
+// their results apply in settings order, so a missing directory is reported deterministically.
+export async function projectsFromSettings(
     settings: { projects: readonly ProjectSetting[], mixins: readonly string[] },
     workspacePath: string,
     platform: NodeJS.Platform,
-    isDirectory: (absPath: string) => boolean,
-    exists: (absPath: string) => boolean,
-): CeedlingProject[] {
+    isDirectory: (absPath: string) => Promise<boolean>,
+    exists: (absPath: string) => Promise<boolean>,
+): Promise<CeedlingProject[]> {
     // Path rules follow the given platform rather than the host's, so Windows paths resolve as
     // Windows paths wherever this runs. Gcov's XML report generation fails on Windows unless the
     // drive letter is uppercase.
@@ -90,12 +91,15 @@ export function projectsFromSettings(
     const root = platform === 'win32' ? workspacePath.charAt(0).toUpperCase() + workspacePath.slice(1) : workspacePath;
     if (settings.projects.length === 0) {
         const absPath = paths.resolve(root);
-        return [{ key: 'default', absPath, ...projectFiles(absPath, undefined, paths, exists), debugLaunchConfig: 'ceedling', mixins: [...settings.mixins] }];
+        return [{ key: 'default', absPath, ...(await projectFiles(absPath, undefined, paths, exists)), debugLaunchConfig: 'ceedling', mixins: [...settings.mixins] }];
     }
+    const checked = await Promise.all(settings.projects.map(async (setting) => {
+        const project = await projectFromSetting(setting, settings.mixins, paths.resolve(root), paths, exists);
+        return { project, directory: await isDirectory(project.absPath) };
+    }));
     const projects = new Map<string, CeedlingProject>();
-    for (const setting of settings.projects) {
-        const project = projectFromSetting(setting, settings.mixins, paths.resolve(root), paths, exists);
-        if (!isDirectory(project.absPath)) {
+    for (const { project, directory } of checked) {
+        if (!directory) {
             throw new CeedlingLoadError(`The project path ${project.absPath} does not exist or is not a directory.`);
         }
         projects.set(project.key, project);
@@ -105,9 +109,9 @@ export function projectsFromSettings(
 
 // A path ending in .yml names a project file. Any other path names a directory holding a default
 // project file. The key is the configured name, else an alternate file's base name, else the path.
-function projectFromSetting(
-    setting: ProjectSetting, globalMixins: readonly string[], root: string, paths: typeof path.posix, exists: (absPath: string) => boolean,
-): CeedlingProject {
+async function projectFromSetting(
+    setting: ProjectSetting, globalMixins: readonly string[], root: string, paths: typeof path.posix, exists: (absPath: string) => Promise<boolean>,
+): Promise<CeedlingProject> {
     let directory = setting.path;
     let configuredFile: string | undefined;
     let key = setting.path;
@@ -123,7 +127,7 @@ function projectFromSetting(
     return {
         key: setting.name ?? key,
         absPath,
-        ...projectFiles(absPath, configuredFile, paths, exists),
+        ...(await projectFiles(absPath, configuredFile, paths, exists)),
         debugLaunchConfig: setting.debugLaunchConfig,
         mixins: [...(setting.mixins ?? globalMixins)],
     };
@@ -131,11 +135,13 @@ function projectFromSetting(
 
 // The base project file is project.yml unless only ceedling.yml exists. A configured default
 // project file is itself the base. Any other configured file applies over the base as a mixin.
-function projectFiles(
-    absPath: string, configuredFile: string | undefined, paths: typeof path.posix, exists: (absPath: string) => boolean,
-): Pick<CeedlingProject, 'projectFileName' | 'ymlFileName' | 'ambiguousProjectFile'> {
-    const hasDefault = exists(paths.join(absPath, DEFAULT_PROJECT_FILE));
-    const hasAlternate = exists(paths.join(absPath, ALTERNATE_DEFAULT_PROJECT_FILE));
+async function projectFiles(
+    absPath: string, configuredFile: string | undefined, paths: typeof path.posix, exists: (absPath: string) => Promise<boolean>,
+): Promise<Pick<CeedlingProject, 'projectFileName' | 'ymlFileName' | 'ambiguousProjectFile'>> {
+    const [hasDefault, hasAlternate] = await Promise.all([
+        exists(paths.join(absPath, DEFAULT_PROJECT_FILE)),
+        exists(paths.join(absPath, ALTERNATE_DEFAULT_PROJECT_FILE)),
+    ]);
     const isDefaultName = configuredFile === DEFAULT_PROJECT_FILE || configuredFile === ALTERNATE_DEFAULT_PROJECT_FILE;
     const projectFileName = isDefaultName ? configuredFile : (hasAlternate && !hasDefault ? ALTERNATE_DEFAULT_PROJECT_FILE : DEFAULT_PROJECT_FILE);
     return {

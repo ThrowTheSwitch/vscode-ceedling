@@ -154,6 +154,37 @@ suite('matchToProblem', () => {
         const matches = exec('^(.*):(\\w+):(.*)$', 'test/foo.c:NaN:whatever');
         assert.strictEqual(matchToProblem(matches, 1, 3, 'error', '', 2, null, null, null), undefined);
     });
+
+    test('a configured last line and last column end the range', () => {
+        const matches = exec('^(.*):(\\d+)-(\\d+):(\\d+)-(\\d+): (.*)$', 'src/a.c:3-5:2-7: spans');
+        const problem = matchToProblem(matches, 1, 6, 'warning', '', 2, 3, 4, 5);
+        assert.deepStrictEqual(problem && [problem.startLine, problem.startColumn, problem.endLine, problem.endColumn], [2, 1, 4, 6]);
+    });
+
+    test('a pattern without a line group places the problem at the top of the file', () => {
+        const matches = exec('^(.*): (.*)$', 'src/a.c: somewhere');
+        const problem = matchToProblem(matches, 1, 2, 'info', '', null, null, null, null);
+        assert.deepStrictEqual(problem && [problem.startLine, problem.startColumn, problem.endLine, problem.endColumn], [0, 0, 0, 999]);
+    });
+});
+
+suite('getPatternProblems', () => {
+    const pattern = (scanStdout: boolean, scanStderr: boolean): ProblemMatchingPattern => ({
+        scanStdout, scanStderr, severity: 'error', filePrefix: '${projectPath}',
+        regexp: '^(\\S+\\.c):(\\d+): (.*)$', message: 3, file: 1, line: 2, lastLine: null, column: null, lastColumn: null,
+    });
+
+    test('scans only the streams the pattern names', () => {
+        const files = (p: ProblemMatchingPattern) => getPatternProblems('out.c:1: from stdout', 'err.c:1: from stderr', '/project', p).map((m) => m.message);
+        assert.deepStrictEqual(files(pattern(false, true)), ['from stderr']);
+        assert.deepStrictEqual(files(pattern(true, false)), ['from stdout']);
+        assert.deepStrictEqual(files(pattern(true, true)), ['from stdout', 'from stderr']);
+    });
+
+    test('${projectPath} in the file prefix becomes the project directory', () => {
+        const [problem] = getPatternProblems('', 'src/a.c:1: here', '/project', pattern(false, true));
+        assert.strictEqual(problem.file, path.join('/project', 'src/a.c'));
+    });
 });
 
 suite('normalizePatterns', () => {
@@ -183,6 +214,24 @@ suite('normalizePatterns', () => {
         ]);
         assert.deepStrictEqual(valid, []);
         assert.strictEqual(invalid.length, 1);
+    });
+
+    test('keeps each optional field that is configured, and falls back from an unknown severity', () => {
+        const { valid } = normalizePatterns([
+            { regexp: 'x', message: 1, file: 2, scanStdout: true, scanStderr: false, severity: 'warning', filePrefix: '/p', line: 3, lastLine: 4, column: 5, lastColumn: 6 },
+            { regexp: 'x', message: 1, file: 2, severity: 'fatal' },
+        ]);
+        assert.deepStrictEqual(valid[0], {
+            scanStdout: true, scanStderr: false, severity: 'warning', filePrefix: '/p',
+            regexp: 'x', message: 1, file: 2, line: 3, lastLine: 4, column: 5, lastColumn: 6,
+        });
+        assert.strictEqual(valid[1]?.severity, 'info');
+    });
+
+    test('drops an entry that is not an object', () => {
+        const { valid, invalid } = normalizePatterns([null, 'gcc', 3]);
+        assert.deepStrictEqual(valid, []);
+        assert.deepStrictEqual(invalid, [null, 'gcc', 3]);
     });
 
     test('drops a pattern whose required field is the wrong type', () => {

@@ -126,6 +126,10 @@ function expandRangeMarker(name: string, body: string, warnings: string[]): stri
         }
         ranges.push(values);
     }
+    if (ranges.length === 0) {
+        warnings.push(`TEST_RANGE for ${name} has no [start, end, step] or <start, end, step> ranges; Ceedling cannot build this test.`);
+        return [];
+    }
     return cartesianProduct(ranges);
 }
 
@@ -148,10 +152,8 @@ function expandMatrixMarker(name: string, body: string, warnings: string[]): str
 }
 
 // Every combination of one value per list, first list outermost, each joined as Unity joins it.
+// Callers pass at least one list. Unity's generator fails on a marker with none.
 function cartesianProduct(lists: string[][]): string[] {
-    if (lists.length === 0) {
-        return [];
-    }
     return lists
         .reduce<string[][]>((combos, list) => combos.flatMap((combo) => list.map((value) => [...combo, value])), [[]])
         .map((combo) => combo.join(', '));

@@ -134,6 +134,15 @@ suite('discoverTests: TEST_RANGE', () => {
         assert.strictEqual(warnings.length, 1);
         assert.match(warnings[0], /test_z/);
     });
+
+    // Unity's generator fails on such a marker (`undefined method 'map' for nil`), so Ceedling
+    // cannot build the test.
+    test('a marker without a bracketed range yields no cases, and a warning', () => {
+        const { tests, warnings } = discoverTests('TEST_RANGE(1, 2, 3)\nvoid test_r(int x) {}\n', PARAMS_ON);
+        assert.deepStrictEqual(reportedNames(tests), ['test_r']);
+        assert.strictEqual(warnings.length, 1);
+        assert.match(warnings[0], /TEST_RANGE for test_r/);
+    });
 });
 
 suite('discoverTests: TEST_MATRIX', () => {
@@ -148,6 +157,14 @@ suite('discoverTests: TEST_MATRIX', () => {
 
     test('string and character elements keep their quotes, commas inside them included', () => {
         assert.deepStrictEqual(namesIn(`TEST_MATRIX(["x,y", 'z'])\nvoid test_m(int x) {}\n`), ['test_m("x,y")', `test_m('z')`]);
+    });
+
+    // Unity's generator fails on such a marker, as it does on a TEST_RANGE without a range.
+    test('a marker without lists yields no cases, and a warning', () => {
+        const { tests, warnings } = discoverTests('TEST_MATRIX(1, 2)\nvoid test_m(int x) {}\n', PARAMS_ON);
+        assert.deepStrictEqual(reportedNames(tests), ['test_m']);
+        assert.strictEqual(warnings.length, 1);
+        assert.match(warnings[0], /TEST_MATRIX for test_m/);
     });
 });
 
@@ -217,6 +234,10 @@ suite('expandRubyRange', () => {
         ['1.0', '0.0', '-0.5', false, ['1.0', '0.5', '0.0']],
         ['1.0', '0.0', '-0.5', true, ['1.0', '0.5']],
         ['2', '0.0', '-1', false, ['2.0', '1.0', '0.0']],
+        ['1.0', '0.0', '0.5', true, []],
+        ['0.0', '0.5', '1.0', true, ['0.0']],
+        ['5.0', '5.0', '1', true, []],
+        ['0.0', '0.25', '0.1', true, ['0.0', '0.1', '0.2']],
     ];
     for (const [start, end, step, excludeEnd, expected] of vectors) {
         const range = `${excludeEnd ? '<' : '['}${start}, ${end}, ${step}${excludeEnd ? '>' : ']'}`;
