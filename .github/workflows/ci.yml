@@ -4,9 +4,10 @@ on:
   push:
     branches:
       - master
+      - next_version
+  # Every pull request, whatever its base. Stacked PRs target one another's branches, not only
+  # master or next_version, and each still needs its own CI run.
   pull_request:
-    branches:
-      - master
   # Allows a manual run from the Actions tab.
   workflow_dispatch:
 
