@@ -5,7 +5,7 @@
       "es2021"
     ],
     "module": "commonjs",
-    "outDir": "out",
+    "outDir": "out-test",
     "rootDir": ".",
     "importHelpers": true,
     "sourceMap": true,
@@ -17,6 +17,7 @@
     "skipLibCheck": true
   },
   "include": [
+    "src/**/*.ts",
     "tests/**/*.ts"
   ]
 }

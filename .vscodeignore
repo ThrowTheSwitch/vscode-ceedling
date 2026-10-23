@@ -5,6 +5,10 @@ tests/**
 package-lock.json
 tsconfig.json
 test.tsconfig.json
+eslint.config.mjs
+.c8rc.json
+out-test/**
+coverage/**
 .vscode/**
 .vscode-test/**
 .github/**
