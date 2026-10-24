@@ -42,6 +42,7 @@ import {
     type ProjectState,
     projectState,
     projectsFromSettings,
+    testBuildName,
 } from './ceedlingProjectConfig';
 import { parseCoberturaReport, reportedFiles } from './coberturaReport';
 import type { Logger } from './logger';
@@ -744,25 +745,22 @@ export class CeedlingEngine {
         return diagnostics.slice().sort((a, b) => a.diagnostic.severity - b.diagnostic.severity)[0];
     }
 
-    // The executable's path under Ceedling's test output directory. Ceedling before 1.2.0 builds
-    // `name/name<ext>`. Ceedling 1.2.0 nests that under the test file's directory relative to its
-    // test path, e.g. `unit/name/name<ext>` for `test/unit/name.c`. That test path isn't known
-    // here, so each trailing part of the file's directory is tried, and the newest build wins.
+    // The executable's path under Ceedling's test output directory, `<build name>/<name><ext>`, e.g.
+    // `unit/test_foo/test_foo.out` for `test/unit/test_foo.c` from 1.2.0. A missing executable is
+    // logged, and its path returned all the same, for the launch to report.
     private async executableSubpath(project: LoadedProject, file: CeedlingFileNode): Promise<string> {
-        const segments = file.id.split(/[\\/]/);
-        const name = (segments.pop() ?? file.id).replace(/\.[^.]*$/, '');
-        const executable = `${name}/${name}${project.state.executableExtension}`;
+        const buildName = this.testBuildName(project, file);
+        const executable = `${buildName}/${buildName.replace(/^.*\//, '')}${project.state.executableExtension}`;
         const outputDirectory = this.buildPath(project, 'test', 'out');
-        const candidates = segments.map((_, i) => [...segments.slice(i), executable].join('/')).concat(executable);
-        const mtimes = await Promise.all(candidates.map((subpath) => this.fs.mtimeMs(this.paths.resolve(outputDirectory, subpath))));
-        const [newest] = candidates
-            .map((subpath, i) => ({ subpath, mtime: mtimes[i] }))
-            .filter((candidate): candidate is { subpath: string, mtime: number } => candidate.mtime !== undefined)
-            .sort((a, b) => b.mtime - a.mtime);
-        if (!newest) {
-            this.logger.warn(`executableSubpath: no built executable for '${file.id}' under ${outputDirectory}, assuming '${executable}'`);
+        if (await this.fs.mtimeMs(this.paths.resolve(outputDirectory, executable)) === undefined) {
+            this.logger.warn(`executableSubpath: no built executable for '${file.id}' at '${executable}' under ${outputDirectory}`);
         }
-        return newest?.subpath ?? executable;
+        return executable;
+    }
+
+    // Where Ceedling builds the test file, beneath each build output directory.
+    private testBuildName(project: LoadedProject, file: CeedlingFileNode): string {
+        return testBuildName(file.id, project.state.testPaths, project.capabilities.nestedTestBuilds);
     }
 
     // A test run writes its report under artifacts/test, a gcov run under artifacts/gcov.
@@ -799,18 +797,19 @@ export class CeedlingEngine {
     }
 
     // Clears one test file's counters before a whole-file run repeats the tests its filtered run
-    // just counted. They sit beneath a directory named for the file, which from Ceedling 1.2.0 sits
-    // beneath the file's directory within its test path, e.g. gcov/out/unit/test_foo/ for
-    // test/unit/test_foo.c. That test path isn't known, so the deepest such directory whose parents
-    // end the file's own directory is the file's. Same-named test files elsewhere keep theirs.
+    // just counted. They sit beneath the file's build directory in gcov/out, e.g.
+    // gcov/out/unit/test_foo/ for test/unit/test_foo.c, so same-named test files elsewhere keep
+    // theirs. Windows folds case, and keeps whatever case Ceedling created a directory with.
     private async clearTestCounters(project: LoadedProject, file: CeedlingFileNode): Promise<void> {
         if (!this.resetsCounters()) {
             return;
         }
         const key = (segment: string) => pathKey(segment, this.platform);
-        const owned = (await this.counters(project)).map((counter) => ({ file: counter.file, depths: ownerDepths(counter.segments, file.id, key) }));
-        const deepest = owned.reduce((max, counter) => Math.max(max, ...counter.depths), -1);
-        await this.deleteStale(owned.filter((counter) => counter.depths.includes(deepest)).map((counter) => counter.file));
+        const own = this.testBuildName(project, file).split('/').map(key);
+        const counters = await this.counters(project);
+        await this.deleteStale(counters
+            .filter((counter) => own.every((segment, i) => counter.segments[i] !== undefined && key(counter.segments[i]) === segment))
+            .map((counter) => counter.file));
     }
 
     private resetsCounters(): boolean {
@@ -970,17 +969,4 @@ export class CeedlingEngine {
         }
         return result;
     }
-}
-
-// The depths among a counter's directories beneath gcov/out that are named for the test file and
-// sit beneath a trailing part of the file's own directory. `key` folds case where the platform does.
-function ownerDepths(segments: string[], testId: string, key: (segment: string) => string): number[] {
-    const directories = testId.split(/[\\/]/).slice(0, -1).map(key);
-    const name = key(testId.replace(/^.*[\\/]/, '').replace(/\.[^.]*$/, ''));
-    const keyed = segments.map(key);
-    return keyed.flatMap((segment, depth) => segment === name && endsWith(directories, keyed.slice(0, depth)) ? [depth] : []);
-}
-
-function endsWith(whole: string[], tail: string[]): boolean {
-    return tail.length <= whole.length && tail.every((segment, i) => whole[whole.length - tail.length + i] === segment);
 }

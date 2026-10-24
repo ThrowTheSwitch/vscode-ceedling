@@ -46,6 +46,8 @@ export type ProjectState = {
     reportPluginEnabled: boolean,
     // undefined when the project doesn't enable Ceedling's gcov plugin.
     coverage: CoverageState | undefined,
+    // `:paths` ↳ `:test` as configured, e.g. `+:test/**`, which places each test's build files.
+    testPaths: string[],
 };
 
 // What a coverage run leaves to read. Ceedling's gcov plugin writes a Cobertura report through
@@ -78,6 +80,9 @@ export type CeedlingCapabilities = {
     pathQualifiedCoverageTasks: boolean,
     // ceedling.yml is a default project file, like project.yml.
     ceedlingYml: boolean,
+    // A test's build files nest under its file's directory within its test path, e.g.
+    // `test/out/unit/test_foo/` for `test/unit/test_foo.c`. See testBuildName().
+    nestedTestBuilds: boolean,
 };
 
 // The features of a reported Ceedling version. A build suffix such as `1.2.0-13a540f` counts as
@@ -91,6 +96,7 @@ export function capabilitiesOf(version: string): CeedlingCapabilities {
         pathQualifiedTestTasks: atLeast('1.2.0'),
         pathQualifiedCoverageTasks: atLeast('1.2.1'),
         ceedlingYml: atLeast('1.2.0'),
+        nestedTestBuilds: atLeast('1.2.0'),
     };
 }
 
@@ -194,6 +200,7 @@ export function projectState(resolved: unknown, platform: NodeJS.Platform): Proj
         useParamTests: setting(resolved, ':unity', ':use_param_tests') === true,
         reportPluginEnabled: Array.isArray(enabledPlugins) && enabledPlugins.includes('report_tests_log_factory'),
         coverage: coverageState(resolved),
+        testPaths: stringList(setting(resolved, ':paths', ':test')),
     };
 }
 
@@ -205,7 +212,7 @@ export function coverageState(resolved: unknown): CoverageState | undefined {
     if (!Array.isArray(enabledPlugins) || !enabledPlugins.includes('gcov')) {
         return undefined;
     }
-    const names = (value: unknown) => Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string').map((v) => v.toLowerCase()) : [];
+    const names = (value: unknown) => stringList(value).map((name) => name.toLowerCase());
     const listed = names(setting(resolved, ':gcov', ':utilities'));
     const utilities = listed.length > 0 ? listed : ['gcovr'];
     const cobertura = names(setting(resolved, ':gcov', ':reports')).includes('cobertura');
@@ -236,7 +243,37 @@ function setting(config: unknown, ...keys: string[]): unknown {
     return value;
 }
 
+// The strings of a list setting. Anything else in the list, or a setting that isn't one, is ignored.
+function stringList(value: unknown): string[] {
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
 function stringSetting(config: unknown, fallback: string, ...keys: string[]): string {
     const value = setting(config, ...keys);
     return typeof value === 'string' ? value : fallback;
+}
+
+// The name Ceedling gives a test's build directories, e.g. under test/out and gcov/out. Before
+// 1.2.0 it is the test file's base name. From 1.2.0 the file's directory within the longest test
+// path holding it comes first, as Ceedling's PathMirror.relative_subdir places it: `unit/test_foo`
+// for `test/unit/test_foo.c` under `+:test/**`. Ceedling compares paths as written, with `/`.
+export function testBuildName(testId: string, testPaths: readonly string[], nested: boolean): string {
+    const id = testId.replace(/\\/g, '/');
+    const name = id.replace(/^.*\//, '').replace(/\.[^.]*$/, '');
+    const directory = id.includes('/') ? id.slice(0, id.lastIndexOf('/')) : '.';
+    const roots = testPaths.map((testPath) => testPathRoot(testPath.replace(/\\/g, '/'))).filter((root) => root !== '');
+    const [root] = roots.filter((r) => directory === r || directory.startsWith(`${r}/`)).sort((a, b) => b.length - a.length);
+    return nested && root !== undefined && directory !== root ? `${directory.slice(root.length + 1)}/${name}` : name;
+}
+
+// A test path without its `+:` or `-:` decorator, cut back to the directory before its first glob,
+// as Ceedling's FilePathUtils.no_decorators does. Empty when a glob leads it.
+function testPathRoot(testPath: string): string {
+    const bare = testPath.trim().replace(/^[+-]:/, '').trim();
+    const glob = bare.search(/[*?{}]/);
+    if (glob < 0) {
+        return bare.replace(/\/$/, '');
+    }
+    const separator = bare.lastIndexOf('/', glob - 1);
+    return separator < 0 ? '' : separator === 0 ? '/' : bare.slice(0, separator);
 }

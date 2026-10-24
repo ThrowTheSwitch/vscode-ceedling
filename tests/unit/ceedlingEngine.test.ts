@@ -489,6 +489,7 @@ suite('CeedlingEngine with Ceedling 1.2.0', () => {
     // 1.2.0 nests each executable under its test file's directory, relative to the test path.
     test("a nested test file's executable is found under its directory", async () => {
         const world = new FakeCeedling();
+        world.resolvedConfig = `:paths:\n  :test:\n    - "+:test/**"\n${world.resolvedConfig}`;
         world.testFiles = ['test/unit/test_calc.c'];
         world.write(`${WS}/test/unit/test_calc.c`, 'void test_add(void) {}\n');
         const { engine, file } = await discovered(world);
@@ -500,6 +501,35 @@ suite('CeedlingEngine with Ceedling 1.2.0', () => {
         } : undefined);
         assert.strictEqual(await engine.compileForDebug('default', file, recordingReporter(), token()), 'unit/test_calc/test_calc.out');
         assert.deepStrictEqual(world.commandsMatching(/^ceedling test:/), [`ceedling test:test/unit/test_calc.c --force-test-rerun ${PROJECT_ARGS}`]);
+    });
+
+    // The longest test path holding a file decides its build directory, not which build is newest.
+    test("a test file's executable follows its own test path, even beside a newer same-named one", async () => {
+        const world = new FakeCeedling();
+        world.resolvedConfig = `:paths:\n  :test:\n    - "+:test/unit/**"\n    - "+:extra/**"\n${world.resolvedConfig}`;
+        world.testFiles = ['test/unit/test_calc.c', 'extra/unit/test_calc.c'];
+        for (const f of world.testFiles) world.write(`${WS}/${f}`, 'void test_add(void) {}\n');
+        const { engine, projects } = await discovered(world);
+        world.handlers.push((command) => /^ceedling test:/.test(command) ? {
+            writes: {
+                ...world.reportWrite(cppunit({ passed: ['test/unit/test_calc.c::test_add'] })),
+                [`${WS}/build/test/out/test_calc/test_calc.out`]: 'ELF',
+                [`${WS}/build/test/out/unit/test_calc/test_calc.out`]: 'ELF, written last',
+            },
+        } : undefined);
+        const file = projects[0].files.find((f) => f.id === 'test/unit/test_calc.c')!;
+        assert.strictEqual(await engine.compileForDebug('default', file, recordingReporter(), token()), 'test_calc/test_calc.out');
+    });
+
+    test("before Ceedling 1.2.0, a nested test file's executable builds under its bare name", async () => {
+        const world = new FakeCeedling();
+        world.version = '1.1.10';
+        world.resolvedConfig = `:paths:\n  :test:\n    - "+:test/**"\n${world.resolvedConfig}`;
+        world.testFiles = ['test/unit/test_calc.c'];
+        world.write(`${WS}/test/unit/test_calc.c`, 'void test_add(void) {}\n');
+        const { engine, file } = await discovered(world);
+        world.handlers.push((command) => /^ceedling test:/.test(command) ? { writes: world.reportWrite(cppunit({ passed: ['test/unit/test_calc.c::test_add'] })) } : undefined);
+        assert.strictEqual(await engine.compileForDebug('default', file, recordingReporter(), token()), 'test_calc/test_calc.out');
     });
 });
 
@@ -1233,9 +1263,10 @@ suite('CeedlingEngine concurrent discovery', () => {
 });
 
 // A resolved configuration enabling the gcov plugin, with its defaults as Ceedling merges them.
-function gcovConfig(options: { utilities?: string[], reports?: string[], reportTask?: boolean } = {}): string {
+function gcovConfig(options: { utilities?: string[], reports?: string[], reportTask?: boolean, testPaths?: string[] } = {}): string {
     const list = (items: string[]) => items.length === 0 ? ' []\n' : `\n${items.map((item) => `    - ${item}\n`).join('')}`;
     return ':plugins:\n  :enabled:\n    - report_tests_log_factory\n    - gcov\n:unity:\n  :use_param_tests: true\n' +
+        `:paths:\n  :test:${list((options.testPaths ?? ['+:test/**']).map((p) => `"${p}"`))}` +
         `:gcov:\n  :report_task: ${options.reportTask === true}\n  :utilities:${list(options.utilities ?? ['gcovr'])}  :reports:${list(options.reports ?? ['Cobertura'])}`;
 }
 
@@ -1394,6 +1425,44 @@ suite('CeedlingEngine coverage', () => {
         await engine.runFunction('default', integration, integration.functions[0], recordingReporter(), token(), mode);
         assert.strictEqual(world.commandsMatching(/^ceedling gcov:test\/integration\/test_calc\.c --force/).length, 1, 'the fallback ran');
         assert.deepStrictEqual(Object.entries(counters).filter(([, f]) => world.files.has(f)).map(([k]) => k), ['root', 'unit', 'unitNested']);
+    });
+
+    test("a function run's whole-file fallback clears the counters its own test path places, not a namesake's", async () => {
+        const world = coverageWorld(undefined, gcovConfig({ testPaths: ['+:test/unit/**', '+:extra/**'] }));
+        world.version = '1.2.1';
+        world.testFiles = ['test/unit/test_calc.c', 'extra/unit/test_calc.c'];
+        for (const f of world.testFiles) world.write(`${WS}/${f}`, 'void test_add(void) {}\n');
+        const own = `${WS}/build/gcov/out/test_calc/calc.gcda`;
+        const namesake = `${WS}/build/gcov/out/unit/test_calc/calc.gcda`;
+        world.handlers.unshift((command) => /--test-case/.test(command)
+            ? { writes: world.reportWrite(cppunit({ passed: ['test/unit/test_calc.c::test_add', 'test/unit/test_calc.c::test_add_more'] }), 'build', 'gcov') }
+            : undefined);
+        const { engine, projects } = await discovered(world);
+        const file = projects[0].files.find((f) => f.id === 'test/unit/test_calc.c')!;
+        const mode = coverageMode();
+        // A first build spends the request's one counter reset, which would clear the counters below.
+        await engine.runFile('default', file, recordingReporter(), token(), mode);
+        world.write(own, '');
+        world.write(namesake, '');
+        await engine.runFunction('default', file, file.functions[0], recordingReporter(), token(), mode);
+        assert.deepStrictEqual([own, namesake].map((f) => world.files.has(f)), [false, true]);
+    });
+
+    test("before Ceedling 1.2.0, a function run's whole-file fallback clears the counters under the test's bare name", async () => {
+        const world = coverageWorld();
+        world.version = '1.1.10';
+        world.testFiles = ['test/unit/test_calc.c'];
+        world.write(`${WS}/test/unit/test_calc.c`, 'void test_add(void) {}\n');
+        const counter = `${WS}/build/gcov/out/test_calc/calc.gcda`;
+        world.handlers.unshift((command) => /--test-case/.test(command)
+            ? { writes: world.reportWrite(cppunit({ passed: ['test/unit/test_calc.c::test_add', 'test/unit/test_calc.c::test_add_more'] }), 'build', 'gcov') }
+            : undefined);
+        const { engine, file } = await discovered(world);
+        const mode = coverageMode();
+        await engine.runFile('default', file, recordingReporter(), token(), mode);
+        world.write(counter, '');
+        await engine.runFunction('default', file, file.functions[0], recordingReporter(), token(), mode);
+        assert.ok(!world.files.has(counter));
     });
 
     // Windows keeps the case a directory was created with, which may differ from the file's path.
