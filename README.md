@@ -295,17 +295,18 @@ Check [Known Issues](docs/KnownIssues.md) first if you think you’ve found a bu
 
 # Documentation
 
-Four companion documents cover changes and contributions.
+These companion documents cover changes and contributions.
 
 * [Changelog](CHANGELOG.md) — a terse, itemized record of what changed in each release.
 * [Release Notes](docs/ReleaseNotes.md) — the narrative version, with the highlights worth reading before upgrading.
 * [Known Issues](docs/KnownIssues.md) — currently open issues, by version.
 * [Breaking Changes](docs/BreakingChanges.md) — what to expect when upgrading across a compatibility boundary.
 * [Development](docs/Development.md) — how to work on this extension itself.
+* [Architecture](docs/Architecture.md) — how the extension works, and the VS Code APIs it builds on.
 
 # Contributing
 
-Contributions are welcome. See [docs/Development.md](docs/Development.md) for the code’s architecture, the development workflow, local debugging, and the development sidecar.
+Contributions are welcome. See [docs/Development.md](docs/Development.md) for the development workflow, local debugging, and the development sidecar, and [docs/Architecture.md](docs/Architecture.md) for the code’s architecture.
 
 # Acknowledgments
 
