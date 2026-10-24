@@ -1,0 +1,11 @@
+---
+:project:
+  :build_root: build
+:paths:
+  :test:
+    - "+:test/**"
+  :source:
+    - src/**
+  :include:
+    - src/**
+...

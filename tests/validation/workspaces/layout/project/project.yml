@@ -1,0 +1,15 @@
+---
+:project:
+  :build_root: build
+:plugins:
+  :enabled:
+    - gcov
+:paths:
+  :test:
+    - "+:test/**"
+    - "+:extra/**"
+  :source:
+    - src/**
+  :include:
+    - src/**
+...

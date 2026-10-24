@@ -1,6 +1,6 @@
 # Development
 
-This document is for contributors changing the extension’s own code. It starts with the daily workflow and a pointer to the architecture, which [Architecture.md](Architecture.md) covers in full. Then it covers running and debugging locally, the VS Code tools this work relies on, the manual testing plan, and the Docker sidecar.
+This document is for contributors changing the extension’s own code. It starts with the daily workflow and a pointer to the architecture, which [Architecture.md](Architecture.md) covers in full. Then it covers running and debugging locally, the VS Code tools this work relies on, validation against real Ceedling releases, the manual testing plan, and the Docker sidecar.
 
 ---
 
@@ -12,7 +12,7 @@ The loop is: edit, build, F5, iterate, test, commit.
 
 Source edits happen directly on the host. They happen in your real VS Code window. Docker never touches that window.
 
-The sidecar handles install, build, test, package, and publish. It runs in Docker. See [Section 6](#6-the-sidecar).
+The sidecar handles install, build, test, package, and publish. It runs in Docker. See [Section 7](#7-the-sidecar).
 
 First time: run `just install`. Then press F5.
 
@@ -152,9 +152,63 @@ Run `test_calculator_crash.c`. `test_should_crash` dereferences a null pointer. 
 
 See [tests/manual/README.md](../tests/manual/README.md) for the `project.yml` settings the parametrized and crash tests need.
 
-## 5. Manual Testing Plan
+## 5. Validation Against Real Ceedling
 
-This checklist confirms the extension’s behavior in a real VS Code, where unit and integration tests can’t reach. Run it before a release, against the final code on the integration branch, on Ceedling 1.0.0, 1.1.10, 1.2.0, and 1.2.1.
+The unit and integration tests run against a simulated Ceedling. The validation suites run the engine against real Ceedling releases instead, to catch what a simulation can’t: races at real build speeds, each version’s own behavior, and real gcovr and ReportGenerator output. They aren’t part of `just test` or CI. Run them on every supported version before a release, and after changing the engine’s locking, its Ceedling command lines, or its coverage handling.
+
+```sh
+just validate 1.2.1                   # every suite, on Ceedling 1.2.1
+just validate 1.2.0 gated             # one suite
+just validate 1.1.10 stress 120 6 7   # 120 seconds, 6 operations at once, seed 7
+just validate 1.2.1 probe:syscalls    # one probe
+```
+
+A suite prints what it ran and every violation it found, and exits 0 only when every check held. `all`, the default, runs `stress` twice, the second time with one build root, then `coverage`, `gated`, and `layout`. Trailing numbers go to `stress` and `coverage`, so `just validate 1.2.1 all 45` gives each of their overlap phases 45 seconds. That takes about three minutes per version, and the default of 60 seconds about a minute more.
+
+### How they run
+
+- `just validate` compiles the tests into `out-test/` in the sidecar, then runs [`tests/validation/run.sh`](../tests/validation/run.sh) on the host. Run it from the host, not in `just shell`, since it needs Docker. `just install` must have run, to fill the `node_modules` volume.
+- Compiling replaces `out-test/`, as `just test` and `just coverage` do, so run one `just validate` at a time. To run several versions at once, compile once, then call `tests/validation/run.sh <version> <suite>` for each.
+- `run.sh` builds `vscode-ceedling-validate:<version>` from [`sidecar/validate.Dockerfile`](../sidecar/validate.Dockerfile). The image is `throwtheswitch/madsciencelab-plugins:<version>` plus the sidecar’s Node and `strace`. Any tag of that image works as a version.
+- Each suite runs in a fresh container, with the repo and the `node_modules` volume mounted read-only. It copies its projects from fixtures into the container’s own `/ws` and builds them there, so nothing is left on the host.
+- A suite drives the compiled `CeedlingEngine` directly, with VS Code’s side stubbed: settings, the logger, and the Problems panel. Every Ceedling command it issues is real.
+
+### The suites
+
+| Suite | Checks | Versions |
+|---|---|---|
+| `stress` | Random runs of files, functions, and projects, debug builds, discoveries, reparses, and cleans overlap across four projects, two of them sharing a directory. A fifth are cancelled at a random moment. Each completed run must report each of its own tests once, with the outcome [`tests/manual/`](../tests/manual/) expects. No Ceedling process or temporary file may be left. `--shared-build-root` gives all four projects one build root. Takes seconds (60), operations at once (6), and a seed (1). | All |
+| `coverage` | Exact outcomes one run at a time: gcovr preferred over ReportGenerator, counters reset or kept, a function run, a source above the project, ReportGenerator alone. Then coverage runs overlapping plain runs, discovery, reparses, and clean. Takes seconds (60), operations at once (5), and a seed (1). | All. 1.0.0’s image has no ReportGenerator, so its checks skip. |
+| `gated` | The engine’s per-version command lines, on same-named test files: coverage tasks named by path from 1.2.1, or by bare name with a warning on 1.2.0. Also `:report_task:`, a changed `--test-case` filter, plain runs, and the debug executable’s directory. | 1.2.0 and later |
+| `layout` | Exact test build directories in a project with two test roots: each debug build’s executable, and a same-named file’s coverage counters kept through a whole-file rerun. | 1.2.0 and later. Coverage from 1.2.1, since 1.2.0’s `gcov:` tasks can’t name either file. |
+| `latency` | Measures a rediscovery during a full build kept running about 4 seconds by a slow test, for [Architecture.md](Architecture.md#possible-speedup-discovery-without-the-lock-on-121). It checks only that the build’s results are unchanged. Not in `all`. | All |
+
+A seed replays the same sequence of operations, though not their timing, so a failure may need several runs to recur.
+
+### The probes
+
+The probes run Ceedling alone, without the engine, to show the Ceedling behavior the engine’s design rests on. They report what they find without judging it. Each heading in the output states what to expect. They target 1.2.0 and later, since discovery’s writes are traced through `dumpconfig --stdout`.
+
+- `probe:fixes` shows three things. Ceedling 1.2.1’s delta builds rerun a changed `--test-case` filter ([Ceedling#1360](https://github.com/ThrowTheSwitch/Ceedling/issues/1360)). A coverage run after a counter reset still needs `--force-test-rerun`. And discovery’s commands write under `build/` before 1.2.1 ([Ceedling#1361](https://github.com/ThrowTheSwitch/Ceedling/issues/1361)).
+- `probe:syscalls` traces every filesystem call `dumpconfig --stdout` and `files:test` make under a populated build root. It runs as root, which `strace` needs.
+- `probe:overlap` loops discovery’s commands against six clean builds in the same directory, and counts the builds that fail.
+
+### Changing them
+
+- The suites live in [`tests/validation/`](../tests/validation/), as TypeScript compiled with the tests. They typecheck against the engine and lint with the other tests.
+- [`harness.ts`](../tests/validation/harness.ts) holds what the suites share:
+  - the engine and its stubs;
+  - `stage()`, which copies a fixture into `/ws`;
+  - recording reporters;
+  - `churn()` for random overlap;
+  - the leftover check;
+  - `main()`, which prints the verdict and sets the exit code.
+- Fixtures live in [`tests/validation/workspaces/`](../tests/validation/workspaces/). `stress` copies [`tests/manual/`](../tests/manual/) instead.
+- A new suite is a `.ts` file there. `run.sh` finds it by name. Add it to `all` in `run.sh` if it should gate releases.
+
+## 6. Manual Testing Plan
+
+This checklist confirms the extension’s behavior in a real VS Code, where unit and integration tests can’t reach. Run it before a release, against the final code on the integration branch, on Ceedling 1.0.0, 1.1.10, 1.2.0, and 1.2.1. Run `just validate` on each of those versions first.
 
 Every step runs against [`tests/manual/`](../tests/manual/), opened as its own folder in the Development Host.
 
@@ -185,7 +239,7 @@ Every step runs against [`tests/manual/`](../tests/manual/), opened as its own f
 - [ ] **Coverage of same-named test files.** Add `test/alpha/test_dup.c` and `test/beta/test_dup.c`, each with one test calling a different function of `src/Calculator.c`. On 1.2.1, Run with Coverage each file. Each passes and shows only its own function as executed. On 1.2.0, the same run errors with Ceedling’s ambiguous file reference error, and the Ceedling Explorer log warns about the ambiguous name. Revert after.
 - [ ] **No Cobertura report.** Use `mixins/coverage-no-cobertura.yml` in place of the gcovr mixin. Run with Coverage still runs the tests. A notification says to add `Cobertura` to `:gcov:` ↳ `:reports:`. Remove the mixin setting after, and Run with Coverage disappears.
 
-## 6. The Sidecar
+## 7. The Sidecar
 
 The sidecar is Docker for everything except F5. It never touches the debug loop.
 
@@ -227,6 +281,7 @@ There are two modes.
 | `just test` | Runs the unit suite, then the integration suite, headless via Xvfb |
 | `just lint` | Reports lint findings |
 | `just coverage` | Runs the unit suite with coverage, writing `coverage/index.html` |
+| `just validate <version> [suite]` | Runs the validation suites against a real Ceedling release, from the host. See [Section 5](#5-validation-against-real-ceedling) |
 | `just package` | Produces a `.vsix` |
 | `just publish` | Publishes to the Marketplace. Requires `VSCE_PAT` |
 | `just shell` | Opens an interactive container session |

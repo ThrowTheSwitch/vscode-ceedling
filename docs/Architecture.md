@@ -200,7 +200,11 @@ Ceedling builds each test file in directories named for it, under `test/out`, `g
 - **Roots.** Each test path loses a leading `+:` or `-:` and the whitespace around it. A test path with a glob (`*`, `?`, `{`, `}`) is cut back to the directory before its first glob, so `+:test/**` gives `test`. One led by a glob gives nothing. Subtractive paths count as roots too, as in Ceedling.
 - **Choice.** The longest root that equals the file’s directory, or contains it, decides. A file under no root, or directly in one, builds under its base name. Paths compare as written, with backslashes read as `/`.
 
-Ceedling itself refuses some same-named layouts. Take test paths `+:test/unit/**` and `+:extra/**`. `test/unit/test_calc.c` then builds as `test_calc`, and `extra/unit/test_calc.c` as `unit/test_calc`. With real Ceedling 1.2.0 and 1.2.1, every build in that project stops with `EXCEPTION: Ambiguous file reference 'test_calc.c'`. `testBuildName()` still names both directories correctly.
+Ceedling itself can’t build some same-named layouts ([Ceedling#1364](https://github.com/ThrowTheSwitch/Ceedling/issues/1364)). To find a test’s own source, it searches every test file for the test’s build name. When that name ends another test file’s path, the search finds both and stops with `EXCEPTION: Ambiguous file reference`, whatever path the task named.
+- With the single test path `+:test/**`, `test/test_calc.c` builds as `test_calc`, which ends `test/unit/test_calc.c`. The first file can’t be built. The second can.
+- With `+:test/unit/**` and `+:extra/**`, `test/unit/test_calc.c` builds as `test_calc` and `extra/unit/test_calc.c` as `unit/test_calc`. Each name ends both paths, so neither file can be built.
+
+`test:all` fails in both. `testBuildName()` still names every directory correctly.
 
 ### Debugging
 
@@ -292,18 +296,24 @@ Ceedling 1.2.1 resolves three problems this extension works around ([#1360](http
 
 ### Possible speedup: discovery without the lock on 1.2.1
 
-Ceedling 1.2.1 could let discovery skip the build-root lock, so a rediscovery need not wait for a long run. This is not implemented. The evidence so far is suggestive, not conclusive.
+Ceedling 1.2.1 could let discovery skip the project’s locks, so a rediscovery need not wait for a long run. This is not implemented. The evidence so far supports it.
 
-**The opportunity.** A rediscovery in a project directory waits behind any run there, because `dumpconfig` and `files:test` take the project’s locks. Before 1.2.1 they must, since both rewrite `build/vendor/`. From 1.2.1, Ceedling brings `build/vendor/` up to date only for test and release builds, writes only changed files, and replaces each whole by renaming a temporary copy.
+**The opportunity.** A rediscovery in a project directory waits behind any run there, because `dumpconfig` and `files:test` take the project’s locks. Before 1.2.1 they must, since both rewrite `build/vendor/`. From 1.2.1, Ceedling brings `build/vendor/` up to date only for test and release builds, writes only changed files, and replaces each whole by renaming a temporary copy. A prototype that skipped the locks for these two commands cut a rediscovery during a 4.6-second run from about 5.0 seconds, nearly all of it waiting, to about 1.0 second, its own cost. The validation suite `latency` measures the locked case (see [Development.md](Development.md#5-validation-against-real-ceedling)).
 
-**The evidence.** A probe on Ceedling 1.2.1.dev listed every file under `build/` before and after `dumpconfig --stdout` and `files:test`. Neither command created or changed any of the 45 files. On 1.2.0 the same commands rewrote 8 vendored files. A stress test looping both commands against six clean `test:all` builds found no failure on either version, so it could not show that skipping the lock is safe, only that the race is rare.
+**The evidence.**
+- **No writes.** `probe:syscalls` traced every filesystem call both commands make under a build root populated by a full test and coverage build. On 1.2.1 neither wrote anything. They listed `build/vendor/unity/src` and `build/vendor/cmock/src` and checked that other directories exist. On 1.2.0 the same commands opened the 8 vendored sources for writing and truncated them.
+- **No reads that matter.** Discovery’s output doesn’t depend on what `build/` holds.
+- **Directories only.** Before the first build, discovery creates the build root’s directory skeleton: 20 empty directories. Builds create the same ones, and both tolerate a directory that already exists.
+- **Stress.** The prototype passed `stress`, with two seeds and with a shared build root, and `coverage` on 1.2.1. That came to about 600 operations with no violation, about 100 of them discoveries overlapping builds, cleans, and coverage runs.
+- **The limit of `probe:overlap`.** Looping discovery against clean builds found no failed build on 1.2.0 or 1.2.1. It can’t show that the race is safe, only that it is rare.
 
 **What a change would need.**
 - A capability, e.g. `discoveryWritesNoBuildFiles` from 1.2.1, so earlier versions keep the lock.
-- `resolveConfig()` and `listTestFiles()` taking no build-root lock on that capability, while builds, clean, and clobber keep both keys. The directory key could go too, unless two projects in one directory need it for another reason.
-- A real-Ceedling stress gate in which discovery overlaps builds in the same directory and build root, with results checked exactly, before and after the change.
+- `resolveConfig()` and `listTestFiles()` running alongside builds on that capability. The directory key could go too, unless two projects in one directory need it for another reason.
+- Discovery still kept apart from `clean` and `clobber`. Discovery recreates missing directories, so a discovery during `clobber` could recreate directories `clobber` is deleting. `KeyedLock` has only exclusive keys, so this needs a shared mode. Discoveries would take a second build-root key shared, and `clean` and `clobber` take it exclusive, beside the keys they hold today. Builds would not take it.
+- The validation suites, run before and after the change on every version.
 
-**The risks.** Discovery may create directories under `build/`, which the probe did not check. A later Ceedling could start writing there again, so the capability must stay pinned to versions that have been checked. And `clean` or `clobber` overlapping a discovery would still need their locks.
+**The risks.** A later Ceedling could start writing under `build/` during discovery again, so the capability must stay pinned to versions `probe:syscalls` has checked.
 
 ## 6. Test seams
 
@@ -328,3 +338,5 @@ The integration tests run the built extension in a real VS Code, on two workspac
 - the Coverage profile, and file coverage and its details reaching VS Code.
 
 On Windows they also run the engine with Windows paths. VS Code’s API can’t read another extension’s TestItems or run results, so `activate()` returns a small handle for the tests, `CeedlingExplorerApi`. See [`tests/integration/main.ts`](../tests/integration/main.ts).
+
+The validation suites in [`tests/validation/`](../tests/validation/) run the compiled engine against real Ceedling releases in Docker, with only `configProvider`, `problemMatcher`, and the logger stubbed. The real `runner` and `fileSystem` run real Ceedling. They check what a simulation can’t: the locks under real build times and random cancellation, each version’s command lines, and real coverage reports. They run by hand, not in CI. See [Development.md](Development.md#5-validation-against-real-ceedling).
