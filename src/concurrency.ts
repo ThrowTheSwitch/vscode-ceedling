@@ -41,8 +41,9 @@ async function run<T, R>(entry: Entry<T>, work: (item: T) => Promise<R>, results
     }
 }
 
-// Runs work one at a time per key, in arrival order, while different keys proceed independently.
-// Each run waits for the work queued before it under its key, whether that succeeded or failed.
+// Runs work one at a time per key, in arrival order per key, while different keys proceed
+// independently. Each run waits for the work queued before it under its key, whether that
+// succeeded or failed.
 export class KeyedLock {
     // The settled-when-free promise for each busy key: the end of its queue.
     private readonly tails = new Map<string, Promise<void>>();
@@ -66,6 +67,13 @@ export class KeyedLock {
                 this.tails.delete(key);
             }
         }
+    }
+
+    // Runs work holding every key. Keys are taken one at a time in sorted order, whatever order the
+    // caller names them, so two callers can never each hold a key the other waits for.
+    runAll<T>(keys: readonly string[], work: () => Promise<T>): Promise<T> {
+        const [first, ...rest] = [...new Set(keys)].sort();
+        return first === undefined ? work() : this.run(first, () => this.runAll(rest, work));
     }
 }
 

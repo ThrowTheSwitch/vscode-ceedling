@@ -6,7 +6,7 @@ This document lists the problems currently known, grouped by the Ceedling versio
 
 ## Ceedling versions before 1.2.1
 
-1. A coverage run can’t tell apart same-named test files in different directories, e.g. `test/unit/test_foo.c` and `test/integration/test_foo.c`. Ceedling’s `gcov:` tasks before 1.2.1 take a test file’s name without its directory, so Ceedling may run the other file. The extension warns in its log when a coverage run is ambiguous this way. Plain runs tell the files apart from Ceedling 1.2.0. The fix is tracked in [Ceedling#1362](https://github.com/ThrowTheSwitch/Ceedling/issues/1362).
+1. A coverage run can’t tell apart same-named test files in different directories, e.g. `test/unit/test_foo.c` and `test/integration/test_foo.c`. Ceedling’s `gcov:` tasks before 1.2.1 take a test file’s name without its directory. Ceedling 1.2.0 then stops with an ambiguous file reference error, and earlier versions may run the other file. The extension warns in its log when a coverage run is ambiguous this way. Plain runs tell the files apart from Ceedling 1.2.0. The fix is tracked in [Ceedling#1362](https://github.com/ThrowTheSwitch/Ceedling/issues/1362).
 
 ## Ceedling versions before 1.2.0
 

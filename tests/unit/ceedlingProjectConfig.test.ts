@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import yaml from 'js-yaml';
 import * as path from 'path';
-import { capabilitiesOf, CeedlingLoadError, coverageProblem, coverageState, pathKey, projectState, projectsFromSettings } from '../../src/ceedlingProjectConfig';
+import { capabilitiesOf, CeedlingLoadError, coverageProblem, coverageState, pathKey, projectState, projectsFromSettings, testBuildName } from '../../src/ceedlingProjectConfig';
 
 const fixturesRoot = path.resolve(__dirname, '..', '..', '..', 'tests', 'fixtures');
 
@@ -131,7 +131,7 @@ suite('projectsFromSettings: the default project file', () => {
 });
 
 suite('capabilitiesOf', () => {
-    const none = { dumpconfigStdout: false, forceTestRerun: false, pathQualifiedTestTasks: false, pathQualifiedCoverageTasks: false, ceedlingYml: false };
+    const none = { dumpconfigStdout: false, forceTestRerun: false, pathQualifiedTestTasks: false, pathQualifiedCoverageTasks: false, ceedlingYml: false, nestedTestBuilds: false };
 
     test('Ceedling before 1.2.0 has none of the 1.2.0 features', () => {
         for (const version of ['1.0.0', '1.1.10', '1.1.10-85ec551']) {
@@ -143,13 +143,13 @@ suite('capabilitiesOf', () => {
     // 1.2.0's gcov: tasks still take only a bare file name.
     test('Ceedling 1.2.0, build suffix included, has every 1.2.0 feature but path-qualified coverage tasks', () => {
         for (const version of ['1.2.0', '1.2.0-13a540f']) {
-            assert.deepStrictEqual(capabilitiesOf(version), { ...none, dumpconfigStdout: true, forceTestRerun: true, pathQualifiedTestTasks: true, ceedlingYml: true });
+            assert.deepStrictEqual(capabilitiesOf(version), { ...none, dumpconfigStdout: true, forceTestRerun: true, pathQualifiedTestTasks: true, ceedlingYml: true, nestedTestBuilds: true });
         }
     });
 
     test('Ceedling 1.2.1 and later, build suffix included, also takes paths in coverage tasks', () => {
         for (const version of ['1.2.1', '1.2.1-0a1b2c3', '1.3.1']) {
-            assert.deepStrictEqual(capabilitiesOf(version), { dumpconfigStdout: true, forceTestRerun: true, pathQualifiedTestTasks: true, pathQualifiedCoverageTasks: true, ceedlingYml: true });
+            assert.deepStrictEqual(capabilitiesOf(version), { dumpconfigStdout: true, forceTestRerun: true, pathQualifiedTestTasks: true, pathQualifiedCoverageTasks: true, ceedlingYml: true, nestedTestBuilds: true });
         }
     });
 });
@@ -166,8 +166,14 @@ suite('projectState', () => {
                 useParamTests: false,
                 reportPluginEnabled: false,
                 coverage: undefined,
+                testPaths: [],
             });
         }
+    });
+
+    test('the test paths are read as configured, decorators and globs included', () => {
+        assert.deepStrictEqual(projectState({ ':paths': { ':test': ['+:test/**', '-:test/support', 7] } }, 'linux').testPaths, ['+:test/**', '-:test/support']);
+        assert.deepStrictEqual(projectState(dumpconfigFixture('dumpconfig-gcov-default.yml', 'ceedling-1.2.0'), 'linux').testPaths, ['+:test/**']);
     });
 
     test('the default executable extension is .exe on Windows', () => {
@@ -182,6 +188,7 @@ suite('projectState', () => {
             ':unity': { ':use_param_tests': true },
             ':plugins': { ':enabled': ['report_tests_log_factory'] },
             ':report_tests_log_factory': { ':cppunit': { ':filename': 'mine.xml' } },
+            ':paths': { ':test': ['spec/**'] },
         }, 'linux');
         assert.deepStrictEqual(state, {
             buildRoot: 'out',
@@ -192,6 +199,7 @@ suite('projectState', () => {
             useParamTests: true,
             reportPluginEnabled: true,
             coverage: undefined,
+            testPaths: ['spec/**'],
         });
     });
 
@@ -231,6 +239,52 @@ suite('projectState', () => {
 });
 
 // Two spellings of one Windows directory must share a lock, or their builds could overlap.
+// Ceedling names a test's build for its file's directory within the longest test path holding it:
+// PathMirror.relative_subdir in 1.2.0 and 1.2.1, over :paths: :test: stripped of decorators and globs.
+suite('testBuildName', () => {
+    const nested = (id: string, paths: string[]) => testBuildName(id, paths, true);
+
+    test('before Ceedling 1.2.0, a test builds under its bare name', () => {
+        assert.strictEqual(testBuildName('test/unit/test_calc.c', ['+:test/**'], false), 'test_calc');
+    });
+
+    test("from 1.2.0, a test builds under its directory within its test path, or its bare name at that path's root", () => {
+        assert.strictEqual(nested('test/unit/test_calc.c', ['+:test/**']), 'unit/test_calc');
+        assert.strictEqual(nested('test/test_calc.c', ['+:test/**']), 'test_calc');
+        assert.strictEqual(nested('test/a/b/test_calc.cpp', ['test/**']), 'a/b/test_calc');
+    });
+
+    test('the longest test path holding the file decides, so the same files may build in either layout', () => {
+        assert.strictEqual(nested('test/unit/test_calc.c', ['+:test/**', '+:test/unit/**']), 'test_calc');
+        const files = ['test/unit/test_calc.c', 'extra/unit/test_calc.c'];
+        assert.deepStrictEqual(files.map((f) => nested(f, ['+:test/unit/**', '+:extra/**'])), ['test_calc', 'unit/test_calc']);
+        assert.deepStrictEqual(files.map((f) => nested(f, ['+:test/**', '+:extra/unit/**'])), ['unit/test_calc', 'test_calc']);
+    });
+
+    test('a test path is cut back to the directory before its first glob, and a subtractive one counts as well', () => {
+        assert.strictEqual(nested('test/x/unit/test_calc.c', ['test/*/unit']), 'x/unit/test_calc');
+        assert.strictEqual(nested('test/unit/test_calc.c', ['test/unit/']), 'test_calc');
+        assert.strictEqual(nested('test/unit/test_calc.c', ['  +: test  ']), 'unit/test_calc');
+        assert.strictEqual(nested('test/support/x/test_calc.c', ['+:test/**', '-:test/support']), 'x/test_calc');
+    });
+
+    test('a file under no usable test path builds under its bare name', () => {
+        assert.strictEqual(nested('other/unit/test_calc.c', ['+:test/**']), 'test_calc');
+        assert.strictEqual(nested('test/unit/test_calc.c', ['**/unit']), 'test_calc');
+        assert.strictEqual(nested('test_calc.c', ['+:test/**']), 'test_calc');
+    });
+
+    // Ceedling cuts `/*` to the root directory `/`, which then holds nothing, as `//` starts no path.
+    test('absolute test paths place absolute test files, and the filesystem root holds none', () => {
+        assert.strictEqual(nested('/abs/test/unit/test_calc.c', ['+:/abs/test/**']), 'unit/test_calc');
+        assert.strictEqual(nested('/unit/test_calc.c', ['/*']), 'test_calc');
+    });
+
+    test('backslashes in paths and ids read as separators, as Ceedling standardizes them', () => {
+        assert.strictEqual(nested('test\\unit\\test_calc.c', ['+:test\\**']), 'unit/test_calc');
+    });
+});
+
 suite('pathKey', () => {
     test('on Windows, spellings of one path differing only in case share a key', () => {
         assert.strictEqual(pathKey('C:\\Work\\FW', 'win32'), pathKey('c:\\work\\fw', 'win32'));

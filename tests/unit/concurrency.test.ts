@@ -93,6 +93,38 @@ suite('KeyedLock', () => {
         await lock.run('dir', async () => 1);
         assert.strictEqual(lock.size, 0);
     });
+
+    test('work under several keys waits for each, then holds them all', async () => {
+        const g = gate();
+        const lock = new KeyedLock();
+        const first = lock.run('x', () => g.work('x1'));
+        const both = lock.runAll(['x', 'y'], () => g.work('xy1'));
+        await settle();
+        assert.deepStrictEqual(g.log.started, ['x1']);
+        await g.finish('x1');
+        assert.deepStrictEqual(g.log.started, ['x1', 'xy1']);
+        const later = [lock.run('x', () => g.work('x2')), lock.run('y', () => g.work('y2'))];
+        await settle();
+        assert.deepStrictEqual(g.log.started, ['x1', 'xy1'], 'neither key is free while the work holding both runs');
+        await g.finish('xy1');
+        await g.finish('x2');
+        await g.finish('y2');
+        assert.deepStrictEqual(await Promise.all([first, both, ...later]), ['X1', 'XY1', 'X2', 'Y2']);
+    });
+
+    // Keys are taken in one order whatever order callers name them, so two callers never each hold
+    // a key the other waits for.
+    test('work naming the same keys in different orders, or one key twice, never deadlocks', async () => {
+        const g = gate();
+        const lock = new KeyedLock();
+        const runs = [lock.runAll(['a', 'b'], () => g.work('ab')), lock.runAll(['b', 'a', 'b'], () => g.work('ba'))];
+        await settle();
+        await g.finish('ab');
+        await g.finish('ba');
+        assert.deepStrictEqual(await Promise.all(runs), ['AB', 'BA']);
+        assert.strictEqual(await lock.runAll([], async () => 'none'), 'none');
+        assert.strictEqual(lock.size, 0);
+    });
 });
 
 suite('Limiter', () => {
