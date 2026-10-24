@@ -1107,8 +1107,8 @@ suite('CeedlingEngine concurrent discovery', () => {
             (e: unknown) => e instanceof CeedlingLoadError && e.message.indexOf("'a'") < e.message.indexOf("'b'") && e.message.includes("'a'"));
     });
 
-    // Every Ceedling command that loads a project rewrites the Unity copy in its build directory, so
-    // a configuration check during a build in the same directory could corrupt that build.
+    // Before Ceedling 1.2.1, every command that loads a project rewrites the Unity copy in its build
+    // directory, so a configuration check during a build in the same directory could corrupt it.
     test("a rediscovery's configuration check waits for a build in the same directory", async () => {
         const world = new FakeCeedling();
         const { engine, file } = await discovered(world);
@@ -1138,6 +1138,63 @@ suite('CeedlingEngine concurrent discovery', () => {
         assert.deepStrictEqual(world.commands.filter((c) => /^ceedling test:/.test(c.command)).map((c) => c.cwd).sort(), [`${WS}/a`, `${WS}/b`]);
         held.forEach((release) => release());
         await Promise.all(runs);
+    });
+
+    // A build's files and its report live under its build root, not its project directory, so
+    // projects sharing one, e.g. through a common mixin, would read each other's reports.
+    test('builds in different directories sharing a build root run one after the other', async () => {
+        const world = new FakeCeedling();
+        world.resolvedConfig = `:project:\n  :build_root: ../build\n${world.resolvedConfig}`;
+        for (const dir of ['a', 'b']) world.write(`${WS}/${dir}/test/test_calc.c`, 'void test_add(void) {}\n');
+        const { engine, projects } = await discovered(world, { settings: twoProjects(world, 'a', 'b') });
+        const held: Array<() => void> = [];
+        world.handlers.push((command) => /^ceedling test:/.test(command) ? new Promise<Reply>((resolve) => { held.push(() => resolve({})); }) : undefined);
+        const runs = projects.map((p) => engine.runFile(p.projectKey, p.files[0], recordingReporter(), token()));
+        await settle();
+        assert.strictEqual(world.commandsMatching(/^ceedling test:/).length, 1, 'one build at a time in the shared build root');
+        held[0]();
+        await settle();
+        await settle();
+        assert.strictEqual(world.commandsMatching(/^ceedling test:/).length, 2);
+        held[1]();
+        await Promise.all(runs);
+    });
+
+    test("a rediscovery's configuration check waits for a build in another directory sharing its build root", async () => {
+        const world = new FakeCeedling();
+        world.resolvedConfig = `:project:\n  :build_root: /shared/build\n${world.resolvedConfig}`;
+        world.write(`${WS}/a/test/test_calc.c`, 'void test_add(void) {}\n');
+        const { engine, projects } = await discovered(world, { settings: twoProjects(world, 'a', 'b') });
+        let release!: () => void;
+        world.handlers.push((command) => /^ceedling test:/.test(command) ? new Promise<Reply>((resolve) => { release = () => resolve({}); }) : undefined);
+        const run = engine.runFile('a', projects[0].files[0], recordingReporter(), token());
+        await settle();
+        const before = world.commands.filter((c) => /dumpconfig/.test(c.command) && c.cwd === `${WS}/b`).length;
+        const rediscovery = engine.discover();
+        await settle();
+        await settle();
+        assert.strictEqual(world.commands.filter((c) => /dumpconfig/.test(c.command) && c.cwd === `${WS}/b`).length, before, "no dumpconfig in b while a's build runs");
+        release();
+        await Promise.all([run, rediscovery]);
+        assert.strictEqual(world.commands.filter((c) => /dumpconfig/.test(c.command) && c.cwd === `${WS}/b`).length, before + 1);
+    });
+
+    test('clean waits for a build in another directory sharing its build root', async () => {
+        const world = new FakeCeedling();
+        world.resolvedConfig = `:project:\n  :build_root: /shared/build\n${world.resolvedConfig}`;
+        world.write(`${WS}/a/test/test_calc.c`, 'void test_add(void) {}\n');
+        const { engine, projects } = await discovered(world, { settings: twoProjects(world, 'a', 'b') });
+        let release!: () => void;
+        world.handlers.push((command) => /^ceedling test:/.test(command) ? new Promise<Reply>((resolve) => { release = () => resolve({}); }) : undefined);
+        const run = engine.runFile('a', projects[0].files[0], recordingReporter(), token());
+        await settle();
+        const clean = engine.clean();
+        await settle();
+        await settle();
+        assert.deepStrictEqual(world.commandsMatching(/^ceedling clean/), [], 'no clean while the shared build root builds');
+        release();
+        await Promise.all([run, clean]);
+        assert.strictEqual(world.commandsMatching(/^ceedling clean/).length, 2);
     });
 
     // Many watcher events at once, e.g. from a branch checkout, must not exhaust file descriptors.
@@ -1310,6 +1367,71 @@ suite('CeedlingEngine coverage', () => {
         assert.ok(world.files.has(otherTest));
     });
 
+    // From Ceedling 1.2.0, gcov/out nests each test's counters under the test file's directory
+    // within its test path, e.g. gcov/out/unit/test_calc/ for test/unit/test_calc.c.
+    test("a function run's whole-file fallback keeps the counters of same-named test files elsewhere", async () => {
+        const world = coverageWorld();
+        world.version = '1.2.1';
+        world.testFiles = ['test/test_calc.c', 'test/unit/test_calc.c', 'test/integration/test_calc.c'];
+        for (const f of world.testFiles) world.write(`${WS}/${f}`, 'void test_add(void) {}\n');
+        const counters = {
+            root: `${WS}/build/gcov/out/test_calc/calc.gcda`,
+            unit: `${WS}/build/gcov/out/unit/test_calc/calc.gcda`,
+            integration: `${WS}/build/gcov/out/integration/test_calc/calc.gcda`,
+            integrationNested: `${WS}/build/gcov/out/integration/test_calc/sub/a/util.gcda`,
+            unitNested: `${WS}/build/gcov/out/unit/test_calc/sub/a/util.gcda`,
+        };
+        world.handlers.unshift((command) => /--test-case/.test(command)
+            ? { writes: world.reportWrite(cppunit({ passed: ['test/integration/test_calc.c::test_add', 'test/integration/test_calc.c::test_add_more'] }), 'build', 'gcov') }
+            : undefined);
+        const { engine, projects } = await discovered(world);
+        const file = (id: string) => projects[0].files.find((f) => f.id === id)!;
+        const mode = coverageMode();
+        // A first build spends the request's one counter reset, which would clear the counters below.
+        await engine.runFile('default', file('test/test_calc.c'), recordingReporter(), token(), mode);
+        for (const counter of Object.values(counters)) world.write(counter, '');
+        const integration = file('test/integration/test_calc.c');
+        await engine.runFunction('default', integration, integration.functions[0], recordingReporter(), token(), mode);
+        assert.strictEqual(world.commandsMatching(/^ceedling gcov:test\/integration\/test_calc\.c --force/).length, 1, 'the fallback ran');
+        assert.deepStrictEqual(Object.entries(counters).filter(([, f]) => world.files.has(f)).map(([k]) => k), ['root', 'unit', 'unitNested']);
+    });
+
+    // Windows keeps the case a directory was created with, which may differ from the file's path.
+    test("on Windows, a function run's whole-file fallback finds its counters whatever their directories' case", async () => {
+        const world = new FakeCeedling();
+        world.version = '1.2.1';
+        world.resolvedConfig = gcovConfig();
+        world.testFiles = ['test/unit/test_calc.c', 'test/integration/test_calc.c'];
+        world.write('C:\\ws\\project.yml', ':project: {}\n');
+        for (const f of world.testFiles) world.write(`C:\\ws\\${f.replace(/\//g, '\\')}`, 'void test_add(void) {}\n');
+        const own = 'C:\\ws\\build\\gcov\\out\\Unit\\Test_Calc\\calc.gcda';
+        const namesake = 'C:\\ws\\build\\gcov\\out\\integration\\test_calc\\calc.gcda';
+        world.handlers.push((command) => /^ceedling gcov:/.test(command) ? { writes: {
+            'C:\\ws\\build\\artifacts\\gcov\\cppunit_tests_report.xml': cppunit({ passed: ['test/unit/test_calc.c::test_add', 'test/unit/test_calc.c::test_add_more'] }),
+        } } : undefined);
+        const engine = makeEngine(world, { folder: 'C:\\ws', platform: 'win32' });
+        const [project] = await engine.discover();
+        const unit = project.files.find((f) => f.id === 'test/unit/test_calc.c')!;
+        const mode = coverageMode();
+        await engine.runFile('default', unit, recordingReporter(), token(), mode);
+        world.write(own, '');
+        world.write(namesake, '');
+        await engine.runFunction('default', unit, unit.functions[0], recordingReporter(), token(), mode);
+        assert.deepStrictEqual([own, namesake].map((f) => world.files.has(f)), [false, true]);
+    });
+
+    test("a function run's whole-file fallback keeps every counter when counters accumulate", async () => {
+        const world = coverageWorld();
+        const counter = `${WS}/build/gcov/out/test_calc/calc.gcda`;
+        world.handlers.unshift((command) => /--test-case/.test(command)
+            ? { writes: { ...world.reportWrite(cppunit({ passed: ['test/test_calc.c::test_add', 'test/test_calc.c::test_add_more'] }), 'build', 'gcov'), [counter]: '' } }
+            : undefined);
+        const { engine, file } = await discovered(world, { settings: { coverageResetsCounters: false } });
+        await engine.runFunction('default', file, file.functions[0], recordingReporter(), token(), coverageMode());
+        assert.strictEqual(world.commandsMatching(/^ceedling gcov:/).length, 2, 'the fallback ran');
+        assert.ok(world.files.has(counter));
+    });
+
     test('each build directory has its counters cleared once per run', async () => {
         const world = coverageWorld();
         for (const dir of ['a', 'b']) {
@@ -1436,15 +1558,21 @@ suite('CeedlingEngine coverage', () => {
     });
 
     // Before 1.2.1, Ceedling's gcov: tasks take a bare name, so they can't tell the two files apart.
-    test('a coverage run of one of two same-named test files warns that Ceedling may pick the other', async () => {
-        const world = coverageWorld();
-        world.testFiles = ['test/a/test_calc.c', 'test/b/test_calc.c'];
-        for (const f of world.testFiles) world.write(`${WS}/${f}`, 'void test_add(void) {}\n');
-        const logs: LogCall[] = [];
-        const { engine, file } = await discovered(world, { logs });
-        await engine.runFile('default', file, recordingReporter(), token(), coverageMode());
-        assert.ok(logs.some((l) => l.level === 'warn' && /test\/a\/test_calc\.c/.test(l.message) && /test\/b\/test_calc\.c/.test(l.message)));
-    });
+    // Ceedling 1.2.0 then refuses the name as ambiguous, and earlier versions take the first match.
+    for (const [version, outcome] of [['1.2.0', /stops with an ambiguous file reference error/], ['1.1.10', /may run the other file/]] as const) {
+        test(`with Ceedling ${version}, a coverage run of one of two same-named test files warns what Ceedling does with its name`, async () => {
+            const world = coverageWorld();
+            world.version = version;
+            world.testFiles = ['test/a/test_calc.c', 'test/b/test_calc.c'];
+            for (const f of world.testFiles) world.write(`${WS}/${f}`, 'void test_add(void) {}\n');
+            const logs: LogCall[] = [];
+            const { engine, file } = await discovered(world, { logs });
+            await engine.runFile('default', file, recordingReporter(), token(), coverageMode());
+            const warnings = logs.filter((l) => l.level === 'warn' && /test\/a\/test_calc\.c/.test(l.message) && /test\/b\/test_calc\.c/.test(l.message));
+            assert.strictEqual(warnings.length, 1);
+            assert.match(warnings[0].message, outcome);
+        });
+    }
 
     test('on Windows, counters and reports are found under the project, whatever the case of its path', async () => {
         const world = new FakeCeedling();

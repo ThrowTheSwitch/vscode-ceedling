@@ -116,6 +116,10 @@ export type EngineDeps = {
 
 type LoadedProject = CeedlingProject & { capabilities: CeedlingCapabilities, state: ProjectState, files: CeedlingFileNode[] };
 
+function isLoaded(project: CeedlingProject): project is LoadedProject {
+    return 'state' in project;
+}
+
 type LoadOutcome =
     | { kind: 'loaded', project: LoadedProject }
     | { kind: 'error', message: string }
@@ -157,11 +161,12 @@ export class CeedlingEngine {
     // Path rules follow `platform` rather than the host's, as ceedlingProjectConfig's do.
     private readonly paths: typeof path.posix;
     private readonly tmpdir: string;
-    // One Ceedling command at a time per project directory. Every command that loads a project
-    // rewrites the Unity and CMock copies in its build directory, in place, so a command overlapping
-    // a build in the same directory can corrupt it. Different directories proceed independently.
-    // `ceedling version` loads no project and needs no lock.
-    private readonly directoryLocks = new KeyedLock();
+    // One Ceedling command at a time per project directory and per build root. Before 1.2.1, every
+    // command that loads a project rewrites the Unity and CMock copies in its build root, in place,
+    // so a command overlapping a build can corrupt it. Builds sharing a build root also share its
+    // reports and counters. Work elsewhere proceeds independently. `ceedling version` loads no
+    // project and needs no lock.
+    private readonly locks = new KeyedLock();
     // Every source read in the engine shares one limit, so overlapping discoveries and a burst of
     // watcher-driven reparses (e.g. a branch checkout) can't exhaust file descriptors together.
     private readonly reads = new Limiter(MAX_CONCURRENT_READS);
@@ -281,8 +286,9 @@ export class CeedlingEngine {
             return [];
         }
 
-        // Projects load concurrently across directories, one at a time within a directory. Outcomes
-        // apply in settings order, so errors read the same however the loads interleave.
+        // Projects load concurrently across directories, one at a time within a directory, and
+        // within a build root the last discovery found. Outcomes apply in settings order, so errors
+        // read the same however the loads interleave.
         const outcomes = await mapGrouped(this.candidates, (project) => this.directoryOf(project), (project) => this.loadProject(project));
         const loaded = new Map<string, LoadedProject>();
         const errors: string[] = [];
@@ -301,12 +307,12 @@ export class CeedlingEngine {
             throw new CeedlingLoadError(errors.join('\n'));
         }
 
-        // Listing runs Ceedling in each project directory, under its lock. A failed listing fails
+        // Listing runs Ceedling in each project directory, under its locks. A failed listing fails
         // discovery, rather than showing a project with no tests. Reading and parsing sources needs
         // no lock.
         const projects = [...loaded.values()];
         const listings = await mapGrouped(projects, (project) => this.directoryOf(project),
-            (project) => this.inDirectory(project, () => this.listTestFiles(project)));
+            (project) => this.exclusively(project, () => this.listTestFiles(project)));
         const unlisted = projects.filter((_, i) => listings[i] === undefined);
         if (unlisted.length > 0) {
             throw new CeedlingLoadError(unlisted.map((project) =>
@@ -352,7 +358,7 @@ export class CeedlingEngine {
                 `Ceedling's filter is a substring match, not exact. Falling back to a full-file run.`
             );
             if (mode.kind === 'coverage') {
-                await this.inDirectory(project, () => this.clearTestCounters(project, file));
+                await this.exclusively(project, () => this.clearTestCounters(project, file));
             }
             await this.runFile(projectKey, file, reporter, token, mode);
         }
@@ -379,7 +385,7 @@ export class CeedlingEngine {
         for (const id of ids) {
             reporter.started(id);
         }
-        return this.inDirectory(project, async () => {
+        return this.exclusively(project, async () => {
             const outcome = await this.buildAndRun(project, { kind: 'file', file }, TEST_MODE, this.commandArgs(project, file.id, TEST_MODE), reporter, token);
             if (outcome.cancelled) {
                 leaves.forEach((id) => reporter.skipped(id));
@@ -428,13 +434,20 @@ export class CeedlingEngine {
         return project;
     }
 
-    // The key a project's directory groups and locks its work under.
+    // The key a project's directory groups its work under.
     private directoryOf(project: CeedlingProject): string {
         return pathKey(project.absPath, this.platform);
     }
 
-    private inDirectory<T>(project: CeedlingProject, work: () => Promise<T>): Promise<T> {
-        return this.directoryLocks.run(this.directoryOf(project), work);
+    // Runs work holding the project's locks: its directory's, and its build root's once a
+    // discovery has resolved it. A rediscovery takes the build root the last discovery found,
+    // which any build still running uses. A project no discovery has loaded yet holds only its
+    // directory's, so before 1.2.1 its first dumpconfig can still rewrite a shared build root's
+    // vendored sources under another project's build.
+    private exclusively<T>(project: CeedlingProject, work: () => Promise<T>): Promise<T> {
+        const loaded = isLoaded(project) ? project : this.projects.get(project.key);
+        const buildRoot = loaded ? [`build:${pathKey(this.buildPath(loaded), this.platform)}`] : [];
+        return this.locks.runAll([`directory:${this.directoryOf(project)}`, ...buildRoot], work);
     }
 
     // Checks one project's Ceedling and resolves its configuration. An unusable Ceedling stops all
@@ -453,7 +466,7 @@ export class CeedlingEngine {
                     `Remove or rename one, or name the one to use in ceedlingExplorer.projects[].path.`,
             };
         }
-        const resolved = await this.inDirectory(project, () => this.resolveConfig(project, capabilities));
+        const resolved = await this.exclusively(project, () => this.resolveConfig(project, capabilities));
         if (resolved === undefined) {
             return {
                 kind: 'error',
@@ -546,7 +559,7 @@ export class CeedlingEngine {
         );
     }
 
-    // Callers hold the project directory's lock. undefined when Ceedling failed, with its output logged.
+    // Callers hold the project's locks. undefined when Ceedling failed, with its output logged.
     private async listTestFiles(project: CeedlingProject): Promise<string[] | undefined> {
         const result = await this.ceedling(['files:test'], { project });
         if (result.error) {
@@ -625,7 +638,7 @@ export class CeedlingEngine {
         for (const id of ids) {
             reporter.started(id);
         }
-        return this.inDirectory(project, async () => {
+        return this.exclusively(project, async () => {
             const outcome = await this.buildAndRun(project, scope, mode, args, reporter, token);
             if (outcome.cancelled) {
                 leaves.forEach((id) => reporter.skipped(id));
@@ -653,15 +666,16 @@ export class CeedlingEngine {
 
     // Runs Ceedling and gathers everything a run reports from. Stale reports are deleted first, so
     // a report left by an earlier run can't pass as this one's.
-    // Callers hold the project directory's lock, so a coverage report read here is this build's.
+    // Callers hold the project's locks, so a coverage report read here is this build's.
     private async buildAndRun(project: LoadedProject, scope: RunScope, mode: RunMode, args: string[], reporter: RunReporter, token: Cancellation): Promise<BuildOutcome> {
         await this.deleteStale(this.reportPaths(project));
         if (mode.kind === 'coverage') {
             await this.prepareCoverage(project, mode.run);
         }
-        // Delta builds reuse cached results keyed without the --test-case filter. A filtered run
-        // could then report another run's tests, and a full run only a filtered run's. Rerunning
-        // the executable avoids both, while compilation stays incremental.
+        // Delta builds reuse cached results unless told to rerun, while compilation stays
+        // incremental either way. Before 1.2.1 their cache ignores the --test-case filter, so a
+        // filtered run could report another run's tests. In every version the cache also ignores
+        // deleted coverage counters, so a coverage run after a reset would report no coverage.
         const runArgs = project.capabilities.forceTestRerun ? [...args, '--force-test-rerun'] : args;
         const result = await this.ceedling(runArgs, { project, verbose: true, cancellation: token });
         if (result.cancelled || token.isCancellationRequested) {
@@ -738,7 +752,7 @@ export class CeedlingEngine {
         const segments = file.id.split(/[\\/]/);
         const name = (segments.pop() ?? file.id).replace(/\.[^.]*$/, '');
         const executable = `${name}/${name}${project.state.executableExtension}`;
-        const outputDirectory = this.paths.resolve(project.absPath, project.state.buildRoot, 'test', 'out');
+        const outputDirectory = this.buildPath(project, 'test', 'out');
         const candidates = segments.map((_, i) => [...segments.slice(i), executable].join('/')).concat(executable);
         const mtimes = await Promise.all(candidates.map((subpath) => this.fs.mtimeMs(this.paths.resolve(outputDirectory, subpath))));
         const [newest] = candidates
@@ -753,7 +767,7 @@ export class CeedlingEngine {
 
     // A test run writes its report under artifacts/test, a gcov run under artifacts/gcov.
     private reportPaths(project: LoadedProject): string[] {
-        return ['test', 'gcov'].map((dir) => this.paths.resolve(project.absPath, project.state.buildRoot, 'artifacts', dir, project.state.reportFilename));
+        return ['test', 'gcov'].map((dir) => this.buildPath(project, 'artifacts', dir, project.state.reportFilename));
     }
 
     // Deletes whichever files exist. A file that won't go is logged, and the build goes ahead.
@@ -767,7 +781,7 @@ export class CeedlingEngine {
 
     // Where the project's Cobertura report may appear, most preferred first.
     private coberturaPaths(project: LoadedProject): string[] {
-        return (project.state.coverage?.coberturaReports ?? []).map((report) => this.paths.resolve(project.absPath, project.state.buildRoot, report));
+        return (project.state.coverage?.coberturaReports ?? []).map((report) => this.buildPath(project, report));
     }
 
     // Clears what earlier runs left: stale Cobertura reports before every coverage build, and the
@@ -781,16 +795,22 @@ export class CeedlingEngine {
             return;
         }
         run.resetDirectories.add(key);
-        await this.deleteCounters(project, () => true);
+        await this.deleteStale((await this.counters(project)).map((counter) => counter.file));
     }
 
-    // Clears one test file's counters, under its own directory of gcov/out, before a whole-file run
-    // repeats the tests its filtered run just counted.
+    // Clears one test file's counters before a whole-file run repeats the tests its filtered run
+    // just counted. They sit beneath a directory named for the file, which from Ceedling 1.2.0 sits
+    // beneath the file's directory within its test path, e.g. gcov/out/unit/test_foo/ for
+    // test/unit/test_foo.c. That test path isn't known, so the deepest such directory whose parents
+    // end the file's own directory is the file's. Same-named test files elsewhere keep theirs.
     private async clearTestCounters(project: LoadedProject, file: CeedlingFileNode): Promise<void> {
-        if (this.resetsCounters()) {
-            const name = this.paths.basename(file.id).replace(/\.[^.]*$/, '');
-            await this.deleteCounters(project, (segments) => segments.includes(name));
+        if (!this.resetsCounters()) {
+            return;
         }
+        const key = (segment: string) => pathKey(segment, this.platform);
+        const owned = (await this.counters(project)).map((counter) => ({ file: counter.file, depths: ownerDepths(counter.segments, file.id, key) }));
+        const deepest = owned.reduce((max, counter) => Math.max(max, ...counter.depths), -1);
+        await this.deleteStale(owned.filter((counter) => counter.depths.includes(deepest)).map((counter) => counter.file));
     }
 
     private resetsCounters(): boolean {
@@ -798,16 +818,21 @@ export class CeedlingEngine {
     }
 
     private countersDirectory(project: LoadedProject): string {
-        return this.paths.resolve(project.absPath, project.state.buildRoot, 'gcov', 'out');
+        return this.buildPath(project, 'gcov', 'out');
     }
 
-    // Deletes gcov's counters (.gcda) and ReportGenerator's .gcov inputs, which gcov writes from them,
-    // wherever `within` accepts the file's directories beneath gcov/out.
-    private async deleteCounters(project: LoadedProject, within: (segments: string[]) => boolean): Promise<void> {
+    // A path within the project's build root, `:project` ↳ `:build_root`, relative to its directory.
+    private buildPath(project: LoadedProject, ...segments: string[]): string {
+        return this.paths.resolve(project.absPath, project.state.buildRoot, ...segments);
+    }
+
+    // gcov's counters (.gcda) and ReportGenerator's .gcov inputs, which gcov writes from them, each
+    // with its directories beneath gcov/out.
+    private async counters(project: LoadedProject): Promise<Array<{ file: string, segments: string[] }>> {
         const directory = this.countersDirectory(project);
         const files = await this.reads.run(() => this.fs.listFiles(directory));
-        await this.deleteStale(files.filter((file) =>
-            /\.(gcda|gcov)$/.test(file) && within(this.paths.relative(directory, this.paths.dirname(file)).split(/[\\/]/))));
+        return files.filter((file) => /\.(gcda|gcov)$/.test(file))
+            .map((file) => ({ file, segments: this.paths.relative(directory, this.paths.dirname(file)).split(/[\\/]/) }));
     }
 
     // Why a project can't give coverage at all, or undefined when it can.
@@ -879,7 +904,7 @@ export class CeedlingEngine {
 
     private async runInEveryProject(args: string[], token?: Cancellation): Promise<boolean> {
         const results = await mapGrouped(this.candidates, (project) => this.directoryOf(project),
-            (project) => this.inDirectory(project, () => this.ceedling(args, { project, cancellation: token })));
+            (project) => this.exclusively(project, () => this.ceedling(args, { project, cancellation: token })));
         return results.every((result) => !result.error || result.cancelled);
     }
 
@@ -899,7 +924,8 @@ export class CeedlingEngine {
             const namesakes = project.files.filter((f) => f.id !== testId && this.paths.basename(f.id.replace(/\\/g, '/')) === testFile);
             if (namesakes.length > 0) {
                 this.logger.warn(`A coverage run of '${testId}' names it '${testFile}', which Ceedling before 1.2.1 can't tell apart from ` +
-                    `${namesakes.map((f) => `'${f.id}'`).join(', ')}. Ceedling may run the other file.`);
+                    `${namesakes.map((f) => `'${f.id}'`).join(', ')}. ` +
+                    (project.capabilities.pathQualifiedTestTasks ? 'Ceedling 1.2.0 stops with an ambiguous file reference error.' : 'Ceedling may run the other file.'));
             }
         }
         const args = this.getConfiguration()
@@ -944,4 +970,17 @@ export class CeedlingEngine {
         }
         return result;
     }
+}
+
+// The depths among a counter's directories beneath gcov/out that are named for the test file and
+// sit beneath a trailing part of the file's own directory. `key` folds case where the platform does.
+function ownerDepths(segments: string[], testId: string, key: (segment: string) => string): number[] {
+    const directories = testId.split(/[\\/]/).slice(0, -1).map(key);
+    const name = key(testId.replace(/^.*[\\/]/, '').replace(/\.[^.]*$/, ''));
+    const keyed = segments.map(key);
+    return keyed.flatMap((segment, depth) => segment === name && endsWith(directories, keyed.slice(0, depth)) ? [depth] : []);
+}
+
+function endsWith(whole: string[], tail: string[]): boolean {
+    return tail.length <= whole.length && tail.every((segment, i) => whole[whole.length - tail.length + i] === segment);
 }

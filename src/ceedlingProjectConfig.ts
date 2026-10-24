@@ -69,8 +69,8 @@ export const ALTERNATE_DEFAULT_PROJECT_FILE = 'ceedling.yml';
 export type CeedlingCapabilities = {
     // `dumpconfig --stdout` writes the resolved configuration to stdout instead of a file.
     dumpconfigStdout: boolean,
-    // Delta builds reuse cached results unless `--force-test-rerun` is given. Their cache
-    // ignores --test-case, so a filtered run can report another run's results without it.
+    // Delta builds reuse cached results unless `--force-test-rerun` is given. Before 1.2.1 their
+    // cache ignores --test-case. In every version it ignores deleted coverage counters.
     forceTestRerun: boolean,
     // A `test:` task accepts a project-relative path, which tells same-named test files apart.
     pathQualifiedTestTasks: boolean,

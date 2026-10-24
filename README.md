@@ -44,7 +44,7 @@ Requires VS Code 1.88.0 or later.
 
 ## Ceedling
 
-Requires Ceedling 1.0.0 or later. Ceedling 1.0.0 through 1.2.0 are supported. [Code coverage](#code-coverage) also needs Ceedling’s gcov plugin and a coverage report tool.
+Requires Ceedling 1.0.0 or later. Ceedling 1.0.0 through 1.2.1 are supported. [Code coverage](#code-coverage) also needs Ceedling’s gcov plugin and a coverage report tool.
 
 _[Ceedling documentation](https://throwtheswitch.github.io/Ceedling/latest/)_
 
@@ -112,12 +112,12 @@ A mixin keeps coverage settings out of `project.yml`. Save the YAML above as, e.
 
 A coverage run uses Ceedling’s `gcov:` tasks in place of `test:` tasks. Test results appear in the _Testing_ view exactly as for a plain run.
 
-- **One run, one measurement.** Each coverage run shows only what it executed. The tools report every coverage counter in the build directory, so the extension clears the counters earlier runs left before each coverage run. To accumulate coverage across runs instead, as Ceedling itself does until `ceedling clean` or `clobber`, set `ceedlingExplorer.coverageResetsCounters` to `false`. Two coverage runs at once in the same project share its counters, so each may show some of the other’s coverage.
+- **One run, one measurement.** Each coverage run shows only what it executed. The tools report every coverage counter in the build directory, so the extension clears the counters earlier runs left before each coverage run. To accumulate coverage across runs instead, as Ceedling itself does until `ceedling clean` or `clobber`, set `ceedlingExplorer.coverageResetsCounters` to `false`. Two coverage runs at once in the same build directory share its counters, so each may show some of the other’s coverage.
 - **Which report.** With both tools enabled, the extension reads gcovr’s report.
 - **Deferred reports.** With `:gcov:` ↳ `:report_task: TRUE`, reports come only from Ceedling’s `report:gcov` task. A coverage run adds that task to its own command line.
 - **Several projects.** A run spanning projects shows their coverage together. A source file that several projects test shows their combined hits.
 - **Projects without the plugin.** A coverage run still runs their tests, and a notification says why they have no coverage.
-- **Same-named test files.** Before Ceedling 1.2.1, `gcov:` tasks take a test file’s name without its directory, so they can’t tell apart same-named test files in different directories. The extension warns in its log when that applies. Ceedling 1.2.1 and later take the file’s path, as `test:` tasks do.
+- **Same-named test files.** Before Ceedling 1.2.1, `gcov:` tasks take a test file’s name without its directory, so they can’t tell apart same-named test files in different directories. Ceedling 1.2.0 then stops with an ambiguous file reference error, and earlier versions may run the other file. The extension warns in its log when that applies. Ceedling 1.2.1 and later take the file’s path, as `test:` tasks do.
 
 ## What each tool reports
 
@@ -157,7 +157,7 @@ Read each property below as `ceedlingExplorer.<property>`.
 | `.prettyTestLabel` | Shortens each test’s label in the _Testing_ view by dropping its prefix, e.g. `test_BlinkTaskShouldToggleLed` becomes `BlinkTaskShouldToggleLed`. By default it is `true`.<br><br>Inactive:<br><img src="img/prettyTestLabelInactive.png" alt="prettyTestLabelInactive" width="420"><br><br> Active:<br><img src="img/prettyTestLabelActive.png" alt="prettyTestLabelActive" width="420">|
 | `.prettyTestFileLabel` | Shortens each test file’s label by dropping its path, prefix, and extension, e.g. `test/LEDs/test_BlinkTask.c` becomes `BlinkTask`. By default it is `true`.<br><br>Inactive:<br><img src="img/prettyTestFileLabelInactive.png" alt="prettyTestFileLabelInactive" width="320"><br><br> Active:<br><img src="img/prettyTestFileLabelActive.png" alt="prettyTestFileLabelActive" width="320"> |
 | `.testCommandArgs` | The command line arguments that run a test file. The first must contain the `${TEST_ID}` tag, which becomes the test file. With Ceedling 1.2.0 and later that is the file’s project-relative path (e.g. `test/unit/test_foo.c`), which tells same-named test files apart. With earlier versions it is the file’s name alone. By default it is `["test:${TEST_ID}"]`. Coverage runs use `.coverageCommandArgs` instead. |
-| `.coverageCommandArgs` | The command line arguments that run a test file with [coverage](#code-coverage). The first must contain the `${TEST_ID}` tag, which becomes the test file’s name alone, as Ceedling’s `gcov:` tasks require. By default it is `["gcov:${TEST_ID}"]`. |
+| `.coverageCommandArgs` | The command line arguments that run a test file with [coverage](#code-coverage). The first must contain the `${TEST_ID}` tag, which becomes the test file. With Ceedling 1.2.1 and later that is the file’s project-relative path, as for `.testCommandArgs`. With earlier versions it is the file’s name alone, as their `gcov:` tasks require. By default it is `["gcov:${TEST_ID}"]`. |
 | `.coverageResetsCounters` | Whether each [coverage](#code-coverage) run clears the coverage counters earlier runs left, so it shows only what it executed. By default it is `true`. |
 | `.problemMatching` | Compiler and linker problem matching. See [Problem matching](#problem-matching). |
 | `.ansiEscapeSequencesRemoved` | Whether ANSI escape sequences are removed from Ceedling’s output. By default it is `true`. |
