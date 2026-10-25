@@ -1,17 +1,20 @@
-// How long a rediscovery takes while a full build of the same project runs. The project's slow test
-// keeps each build running about 4 seconds. Discovery waits for the build's locks, so it takes about
-// as long as what's left of the build. A measurement for
-// docs/Architecture.md's "Possible speedup"; it checks only that each build's results are unchanged.
+// A rediscovery during a full build of the same project, which the project's slow test keeps
+// running about 4 seconds. From Ceedling 1.2.1 discovery takes no locks, so its dumpconfig must
+// start before the build ends. Before 1.2.1 it waits for the build's locks, so it must end after
+// the build. Each build's results must be unchanged either way. See docs/Architecture.md, "Discovery without the
+// locks from 1.2.1".
 //
 // usage: node latency.js
-import { main, makeEngine, only, recordingReporter, stage, token } from './harness';
+import { capabilities, ceedlingVersion, main, makeEngine, only, recordingReporter, stage, token } from './harness';
 
 // Each test's result, in id order, so runs compare whatever order their results arrive in.
 const tally = (results: ReadonlyMap<string, string>) => [...results].sort(([a], [b]) => a.localeCompare(b)).map(([id, r]) => `${id}=${r}`).join(', ');
 
 main('latency', async (checks) => {
+    const lockFree = capabilities().readOnlyDiscovery;
+    console.log(`Ceedling ${ceedlingVersion()}: discovery ${lockFree ? 'runs alongside builds' : 'waits for builds'}`);
     stage('tests/validation/workspaces/latency');
-    const { engine } = makeEngine({ projects: [{ path: 'project', debugLaunchConfig: 'dbg' }] });
+    const { engine, logs } = makeEngine({ projects: [{ path: 'project', debugLaunchConfig: 'dbg' }] });
     const project = only(await engine.discover());
 
     const baseline = recordingReporter();
@@ -22,20 +25,25 @@ main('latency', async (checks) => {
     await engine.discover();
     console.log(`idle discovery ${Date.now() - start} ms; full build ${buildMs} ms`);
 
-    for (let i = 0; i < 3; i++) {
+    for (let i = 1; i <= 3; i++) {
         const reporter = recordingReporter();
-        const buildStart = Date.now();
-        const run = engine.runProjectAll('project', project.files, reporter, token()).then(() => Date.now() - buildStart);
+        const run = engine.runProjectAll('project', project.files, reporter, token()).then(() => Date.now());
         // eslint-disable-next-line no-await-in-loop -- each sample starts its own build, then rediscovers during it
         await new Promise((resolve) => setTimeout(resolve, 300));
         const discoveryStart = Date.now();
+        const mark = logs.length;
         // eslint-disable-next-line no-await-in-loop -- as above
         await engine.discover();
-        const discoveryMs = Date.now() - discoveryStart;
+        const discoveryEnd = Date.now();
         // eslint-disable-next-line no-await-in-loop -- as above
-        const runMs = await run;
-        console.log(`  discovery during a build: ${discoveryMs} ms (build ${runMs} ms)`);
-        checks.expect(tally(reporter.results) === tally(baseline.results), `sample ${i + 1}: results ${tally(reporter.results)}, expected ${tally(baseline.results)}`);
+        const buildEnd = await run;
+        // When discovery's dumpconfig started, which a lock would hold back until the build ends.
+        const dumpconfigAt = logs.slice(mark).find((l) => /^ceedling: \S+ dumpconfig/.test(l.message))?.at ?? Infinity;
+        const gap = buildEnd - discoveryEnd;
+        console.log(`  discovery during a build: ${discoveryEnd - discoveryStart} ms, ending ${Math.abs(gap)} ms ${gap >= 0 ? 'before' : 'after'} the build`);
+        if (lockFree) checks.expect(dumpconfigAt < buildEnd, `sample ${i}: discovery's dumpconfig started after the build ended`);
+        else checks.expect(discoveryEnd > buildEnd, `sample ${i}: discovery ended before the build did`);
+        checks.expect(tally(reporter.results) === tally(baseline.results), `sample ${i}: results ${tally(reporter.results)}, expected ${tally(baseline.results)}`);
     }
     engine.dispose();
 });

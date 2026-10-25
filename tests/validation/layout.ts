@@ -9,14 +9,13 @@
 //
 // usage: node layout.js
 import * as fs from 'fs';
-import semver from 'semver';
 import { coverageMode } from '../../src/ceedlingEngine';
-import { atLeast, ceedlingVersion, fileOf, main, makeEngine, only, recordingReporter, stage, token, WS } from './harness';
+import { capabilities, ceedlingVersion, fileOf, main, makeEngine, only, recordingReporter, requires, stage, token, WS } from './harness';
 
 const BUILD_NAMES: Record<string, string> = { 'test/unit/test_calc.c': 'unit/test_calc', 'extra/integration/test_calc.c': 'integration/test_calc' };
 
 main('layout', async (checks) => {
-    if (!atLeast('1.2.0', 'builds same-named test files in one directory')) return;
+    if (!requires('nestedTestBuilds', "can't build same-named test files")) return;
     stage('tests/validation/workspaces/layout');
     const { engine, logs } = makeEngine({ projects: [{ path: 'project', debugLaunchConfig: 'dbg' }], mixins: [`${WS}/mixins/gcovr.yml`] });
     const project = only(await engine.discover());
@@ -32,8 +31,8 @@ main('layout', async (checks) => {
         checks.expect(executable === `${buildName}/test_calc.out` && fresh, `debug ${id}: expected a fresh ${buildName}/test_calc.out, got ${executable}`);
     }
 
-    if (semver.lt(ceedlingVersion(), '1.2.1')) {
-        console.log("coverage skipped: Ceedling 1.2.0's gcov: tasks can't name either test_calc.c");
+    if (!capabilities().pathQualifiedCoverageTasks) {
+        console.log(`coverage skipped: Ceedling ${ceedlingVersion()}'s gcov: tasks can't name either test_calc.c`);
         engine.dispose();
         return;
     }

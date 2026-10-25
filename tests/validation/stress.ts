@@ -1,7 +1,8 @@
-// Concurrency stress. Random runs, debug builds, discoveries, reparses, and cleans overlap across
-// four projects for a fixed time, a fifth of them cancelled at a random moment. Every completed
-// run must report each of its tests exactly once, with the outcome tests/manual expects, and
-// nothing may be left running or on disk afterward.
+// Concurrency stress. Random runs, debug builds, discoveries, reparses, cleans, and clobbers
+// overlap across four projects for a fixed time, a fifth of them cancelled at a random moment.
+// Every completed run must report each of its tests exactly once, with the outcome tests/manual
+// expects. Every discovery must list exactly the test files tests/manual holds, in every project.
+// Nothing may be left running or on disk afterward.
 //
 // The projects are three copies of tests/manual. The third holds two project files, so two
 // projects share one directory. --shared-build-root also gives all four one build root.
@@ -24,13 +25,14 @@ const EXPECTED: Record<string, string> = {
 };
 const expectedOf = (id: string) => EXPECTED[id.split('::')[1].replace(/\(.*$/, '')];
 
-// Checks one run's reporting: results only for the run's own tests, none after the run returns,
-// one per test, and in a run that wasn't cancelled, the expected outcome for every test.
-function checkedReporter(checks: Checks, label: string, leaves: readonly string[]) {
+// Checks one run's reporting: results only for `reportable` tests, by default its own, none after
+// the run returns, one per test, and in a run that wasn't cancelled, the expected outcome for
+// every one of its own.
+function checkedReporter(checks: Checks, label: string, leaves: readonly string[], reportable = leaves) {
     const state = new Map<string, string>();
     let finished = false;
     const result = (kind: string) => (id: string, message?: string) => {
-        checks.expect(leaves.includes(id), `${label}: ${kind} result for ${id}, which the run didn't select`);
+        checks.expect(reportable.includes(id), `${label}: ${kind} result for ${id}, which the run didn't select`);
         checks.expect(!finished, `${label}: ${kind} after the run returned (${id})`);
         checks.expect(state.get(id) === undefined || state.get(id) === 'started', `${label}: second result for ${id}`);
         state.set(id, kind === 'errored' ? `errored: ${String(message).split('\n').slice(0, 3).join(' | ')}` : kind);
@@ -65,17 +67,31 @@ main('stress', async (checks) => {
 
     let tree = await engine.discover();
     console.log(`projects: ${tree.map((p) => `${p.projectKey} (${p.files.length} files)`).join(', ')}${sharedBuildRoot ? ', one build root' : ''}`);
-    checks.expect(tree.length === 4, `discovery found ${tree.length} projects`);
+    // Every project is a copy of tests/manual, so each lists its test files, in Ceedling's order.
+    const manualTests = fs.readdirSync(path.join(WS, 'a/test')).filter((f) => f.startsWith('test_') && f.endsWith('.c')).map((f) => `test/${f}`).sort();
+    const checkListing = (label: string) => {
+        checks.expect(tree.length === 4, `${label} found ${tree.length} projects`);
+        for (const p of tree) {
+            const files = p.files.map((f) => f.id);
+            checks.expect(files.slice().sort().join(' ') === manualTests.join(' '), `${label} listed ${p.projectKey}: ${files.join(' ')}, expected ${manualTests.join(' ')}`);
+        }
+    };
+    checkListing('the first discovery');
     const counts: Record<string, number> = {};
+    // Builds, cleans, and clobbers in flight, and the discoveries that started during one.
+    let busy = 0, overlapped = 0;
 
     await churn(seconds, maxInFlight, async () => {
-        const kind = pick(['runFile', 'runFile', 'runFunction', 'runProject', 'debug', 'discover', 'discover', 'clean', 'reparse']);
+        const kind = pick(['runFile', 'runFile', 'runFunction', 'runProject', 'debug', 'discover', 'discover', 'clean', 'clobber', 'reparse']);
         counts[kind] = (counts[kind] ?? 0) + 1;
         const project = pick(tree);
         const file = pick(project.files);
         const t = token();
         if (random() < 0.2) setTimeout(() => t.fire(), Math.floor(random() * 3000));
         const label = `${kind} ${project.projectKey}/${file.id}`;
+        const building = kind !== 'discover' && kind !== 'reparse';
+        if (building) busy++;
+        else if (kind === 'discover' && busy > 0) overlapped++;
         try {
             if (kind === 'runFile') {
                 const run = checkedReporter(checks, label, leavesOf([file]));
@@ -83,7 +99,11 @@ main('stress', async (checks) => {
                 run.check(t.isCancellationRequested);
             } else if (kind === 'runFunction') {
                 const fn = pick(file.functions);
-                const run = checkedReporter(checks, `${label}::${fn.id}`, leafIds([fn]));
+                // Ceedling's --test-case filter matches substrings, so a function whose name is part
+                // of another's, e.g. test_add_should_ReturnSum, falls back to a whole-file run.
+                const name = (id: string) => id.split('::')[1];
+                const collides = file.functions.some((other) => other !== fn && name(other.id).includes(name(fn.id)));
+                const run = checkedReporter(checks, `${label}::${fn.id}`, leafIds([fn]), collides ? leavesOf([file]) : leafIds([fn]));
                 await engine.runFunction(project.projectKey, file, fn, run.reporter, t);
                 run.check(t.isCancellationRequested);
             } else if (kind === 'runProject') {
@@ -96,22 +116,25 @@ main('stress', async (checks) => {
                 run.check(t.isCancellationRequested);
             } else if (kind === 'discover') {
                 tree = await engine.discover();
-                checks.expect(tree.length === 4, `discovery found ${tree.length} projects`);
-            } else if (kind === 'clean') {
-                checks.expect(await engine.clean(t) || t.isCancellationRequested, 'clean failed without being cancelled');
+                checkListing('a discovery');
+            } else if (kind === 'clean' || kind === 'clobber') {
+                checks.expect(await engine[kind](t) || t.isCancellationRequested, `${kind} failed without being cancelled`);
             } else {
                 await engine.rediscoverFile(project.projectKey, file.id);
             }
         } catch (error) {
             checks.fail(`${label} threw: ${error instanceof Error ? error.stack : String(error)}`);
+        } finally {
+            if (building) busy--;
         }
     });
 
     // The engine looks for a debug build's executable while it still holds the build's locks. Once
-    // they're released, another project's build or a clean may replace it, so only that check holds.
+    // they're released, another project's build, a clean, or a clobber may replace it, so only that
+    // check holds.
     for (const missing of logs.filter((l) => l.message.startsWith('executableSubpath:'))) checks.fail(missing.message);
     for (const leftover of await leftovers()) checks.fail(`left behind: ${leftover}`);
     engine.dispose();
-    console.log(`${seconds} s, ${maxInFlight} at once, seed ${seed}; operations ${JSON.stringify(counts)}`);
+    console.log(`${seconds} s, ${maxInFlight} at once, seed ${seed}; operations ${JSON.stringify(counts)}; discoveries during a build, clean, or clobber: ${overlapped}`);
     for (const line of logSummary(logs)) console.log(`  log ${line}`);
 });
