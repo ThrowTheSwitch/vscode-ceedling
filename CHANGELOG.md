@@ -14,7 +14,7 @@ This document is the terse, itemized record of what changed in each release. Its
 * A workspace folder without a Ceedling project no longer adds an empty _Ceedling_ entry to the _Testing_ view. With several workspace folders, each entry names its folder.
 * Discovery checks the Ceedling version in each project’s own directory, so a project’s `:project` ↳ `:which_ceedling` is respected. It no longer runs `ceedling summary`.
 * Discovery is faster in workspaces with several project directories or many test files. Projects in different directories load at the same time, and test files are read in parallel. Reading files no longer blocks VS Code’s extension host.
-* Ceedling commands in different project directories may now run at the same time, e.g. a run in one project while another rediscovers. Commands within one project directory, or in projects sharing a build directory, still run one at a time.
+* Ceedling commands in different project directories may now run at the same time, e.g. a run in one project while another rediscovers. Commands within one project directory, or in projects sharing a build directory, still run one at a time. From Ceedling 1.2.1, discovery runs alongside them.
 
 ## 🌟 Added
 
@@ -25,7 +25,9 @@ This document is the terse, itemized record of what changed in each release. Its
   * Same-named test files in different directories (e.g. `test/unit/test_foo.c` and `test/integration/test_foo.c`) each run, report, and debug correctly.
   * Project configuration is read through `ceedling dumpconfig --stdout`, without a temporary file.
   * Every run reruns its tests. Ceedling 1.2.0’s delta builds otherwise reuse cached results that ignore which single test a run selected.
-* Support for Ceedling 1.2.1, whose `gcov:` tasks take a test file’s path. Coverage runs of same-named test files in different directories each run the right file.
+* Support for Ceedling 1.2.1:
+  * Its `gcov:` tasks take a test file’s path, so coverage runs of same-named test files in different directories each run the right file.
+  * The _Testing_ view updates during a long run, e.g. after adding a test file or editing `project.yml`, rather than after the run finishes.
 * The `report_tests_log_factory` plugin’s `cppunit` report, which this extension reads results from, is now enabled automatically by a bundled [mixin](README.md#mixins). Enabling it in `project.yml` is no longer required.
 * New `ceedlingExplorer.mixins` and `ceedlingExplorer.projects[].mixins` settings apply Ceedling mixins, for toolchain targets, CI overrides, or other configuration, without editing `project.yml`. See [Mixins](README.md#mixins).
 * The _Testing_ view updates as you edit a test file, before you save. Adding or removing a test file, or editing `project.yml` or a mixin file, rediscovers the project without a manual refresh.

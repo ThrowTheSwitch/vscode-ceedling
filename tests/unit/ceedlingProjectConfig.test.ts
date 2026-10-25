@@ -2,7 +2,10 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import yaml from 'js-yaml';
 import * as path from 'path';
-import { capabilitiesOf, CeedlingLoadError, coverageProblem, coverageState, pathKey, projectState, projectsFromSettings, testBuildName } from '../../src/ceedlingProjectConfig';
+import {
+    capabilitiesOf, type CeedlingFeature, ceedlingRelease, CeedlingLoadError, firstRelease, isSupportedRelease, MINIMUM_CEEDLING_VERSION,
+    coverageProblem, coverageState, pathKey, projectState, projectsFromSettings, testBuildName,
+} from '../../src/ceedlingProjectConfig';
 
 const fixturesRoot = path.resolve(__dirname, '..', '..', '..', 'tests', 'fixtures');
 
@@ -130,8 +133,35 @@ suite('projectsFromSettings: the default project file', () => {
     });
 });
 
+suite('Ceedling releases', () => {
+    // Real builds report a commit suffix, e.g. 1.2.0-13a540f, which semver ranks below 1.2.0.
+    test('a reported version counts as its release, build suffix and all', () => {
+        assert.deepStrictEqual(['1.2.0', '1.2.0-13a540f', '1.2.1.dev', 'v1.1.10'].map(ceedlingRelease), ['1.2.0', '1.2.0', '1.2.1', '1.1.10']);
+    });
+
+    test('a version with no release in it has none', () => {
+        assert.strictEqual(ceedlingRelease('unknown'), undefined);
+    });
+
+    test('releases from 1.0.0 are supported', () => {
+        assert.strictEqual(MINIMUM_CEEDLING_VERSION, '1.0.0');
+        assert.deepStrictEqual(['0.31.1', '1.0.0', '1.3.0'].map(isSupportedRelease), [false, true, true]);
+    });
+
+    test('each capability holds from its first release, and not in the release before', () => {
+        assert.deepStrictEqual(firstRelease('pathQualifiedCoverageTasks'), '1.2.1');
+        const previous: Record<string, string> = { '1.2.0': '1.1.10', '1.2.1': '1.2.0' };
+        for (const feature of Object.keys(capabilitiesOf('1.0.0')) as CeedlingFeature[]) {
+            const first = firstRelease(feature);
+            assert.ok(first in previous, `${feature} from ${first}, a release this test doesn't know`);
+            assert.strictEqual(capabilitiesOf(first)[feature], true, `${feature} at ${first}`);
+            assert.strictEqual(capabilitiesOf(previous[first])[feature], false, `${feature} before ${first}`);
+        }
+    });
+});
+
 suite('capabilitiesOf', () => {
-    const none = { dumpconfigStdout: false, forceTestRerun: false, pathQualifiedTestTasks: false, pathQualifiedCoverageTasks: false, ceedlingYml: false, nestedTestBuilds: false };
+    const none = { dumpconfigStdout: false, forceTestRerun: false, pathQualifiedTestTasks: false, pathQualifiedCoverageTasks: false, ceedlingYml: false, nestedTestBuilds: false, readOnlyDiscovery: false };
 
     test('Ceedling before 1.2.0 has none of the 1.2.0 features', () => {
         for (const version of ['1.0.0', '1.1.10', '1.1.10-85ec551']) {
@@ -141,15 +171,17 @@ suite('capabilitiesOf', () => {
 
     // Real 1.2.0 builds report a commit suffix, e.g. 1.2.0-13a540f, which semver ranks below 1.2.0.
     // 1.2.0's gcov: tasks still take only a bare file name.
-    test('Ceedling 1.2.0, build suffix included, has every 1.2.0 feature but path-qualified coverage tasks', () => {
+    test("Ceedling 1.2.0, build suffix included, has every 1.2.0 feature and none of 1.2.1's", () => {
         for (const version of ['1.2.0', '1.2.0-13a540f']) {
             assert.deepStrictEqual(capabilitiesOf(version), { ...none, dumpconfigStdout: true, forceTestRerun: true, pathQualifiedTestTasks: true, ceedlingYml: true, nestedTestBuilds: true });
         }
     });
 
-    test('Ceedling 1.2.1 and later, build suffix included, also takes paths in coverage tasks', () => {
+    test('Ceedling 1.2.1 and later, build suffix included, also takes paths in coverage tasks and discovers without writing', () => {
         for (const version of ['1.2.1', '1.2.1-0a1b2c3', '1.3.1']) {
-            assert.deepStrictEqual(capabilitiesOf(version), { dumpconfigStdout: true, forceTestRerun: true, pathQualifiedTestTasks: true, pathQualifiedCoverageTasks: true, ceedlingYml: true, nestedTestBuilds: true });
+            assert.deepStrictEqual(capabilitiesOf(version), {
+                dumpconfigStdout: true, forceTestRerun: true, pathQualifiedTestTasks: true, pathQualifiedCoverageTasks: true, ceedlingYml: true, nestedTestBuilds: true, readOnlyDiscovery: true,
+            });
         }
     });
 });
@@ -167,6 +199,7 @@ suite('projectState', () => {
                 reportPluginEnabled: false,
                 coverage: undefined,
                 testPaths: [],
+                whichCeedling: 'gem',
             });
         }
     });
@@ -176,13 +209,19 @@ suite('projectState', () => {
         assert.deepStrictEqual(projectState(dumpconfigFixture('dumpconfig-gcov-default.yml', 'ceedling-1.2.0'), 'linux').testPaths, ['+:test/**']);
     });
 
+    // The installed gem's Ceedling, unless the project selects another, which `ceedling version` can't see.
+    test('the Ceedling a project selects is the gem by default, as dumpconfig shows it', () => {
+        assert.strictEqual(projectState(dumpconfigFixture('dumpconfig-stdout.yml', 'ceedling-1.2.0'), 'linux').whichCeedling, 'gem');
+        assert.strictEqual(projectState({ ':project': { ':which_ceedling': '../tools/ceedling' } }, 'linux').whichCeedling, '../tools/ceedling');
+    });
+
     test('the default executable extension is .exe on Windows', () => {
         assert.strictEqual(projectState({}, 'win32').executableExtension, '.exe');
     });
 
     test('each setting is read from its Ceedling configuration path', () => {
         const state = projectState({
-            ':project': { ':build_root': 'out', ':test_file_prefix': 'check_' },
+            ':project': { ':build_root': 'out', ':test_file_prefix': 'check_', ':which_ceedling': 'vendor/ceedling' },
             ':test_runner': { ':test_prefix': 'check' },
             ':extension': { ':executable': '.bin' },
             ':unity': { ':use_param_tests': true },
@@ -200,6 +239,7 @@ suite('projectState', () => {
             reportPluginEnabled: true,
             coverage: undefined,
             testPaths: ['spec/**'],
+            whichCeedling: 'vendor/ceedling',
         });
     });
 

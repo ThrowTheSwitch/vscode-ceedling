@@ -11,6 +11,7 @@ This document lists the problems currently known, grouped by the Ceedling versio
 ## Ceedling versions before 1.2.1
 
 1. A coverage run can’t tell apart same-named test files in different directories, e.g. `test/unit/test_foo.c` and `test/integration/test_foo.c`. Ceedling’s `gcov:` tasks before 1.2.1 take a test file’s name without its directory. Ceedling 1.2.0 then stops with an ambiguous file reference error, and earlier versions may run the other file. The extension warns in its log when a coverage run is ambiguous this way. Plain runs tell the files apart from Ceedling 1.2.0. Ceedling 1.2.1 fixes this ([Ceedling#1362](https://github.com/ThrowTheSwitch/Ceedling/issues/1362)).
+2. The _Testing_ view can’t update during a long run in the same project. A rediscovery, e.g. after adding a test file or editing `project.yml`, waits for the run to finish, since discovery before Ceedling 1.2.1 rewrites files the run uses. Ceedling 1.2.1 fixes this ([Ceedling#1361](https://github.com/ThrowTheSwitch/Ceedling/issues/1361)).
 
 ## Ceedling versions before 1.2.0
 
@@ -20,3 +21,4 @@ This document lists the problems currently known, grouped by the Ceedling versio
 
 1. Debugging a single parametrized test case is not supported. Ceedling builds and runs a whole test file as one executable, so debugging always covers the containing file, never one `TEST_CASE`, `TEST_RANGE`, or `TEST_MATRIX` case.
 2. A hand-written test runner is not supported. The extension finds tests by matching `:test_runner` ↳ `:test_prefix` against function names in source, as Ceedling’s generated runner does. A project that writes its own runner with Unity’s `UNITY_SKIP_DEFAULT_RUNNER` and `RUN_TEST`, calling functions outside that convention, can’t have those results matched to tests. No setting changes this.
+3. A project whose `:project` ↳ `:which_ceedling` selects a different Ceedling, e.g. one vendored in the project, is treated as the Ceedling installed for the project directory. `ceedling version` never reads the project file, so it reports that installed Ceedling instead. The extension then uses the installed version’s command-line features. With Ceedling 1.2.1 installed, such a project still waits for runs before rediscovering, so a vendored older Ceedling can’t corrupt a build.
