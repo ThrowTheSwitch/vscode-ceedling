@@ -55,6 +55,7 @@
     "test:integration": "npm run -s build && rimraf out-test && tsc -p test.tsconfig.json && node ./out-test/tests/integration/main.js",
     "test": "npm run -s typecheck && npm run -s test:unit && npm run -s build && node ./out-test/tests/integration/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build:tests": "rimraf out-test && tsc -p test.tsconfig.json",
     "test:coverage": "rimraf out-test coverage && tsc -p test.tsconfig.json && c8 mocha --ui tdd \"out-test/tests/unit/**/*.test.js\"",
     "lint": "eslint ."
   },

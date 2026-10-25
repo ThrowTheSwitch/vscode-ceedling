@@ -20,7 +20,7 @@ The image holds none of the repository. The checkout is bind-mounted when a cont
 
 ## Using it through the Justfile
 
-Every interaction goes through the root `Justfile`. `just --list` shows its recipes: `install`, `build`, `watch`, `rebuild`, `test`, `lint`, `coverage`, `package`, `publish`, `clean`, `shell`, and `image`. Don’t run `docker` directly. The recipes handle image builds, volume mounts, and environment forwarding consistently.
+Every interaction goes through the root `Justfile`. `just --list` shows its recipes: `install`, `build`, `watch`, `rebuild`, `test`, `lint`, `coverage`, `validate`, `package`, `publish`, `clean`, `shell`, and `image`. Don’t run `docker` directly. The recipes handle image builds, volume mounts, and environment forwarding consistently.
 
 Recipes run in one of two modes.
 
@@ -33,6 +33,7 @@ Recipes run in one of two modes.
 - **First-time setup:** `just install`.
 - **Iterating:** `just build`, `just watch`, or `just test`.
 - **Finding what to fix:** `just lint` and `just coverage`. See [docs/Development.md](../docs/Development.md#linting-and-coverage).
+- **Validating against real Ceedling:** `just validate <version>`, from the host. It compiles the tests here, then runs them in a Ceedling release’s image with this image’s Node. See [docs/Development.md](../docs/Development.md#5-validation-against-real-ceedling).
 - **Releasing:** `just package` produces a `.vsix`. `VSCE_PAT=<token> just publish` publishes it, and fails at once if `VSCE_PAT` isn’t set.
 - **Repeated runs:** `just shell`, then `just build`, `just test`, or plain `npm` commands as often as needed.
 

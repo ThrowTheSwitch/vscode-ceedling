@@ -1,0 +1,6 @@
+:gcov:
+  :report_task: TRUE
+  :utilities:
+    - gcovr
+  :reports:
+    - Cobertura

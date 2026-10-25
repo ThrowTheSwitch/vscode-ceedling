@@ -56,6 +56,11 @@ lint: image
 coverage: image
     just _run "npm run test:coverage"
 
+# Validate the compiled engine against a real Ceedling release in Docker, from the host (see docs/Development.md)
+validate VERSION SUITE="all" *ARGS="": image
+    just _run "npm run -s build:tests"
+    SIDECAR_IMAGE={{image_name}} NODE_MODULES_VOLUME={{node_modules_volume}} tests/validation/run.sh {{VERSION}} {{SUITE}} {{ARGS}}
+
 # Package the extension into a .vsix
 package: image
     just _run "npm run package"

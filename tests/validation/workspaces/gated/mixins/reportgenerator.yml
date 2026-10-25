@@ -1,0 +1,5 @@
+:gcov:
+  :utilities:
+    - ReportGenerator
+  :reports:
+    - Cobertura

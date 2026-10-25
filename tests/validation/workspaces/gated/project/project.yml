@@ -1,0 +1,16 @@
+---
+:project:
+  :build_root: build
+  :use_test_preprocessor: :none
+  :use_backtrace: :simple
+:plugins:
+  :enabled:
+    - gcov
+:paths:
+  :test:
+    - "+:test/**"
+  :source:
+    - src/**
+  :include:
+    - src/**
+...
