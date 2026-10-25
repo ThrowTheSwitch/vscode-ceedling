@@ -617,6 +617,41 @@ suite('CeedlingEngine runs', () => {
         assert.deepStrictEqual(errored[0][3], { file: '/ws/test/test_calc.c', line: 7 });
     });
 
+    // The Testing view shows a message's first line. Without this, that line reads "stdout:".
+    const STOPPED = 'Building...\n🧨 EXCEPTION: Ambiguous file reference \'test_calc.c\' found.\n🌱 Ceedling could not complete operations because of errors\n';
+
+    test("with no report and no diagnostic, Ceedling's exception leads every id's message", async () => {
+        const world = new FakeCeedling();
+        const { engine, file } = await discovered(world);
+        world.handlers.push((command) => /^ceedling test:/.test(command) ? { error: true, stdout: 'OUT', stderr: STOPPED } : undefined);
+        const reporter = recordingReporter();
+        await engine.runFile('default', file, reporter, token());
+        const errored = reporter.of('errored');
+        assert.strictEqual(errored.length, 6);
+        assert.ok(errored.every((call) => String(call[2]).startsWith("EXCEPTION: Ambiguous file reference 'test_calc.c' found.\n\nstdout:\nOUT\nstderr:\nBuilding...")));
+        assert.strictEqual(errored[0][3], undefined);
+    });
+
+    test("with no report, the most severe diagnostic leads, then Ceedling's exception, then the transcript", async () => {
+        const world = new FakeCeedling();
+        const problems = new FakeProblemMatcher();
+        problems.matches = [diagnostic('/ws/test/test_calc.c', 7, 0, 'the error')];
+        const { engine, file } = await discovered(world, { problems });
+        world.handlers.push((command) => /^ceedling test:/.test(command) ? { error: true, stderr: STOPPED } : undefined);
+        const reporter = recordingReporter();
+        await engine.runFile('default', file, reporter, token());
+        assert.match(String(reporter.of('errored')[0][2]), /^the error\n\nEXCEPTION: Ambiguous file reference 'test_calc.c' found\.\n\nstderr:\nBuilding/);
+    });
+
+    test("a debug build that stops leads its errors with Ceedling's exception", async () => {
+        const world = new FakeCeedling();
+        const { engine, file } = await discovered(world);
+        world.handlers.push((command) => /^ceedling test:/.test(command) ? { error: true, stderr: STOPPED } : undefined);
+        const reporter = recordingReporter();
+        assert.strictEqual(await engine.compileForDebug('default', file, reporter, token()), undefined);
+        assert.match(String(reporter.of('errored')[0][2]), /^EXCEPTION: Ambiguous file reference/);
+    });
+
     // A report left over from an earlier run, in either artifacts directory, must not be read as this run's.
     test('stale test and gcov reports are deleted before a run', async () => {
         const world = new FakeCeedling();

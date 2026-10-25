@@ -1,0 +1,2 @@
+🧨 EXCEPTION: Ambiguous file reference 'test_calc.c' found. Include more trailing path to distinguish among: test/test_calc.c, test/unit/test_calc.c, extra/integration/test_calc.c
+🌱 Ceedling could not complete operations because of errors

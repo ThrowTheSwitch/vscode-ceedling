@@ -1,0 +1,14 @@
+🧨 EXCEPTION: 'Default Test Compiler' (gcc) terminated with exit code [1] and output ⏩️
+test/unit/test_bad.c: In function ‘test_x’:
+test/unit/test_bad.c:2:20: error: implicit declaration of function ‘undefined_call’ [-Wimplicit-function-declaration]
+    2 | void test_x(void){ undefined_call( }
+      |                    ^~~~~~~~~~~~~~
+test/unit/test_bad.c:2:36: error: expected expression before ‘}’ token
+    2 | void test_x(void){ undefined_call( }
+      |                                    ^
+test/unit/test_bad.c:2:35: error: expected ‘;’ before ‘}’ token
+    2 | void test_x(void){ undefined_call( }
+      |                                   ^~
+      |                                   ;
+Executed Command: gcc -I"build/test/mocks/unit/test_bad" -I"src" -I"build/vendor/unity/src" -I"build/vendor/cmock/src" -D"CMOCK_MOCK_PREFIX=Mock" -D"UNITY_USE_COMMAND_LINE_ARGS" -DGNU_COMPILER -g -c "test/unit/test_bad.c" -o "build/test/out/unit/test_bad/test_bad.o" -MMD -MF "build/test/dependencies/unit/test_bad/test_bad.d"
+🌱 Ceedling could not complete operations because of errors

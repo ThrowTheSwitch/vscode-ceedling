@@ -43,6 +43,7 @@ This document is the terse, itemized record of what changed in each release. Its
 * Cancelling a run now marks its tests skipped instead of errored, and stops only that run’s Ceedling process. Cancelling no longer crashes the extension on Linux systems without `ps`, such as minimal containers.
 * _Clean_ and _Clobber_ now wait for a run in progress, instead of deleting its build.
 * A failed build no longer reports results from an older run’s leftover test report.
+* When Ceedling stops before running any tests, e.g. with an ambiguous file reference, each test’s error in the _Testing_ view now leads with Ceedling’s own `EXCEPTION` message, instead of a bare `stdout:` label.
 * Saving `project.yml` while tests run no longer makes the rest of that run lose its project configuration.
 * A failure Ceedling reports without a source location, or a very large test output, no longer aborts the whole run.
 * A missing header now appears in the _Problems_ panel at its `#include` line. GCC reports it as a “fatal error”, which problem matching misread as a different file and line.
