@@ -68,7 +68,7 @@ The code has two layers. Most modules have no `vscode` dependency and are unit-t
 | `src/diagnosticsStore.ts` | Pure | Each run scope’s diagnostics, shown by file without duplicates |
 | `src/singleFlight.ts` | Pure | Coalesces overlapping discovery requests into one rerun |
 | `src/concurrency.ts` | Pure | Grouped concurrent mapping, locks by key, and a limit shared by every caller |
-| `src/ceedlingOutputParsing.ts` | Pure | Ceedling stdout, report names, and pretty labels |
+| `src/ceedlingOutputParsing.ts` | Pure | Ceedling’s console output and exceptions, report names, and pretty labels |
 | `src/ceedlingMixinArgs.ts` | Pure | The `--project`/`--mixin` flags for a project |
 | `src/problemMatching.ts` | Pure | Compiler-output patterns and their matches |
 
@@ -186,7 +186,7 @@ sequenceDiagram
 
 - **Planning.** `buildRunPlan(projects, include, exclude)` returns `RunPlanEntry`s of three kinds. A `project` entry runs `test:all`. A `file` entry runs `test:<file>`. A `function` entry adds `--test-case=<name>`. Excluded items narrow the plan to function granularity at most. The reporter drops their results.
 - **Running.** `runTests()` marks every id started, then takes its project’s locks. `buildAndRun()` deletes stale reports in `artifacts/test` and `artifacts/gcov`, runs Ceedling, appends the transcript to the run’s output, updates diagnostics, and reads the newest report.
-- **Reporting.** `testResults(report, leafIds)` yields `passed`, `skipped`, `failed`, and `unreported` results. An `unreported` id gets an error naming the likely cause: discovery and Ceedling disagree about its name. With no report at all, every id errors, and the most severe compiler diagnostic leads the message. The controller’s reporter, from `createRunReporter()`, maps each id to its TestItem. It drops results for excluded items and, with a warning, for unknown ids, and turns a crash’s gdb log path into a link.
+- **Reporting.** `testResults(report, leafIds)` yields `passed`, `skipped`, `failed`, and `unreported` results. An `unreported` id gets an error naming the likely cause: discovery and Ceedling disagree about its name. With no report at all, every id errors. The Testing view shows a message’s first line, so the most severe compiler diagnostic leads the message, then Ceedling’s `EXCEPTION` block from `extractCeedlingException()`, then the transcript. The controller’s reporter, from `createRunReporter()`, maps each id to its TestItem. It drops results for excluded items and, with a warning, for unknown ids, and turns a crash’s gdb log path into a link.
 - **Edge cases.** A `--test-case` run whose report also names another function, from Ceedling’s substring filter, reruns the whole file. A cancelled run kills only its own process tree, through `CeedlingRunner`, and marks its tests skipped.
 
 Diagnostics are keyed by run scope: the project key for a project run, `projectKey::fileId` for a file or function run. A project run replaces its own entry and drops its files’ entries. A file run replaces its own entry and drops the project entry’s diagnostics located in that file.

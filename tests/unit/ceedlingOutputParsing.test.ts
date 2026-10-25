@@ -5,6 +5,7 @@ import * as semver from 'semver';
 import {
     buildFileLabelRegex,
     buildTestLabelRegex,
+    extractCeedlingException,
     extractGdbLogReference,
     extractTestFunctionName,
     parseCeedlingVersionString,
@@ -168,5 +169,44 @@ suite('extractGdbLogReference', () => {
     test('does not match a Ceedling 1.0.0-style embedded gdb transcript', () => {
         const message = 'Test case crashed >> Program received signal SIGSEGV, Segmentation fault.\n0x0 in testCrash () at test/test_calculator.c:13';
         assert.deepStrictEqual(extractGdbLogReference(message), { text: message, logPath: undefined });
+    });
+});
+
+suite('extractCeedlingException', () => {
+    // Ceedling 1.2.1 with decorators prefixes the line with an emoji, which the message drops.
+    test("reads a decorated Ceedling 1.2.1 ambiguous file reference, without its decoration or closing line", () => {
+        const stderr = readFixture('ceedling-1.2.1', 'ambiguous-file-stderr.txt');
+        assert.strictEqual(extractCeedlingException(stderr),
+            "EXCEPTION: Ambiguous file reference 'test_calc.c' found. Include more trailing path to distinguish among: " +
+            'test/test_calc.c, test/unit/test_calc.c, extra/integration/test_calc.c');
+    });
+
+    test("keeps the compiler output a compiler failure's exception carries, through its executed command", () => {
+        const exception = extractCeedlingException(readFixture('ceedling-1.2.1', 'compile-failure-stderr.txt')) ?? '';
+        const lines = exception.split('\n');
+        assert.match(lines[0] ?? '', /^EXCEPTION: 'Default Test Compiler' \(gcc\) terminated with exit code \[1\]/);
+        assert.ok(lines.some((line) => line.includes('error: expected ‘;’ before ‘}’ token')));
+        assert.match(lines[lines.length - 1] ?? '', /^Executed Command: gcc /);
+    });
+
+    for (const [version, fixture] of [['1.0.0', 'compile-missing-header-stderr.txt'], ['1.0.0', 'linker-failure-stderr.txt'], ['1.1.0', 'linker-failure-stderr.txt']] as const) {
+        test(`reads Ceedling ${version}'s undecorated ${fixture.replace('-stderr.txt', '')} exception`, () => {
+            const stderr = readFixture(`ceedling-${version}`, fixture);
+            const exception = extractCeedlingException(stderr);
+            assert.strictEqual(exception, stderr.slice(0, stderr.indexOf('\nCeedling could not complete operations')));
+        });
+    }
+
+    test('finds the exception after other output, with CRLF line ends', () => {
+        assert.strictEqual(extractCeedlingException('Building...\r\nEXCEPTION: Found no file `test_x.c` in search paths.\r\nCeedling could not complete operations because of errors\r\n'),
+            'EXCEPTION: Found no file `test_x.c` in search paths.');
+    });
+
+    test('runs to the end of the output, less trailing blank lines, without the closing line', () => {
+        assert.strictEqual(extractCeedlingException('EXCEPTION: stopped\ndetail\n\n'), 'EXCEPTION: stopped\ndetail');
+    });
+
+    test('is undefined when Ceedling raised no exception', () => {
+        assert.strictEqual(extractCeedlingException('Compiling test_x.c...\nNo EXCEPTION here: an ordinary line\n'), undefined);
     });
 });

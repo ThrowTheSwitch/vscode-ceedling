@@ -22,6 +22,7 @@ import { KeyedLock, Limiter, mapGrouped } from './concurrency';
 import {
     buildFileLabelRegex,
     buildTestLabelRegex,
+    extractCeedlingException,
     extractTestFunctionName,
     parseCeedlingVersionString,
     parseFileListBullets,
@@ -141,9 +142,12 @@ export function coverageMode(): RunMode {
     return { kind: 'coverage', run: { resetDirectories: new Set() } };
 }
 
+// `exception` is Ceedling's own account of why it stopped, when it did.
 type BuildOutcome =
     | { cancelled: true }
-    | { cancelled: false, transcript: string, diagnostics: FileDiagnostic[], report: CppUnitReport | undefined, coverage: CoverageOutcome | undefined };
+    | { cancelled: false, transcript: string, exception: string | undefined, diagnostics: FileDiagnostic[], report: CppUnitReport | undefined, coverage: CoverageOutcome | undefined };
+
+type CompletedBuild = Extract<BuildOutcome, { cancelled: false }>;
 
 // Diagnostics are kept per project for project runs, and per file for file and function runs.
 function fileDiagnosticsId(projectKey: string, fileId: string): string {
@@ -393,7 +397,7 @@ export class CeedlingEngine {
                 return undefined;
             }
             if (!outcome.report) {
-                this.reportMissingReport(ids, outcome.transcript, outcome.diagnostics, reporter);
+                this.reportMissingReport(ids, outcome, reporter);
                 return undefined;
             }
             this.reportResults(outcome.report, leaves, outcome.transcript, reporter);
@@ -646,7 +650,7 @@ export class CeedlingEngine {
                 return 'done';
             }
             if (!outcome.report) {
-                this.reportMissingReport(ids, outcome.transcript, outcome.diagnostics, reporter);
+                this.reportMissingReport(ids, outcome, reporter);
                 // The test errors explain a failed build, but not a configuration that can't give coverage.
                 const problem = mode.kind === 'coverage' ? this.coverageConfigurationProblem(project) : undefined;
                 if (problem !== undefined) {
@@ -687,9 +691,10 @@ export class CeedlingEngine {
             result.stderr.length > 0 ? `stderr:\n${result.stderr}` : undefined,
         ].filter((section): section is string => section !== undefined).join('\n');
         reporter.appendOutput(transcript.replace(/\n/g, '\r\n'));
+        const exception = extractCeedlingException(result.stderr) ?? extractCeedlingException(result.stdout);
         const diagnostics = this.updateDiagnostics(project, scope, result);
         const coverage = mode.kind === 'coverage' ? await this.readCoverage(project) : undefined;
-        return { cancelled: false, transcript, diagnostics, report: await this.readReport(project), coverage };
+        return { cancelled: false, transcript, exception, diagnostics, report: await this.readReport(project), coverage };
     }
 
     // A project run supersedes every per-file entry in the project. A file run replaces its own
@@ -713,11 +718,12 @@ export class CeedlingEngine {
         return diagnostics;
     }
 
-    // No report means Ceedling stopped before running tests, usually a build failure. The most
-    // severe compiler diagnostic leads each message, when problem matching found one.
-    private reportMissingReport(ids: string[], transcript: string, diagnostics: FileDiagnostic[], reporter: RunReporter): void {
-        const lead = this.mostSevereDiagnostic(diagnostics);
-        const message = lead ? `${lead.diagnostic.message}\n\n${transcript}` : transcript;
+    // No report means Ceedling stopped before running tests, usually a build failure. The Testing
+    // view shows a message's first line, so the most severe compiler diagnostic leads, when problem
+    // matching found one, then Ceedling's exception, then the whole transcript.
+    private reportMissingReport(ids: string[], build: CompletedBuild, reporter: RunReporter): void {
+        const lead = this.mostSevereDiagnostic(build.diagnostics);
+        const message = [lead?.diagnostic.message, build.exception, build.transcript].filter((part) => part !== undefined).join('\n\n');
         const location = lead ? { file: lead.file, line: lead.diagnostic.range.start.line } : undefined;
         for (const id of ids) {
             reporter.errored(id, message, location);

@@ -59,3 +59,18 @@ export function extractGdbLogReference(message: string): { text: string, logPath
     }
     return { text: message.slice(0, match.index), logPath: match[1] };
 }
+
+// Why Ceedling stopped, from its console output: the EXCEPTION line and whatever output it carries,
+// such as a compiler's errors, up to the closing "could not complete operations" line. A decorated
+// console leads the line with an emoji, which is dropped. undefined when Ceedling raised none.
+export function extractCeedlingException(output: string): string | undefined {
+    const lines = output.replace(/\r\n?/g, '\n').split('\n');
+    const start = lines.findIndex((line) => /^[^\w\s]*\s*EXCEPTION:/.test(line));
+    if (start < 0) {
+        return undefined;
+    }
+    const closing = lines.findIndex((line, i) => i > start && /^[^\w\s]*\s*Ceedling could not complete operations/.test(line));
+    const block = lines.slice(start, closing < 0 ? undefined : closing);
+    block[0] = (block[0] ?? '').replace(/^[^\w\s]*\s*/, '');
+    return block.join('\n').trimEnd();
+}
