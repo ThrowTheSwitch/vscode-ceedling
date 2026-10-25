@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import yaml from 'js-yaml';
 import * as path from 'path';
 import {
-    capabilitiesOf, type CeedlingFeature, ceedlingRelease, CeedlingLoadError, firstRelease, isSupportedRelease, MINIMUM_CEEDLING_VERSION,
+    applicationRelease, capabilitiesOf, type CeedlingFeature, ceedlingRelease, CeedlingLoadError, firstRelease, isSupportedRelease, MINIMUM_CEEDLING_VERSION,
     coverageProblem, coverageState, pathKey, projectState, projectsFromSettings, testBuildName,
 } from '../../src/ceedlingProjectConfig';
 
@@ -150,7 +150,7 @@ suite('Ceedling releases', () => {
 
     test('each capability holds from its first release, and not in the release before', () => {
         assert.deepStrictEqual(firstRelease('pathQualifiedCoverageTasks'), '1.2.1');
-        const previous: Record<string, string> = { '1.2.0': '1.1.10', '1.2.1': '1.2.0' };
+        const previous: Record<string, string> = { '1.2.0': '1.1.10', '1.2.1': '1.2.0', '1.2.2': '1.2.1' };
         for (const feature of Object.keys(capabilitiesOf('1.0.0')) as CeedlingFeature[]) {
             const first = firstRelease(feature);
             assert.ok(first in previous, `${feature} from ${first}, a release this test doesn't know`);
@@ -158,10 +158,35 @@ suite('Ceedling releases', () => {
             assert.strictEqual(capabilitiesOf(previous[first])[feature], false, `${feature} before ${first}`);
         }
     });
+
+    test('a Ceedling that runs no other installation reports its own release exactly', () => {
+        assert.deepStrictEqual(applicationRelease({ application: '1.2.0-13a540f' }), { release: '1.2.0', exactRelease: true });
+    });
+
+    // Before 1.2.2 a launcher reports another installation as its own release with that
+    // installation's commit (Ceedling#1365). Only the same commit shows the same build.
+    test('before Ceedling 1.2.2, a launcher reports another installation exactly only when it is the same build', () => {
+        assert.deepStrictEqual(applicationRelease({ launcher: '1.2.1-47d2c5e', application: '1.2.1-47d2c5e' }), { release: '1.2.1', exactRelease: true });
+        assert.deepStrictEqual(applicationRelease({ launcher: '1.2.1-47d2c5e', application: '1.2.1-13a540f' }), { release: '1.2.1', exactRelease: false });
+        assert.deepStrictEqual(applicationRelease({ launcher: '1.1.10', application: '1.1.10' }), { release: '1.1.10', exactRelease: false });
+    });
+
+    test("from Ceedling 1.2.2, a launcher reports another installation's own release exactly", () => {
+        assert.deepStrictEqual(applicationRelease({ launcher: '1.2.2-0a1b2c3', application: '1.2.0-13a540f' }), { release: '1.2.0', exactRelease: true });
+        assert.deepStrictEqual(applicationRelease({ launcher: '1.2.2', application: '1.2.1' }), { release: '1.2.1', exactRelease: true });
+    });
+
+    test('a report naming no release for either Ceedling has none', () => {
+        assert.strictEqual(applicationRelease({ application: 'unknown' }), undefined);
+        assert.strictEqual(applicationRelease({ launcher: 'unknown', application: '1.2.0' }), undefined);
+    });
 });
 
 suite('capabilitiesOf', () => {
-    const none = { dumpconfigStdout: false, forceTestRerun: false, pathQualifiedTestTasks: false, pathQualifiedCoverageTasks: false, ceedlingYml: false, nestedTestBuilds: false, readOnlyDiscovery: false };
+    const none = {
+        dumpconfigStdout: false, forceTestRerun: false, pathQualifiedTestTasks: false, pathQualifiedCoverageTasks: false, ceedlingYml: false, nestedTestBuilds: false,
+        readOnlyDiscovery: false, reportsApplicationVersion: false,
+    };
 
     test('Ceedling before 1.2.0 has none of the 1.2.0 features', () => {
         for (const version of ['1.0.0', '1.1.10', '1.1.10-85ec551']) {
@@ -177,11 +202,17 @@ suite('capabilitiesOf', () => {
         }
     });
 
-    test('Ceedling 1.2.1 and later, build suffix included, also takes paths in coverage tasks and discovers without writing', () => {
-        for (const version of ['1.2.1', '1.2.1-0a1b2c3', '1.3.1']) {
-            assert.deepStrictEqual(capabilitiesOf(version), {
-                dumpconfigStdout: true, forceTestRerun: true, pathQualifiedTestTasks: true, pathQualifiedCoverageTasks: true, ceedlingYml: true, nestedTestBuilds: true, readOnlyDiscovery: true,
-            });
+    const v121 = { dumpconfigStdout: true, forceTestRerun: true, pathQualifiedTestTasks: true, pathQualifiedCoverageTasks: true, ceedlingYml: true, nestedTestBuilds: true, readOnlyDiscovery: true };
+
+    test("Ceedling 1.2.1, build suffix included, also takes paths in coverage tasks and discovers without writing, but has none of 1.2.2's", () => {
+        for (const version of ['1.2.1', '1.2.1-0a1b2c3']) {
+            assert.deepStrictEqual(capabilitiesOf(version), { ...v121, reportsApplicationVersion: false });
+        }
+    });
+
+    test("Ceedling 1.2.2 and later, build suffix included, also report another installation's version", () => {
+        for (const version of ['1.2.2', '1.2.2-0a1b2c3', '1.3.1']) {
+            assert.deepStrictEqual(capabilitiesOf(version), { ...v121, reportsApplicationVersion: true });
         }
     });
 });

@@ -4,6 +4,7 @@
 
 import path from 'path';
 import semver from 'semver';
+import type { ReportedCeedling } from './ceedlingOutputParsing';
 
 // Discovery cannot proceed: an unusable Ceedling, configuration, or project path. A workspace
 // folder with no Ceedling project in it is not an error.
@@ -94,6 +95,10 @@ const FIRST_RELEASES = {
     // vendored Unity and CMock sources in place (Ceedling#1361). Both still create the build root's
     // missing directories, as every command does.
     readOnlyDiscovery: '1.2.1',
+    // As a launcher handing off to another installation, `ceedling version` reports that
+    // installation's own version. Earlier launchers report their own release, with the other
+    // installation's commit (Ceedling#1365). Unlike every other feature, this one is the launcher's.
+    reportsApplicationVersion: '1.2.2',
 } as const;
 
 export type CeedlingFeature = keyof typeof FIRST_RELEASES;
@@ -112,6 +117,20 @@ export function isSupportedRelease(release: string): boolean {
 
 export function firstRelease(feature: CeedlingFeature): string {
     return FIRST_RELEASES[feature];
+}
+
+// The release of the Ceedling that runs a project, and whether `ceedling version` shows it exactly.
+// A launcher before 1.2.2 reports another installation's release as its own, so only the same
+// commit shows that installation's release. Otherwise the launcher's release stands in for it.
+// undefined when either version names no release.
+export function applicationRelease(reported: ReportedCeedling): { release: string, exactRelease: boolean } | undefined {
+    const release = ceedlingRelease(reported.application);
+    const launcher = reported.launcher ?? reported.application;
+    if (release === undefined || ceedlingRelease(launcher) === undefined) {
+        return undefined;
+    }
+    const sameBuild = launcher === reported.application && /-[0-9a-f]+$/i.test(launcher);
+    return { release, exactRelease: reported.launcher === undefined || sameBuild || capabilitiesOf(launcher).reportsApplicationVersion };
 }
 
 // The features of a reported Ceedling version, as of its release.

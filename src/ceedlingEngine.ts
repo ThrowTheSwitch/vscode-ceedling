@@ -23,19 +23,19 @@ import {
     buildTestLabelRegex,
     extractCeedlingException,
     extractTestFunctionName,
-    parseCeedlingVersionString,
+    parseCeedlingVersions,
     parseFileListBullets,
     testCaseFilterMatchedExactly,
 } from './ceedlingOutputParsing';
 import { buildCommandLine, type Cancellation, type CeedlingResult, CeedlingRunner } from './ceedlingProcess';
 import {
     ALTERNATE_DEFAULT_PROJECT_FILE,
+    applicationRelease,
     capabilitiesOf,
     coverageProblem,
     type CeedlingCapabilities,
     CeedlingLoadError,
     type CeedlingProject,
-    ceedlingRelease,
     DEFAULT_CPPUNIT_REPORT_FILENAME,
     DEFAULT_PROJECT_FILE,
     firstRelease,
@@ -118,8 +118,12 @@ export type EngineDeps = {
     tmpdir?: string,
 };
 
-// `release` is the version `ceedling version` reported, as its release, e.g. 1.2.0 for 1.2.0-13a540f.
-type LoadedProject = CeedlingProject & { release: string, capabilities: CeedlingCapabilities, state: ProjectState, files: CeedlingFileNode[] };
+// The Ceedling that runs a project, as `ceedling version` reports it. `release` is its release, e.g.
+// 1.2.0 for 1.2.0-13a540f. `exactRelease` is false when the report can't show it, and the
+// launcher's release stands in. See applicationRelease().
+type ProjectCeedling = { release: string, exactRelease: boolean, capabilities: CeedlingCapabilities };
+
+type LoadedProject = CeedlingProject & ProjectCeedling & { state: ProjectState, files: CeedlingFileNode[] };
 
 function isLoaded(project: CeedlingProject): project is LoadedProject {
     return 'state' in project;
@@ -320,7 +324,7 @@ export class CeedlingEngine {
         // parsing sources needs no lock.
         const projects = [...loaded.values()];
         const listings = await mapGrouped(projects, (project) => this.directoryOf(project),
-            (project) => this.discovering(project, project.capabilities, project.state, () => this.listTestFiles(project)));
+            (project) => this.discovering(project, project, project.state, () => this.listTestFiles(project)));
         const unlisted = projects.filter((_, i) => listings[i] === undefined);
         if (unlisted.length > 0) {
             throw new CeedlingLoadError(unlisted.map((project) =>
@@ -464,24 +468,26 @@ export class CeedlingEngine {
 
     // Runs dumpconfig or files:test for discovery, without the project's locks where they write
     // nothing. Before Ceedling 1.2.1 both rewrite the build root's vendored sources, so they hold the
-    // locks as builds do. From 1.2.1 they run alongside builds, cleans, and clobbers. `capabilities`
-    // come from this discovery's version check. That check never loads the project file, so it
-    // stands only when `state`, the project's last known configuration, runs the installed Ceedling.
-    // A project not yet loaded takes the locks.
-    private discovering<T>(project: CeedlingProject, capabilities: CeedlingCapabilities, state: ProjectState | undefined, work: () => Promise<T>): Promise<T> {
-        return capabilities.readOnlyDiscovery && state?.whichCeedling === 'gem' ? work() : this.exclusively(project, work);
+    // locks as builds do. From 1.2.1 they run alongside builds, cleans, and clobbers. `ceedling`
+    // comes from this discovery's version check, and counts only when that check showed its release
+    // exactly. The check never loads the project file, so it stands only when `state`, the project's
+    // last known configuration, selects no other Ceedling. A project not yet loaded takes the locks.
+    private discovering<T>(project: CeedlingProject, ceedling: ProjectCeedling, state: ProjectState | undefined, work: () => Promise<T>): Promise<T> {
+        const writesNothing = ceedling.capabilities.readOnlyDiscovery && ceedling.exactRelease && state?.whichCeedling === 'gem';
+        return writesNothing ? work() : this.exclusively(project, work);
     }
 
     // Checks one project's Ceedling and resolves its configuration. An unusable Ceedling stops all
     // discovery. A configuration problem is reported alongside any others.
     private async loadProject(project: CeedlingProject): Promise<LoadOutcome> {
-        let release: string;
+        let ceedling: ProjectCeedling;
         try {
-            release = await this.checkCeedlingVersion(project);
+            const { release, exactRelease } = await this.checkCeedlingVersion(project);
+            ceedling = { release, exactRelease, capabilities: capabilitiesOf(release) };
         } catch (error) {
             return { kind: 'unusable', error };
         }
-        const capabilities = capabilitiesOf(release);
+        const { capabilities } = ceedling;
         if (project.ambiguousProjectFile && capabilities.ceedlingYml) {
             return {
                 kind: 'error',
@@ -489,7 +495,7 @@ export class CeedlingEngine {
                     `Remove or rename one, or name the one to use in ceedlingExplorer.projects[].path.`,
             };
         }
-        const resolved = await this.discovering(project, capabilities, this.projects.get(project.key)?.state, () => this.resolveConfig(project, capabilities));
+        const resolved = await this.discovering(project, ceedling, this.projects.get(project.key)?.state, () => this.resolveConfig(project, capabilities));
         if (resolved === undefined) {
             return {
                 kind: 'error',
@@ -509,28 +515,35 @@ export class CeedlingEngine {
                     `projects[].mixins don't reference an invalid mixin.`,
             };
         }
-        return { kind: 'loaded', project: { ...project, release, capabilities, state, files: [] } };
+        return { kind: 'loaded', project: { ...project, ...ceedling, state, files: [] } };
     }
 
-    // Returns the release of the Ceedling the project directory runs. Running there honors a
-    // vendored Ceedling or WHICH_CEEDLING. `ceedling version` never loads the project file, so a
-    // `:project: :which_ceedling:` there goes unseen. See discovering().
-    private async checkCeedlingVersion(project: CeedlingProject): Promise<string> {
+    // Returns the release of the Ceedling the project directory runs, and whether the report shows it
+    // exactly. Running there honors a Ceedling vendored in `vendor/ceedling`, or WHICH_CEEDLING.
+    // `ceedling version` never loads the project file, so a `:project: :which_ceedling:` there goes
+    // unseen. See discovering().
+    private async checkCeedlingVersion(project: CeedlingProject): Promise<{ release: string, exactRelease: boolean }> {
         const result = await this.ceedling(['version'], { cwd: project.absPath });
-        const reported = parseCeedlingVersionString(result.stdout);
-        const release = reported === undefined ? undefined : ceedlingRelease(reported);
-        this.logger.debug(`checkCeedlingVersion(${project.key}): ${reported ?? 'none'}`);
+        const reported = parseCeedlingVersions(result.stdout);
+        const release = reported === undefined ? undefined : applicationRelease(reported);
+        this.logger.debug(`checkCeedlingVersion(${project.key}): ${reported === undefined ? 'none' : util.format(reported)}`);
         if (reported === undefined || release === undefined) {
             throw new CeedlingLoadError(
                 `Could not run 'ceedling version' for project '${project.key}'. Check that Ceedling is installed and runs ` +
                 `in the configured shell (ceedlingExplorer.shellPath).\n${result.stdout}\n${result.stderr}`
             );
         }
-        if (!isSupportedRelease(release)) {
+        if (!isSupportedRelease(release.release)) {
             throw new CeedlingLoadError(
-                `Ceedling version ${reported} is not supported. This extension requires Ceedling version ` +
+                `Ceedling version ${reported.application} is not supported. This extension requires Ceedling version ` +
                 `${MINIMUM_CEEDLING_VERSION} or higher. Please upgrade your Ceedling installation.`
             );
+        }
+        if (!release.exactRelease && reported.launcher !== undefined) {
+            this.logger.warn(`Project '${project.key}' runs Ceedling ${reported.application} from another installation. ` +
+                `Its launcher, Ceedling ${reported.launcher}, can't tell its release, so this extension treats it as ` +
+                `${release.release} and discovery waits for runs. Launchers from Ceedling ${firstRelease('reportsApplicationVersion')} ` +
+                `report it (Ceedling#1365).`);
         }
         return release;
     }

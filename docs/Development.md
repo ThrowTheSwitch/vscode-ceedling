@@ -163,7 +163,7 @@ just validate 1.1.10 stress 120 6 7   # 120 seconds, 6 operations at once, seed 
 just validate 1.2.1 probe:syscalls    # one probe
 ```
 
-A suite prints what it ran and every violation it found, and exits 0 only when every check held. `all`, the default, runs `stress` twice, the second time with one build root, then `coverage`, `gated`, `layout`, and `latency`. Trailing numbers go to `stress` and `coverage`, so `just validate 1.2.1 all 45` gives each of their overlap phases 45 seconds. That takes about three and a half minutes per version, and the default of 60 seconds about a minute more.
+A suite prints what it ran and every violation it found, and exits 0 only when every check held. `all`, the default, runs `stress` twice, the second time with one build root, then `coverage`, `gated`, `layout`, and `latency` twice, the second time with a vendored Ceedling. Trailing numbers go to `stress` and `coverage`, so `just validate 1.2.1 all 45` gives each of their overlap phases 45 seconds. That takes about four minutes per version, and the default of 60 seconds about a minute more.
 
 ### How they run
 
@@ -181,7 +181,7 @@ A suite prints what it ran and every violation it found, and exits 0 only when e
 | `coverage` | Exact outcomes one run at a time: gcovr preferred over ReportGenerator, counters reset or kept, a function run, a source above the project, ReportGenerator alone. Then coverage runs overlapping plain runs, discovery, reparses, and clean. Takes seconds (60), operations at once (5), and a seed (1). | All. 1.0.0’s image has no ReportGenerator, so its checks skip. |
 | `gated` | The engine’s per-version command lines, on same-named test files: coverage tasks named by path from 1.2.1, or by bare name with a warning on 1.2.0. Also `:report_task:`, a changed `--test-case` filter, plain runs, and the debug executable’s directory. | 1.2.0 and later |
 | `layout` | Exact test build directories in a project with two test roots: each debug build’s executable, and a same-named file’s coverage counters kept through a whole-file rerun. | 1.2.0 and later. Coverage from 1.2.1, since 1.2.0’s `gcov:` tasks can’t name either file. |
-| `latency` | Runs a rediscovery during a full build that a slow test keeps running about 4 seconds. From 1.2.1 the rediscovery must finish first. Before 1.2.1 it must finish after the build, since it waits for the build’s locks, as [Architecture.md](Architecture.md#discovery-without-the-locks-from-121) explains. The build’s results must be unchanged. | All |
+| `latency` | Runs a rediscovery during a full build that a slow test keeps running about 4 seconds. From 1.2.1 the rediscovery must finish first. Before 1.2.1 it must finish after the build, since it waits for the build’s locks, as [Architecture.md](Architecture.md#discovery-without-the-locks-from-121) explains. The build’s results must be unchanged. `--vendored` first copies the image’s own Ceedling into the project’s `vendor/ceedling`, which must gate the same way. | All |
 
 A seed replays the same sequence of operations, though not their timing, so a failure may need several runs to recur.
 
@@ -196,6 +196,8 @@ The probes run Ceedling alone, without the engine, to show the Ceedling behavior
 ### On a new Ceedling release
 
 From 1.2.1, discovery runs without the engine’s locks on every release, so check each new one before supporting it. Run `just validate <version>`, then `just validate <version> probe:syscalls` and `just validate <version> probe:overlap`. Discovery must write nothing under `build/`, and `latency` must pass. To confirm that `stress --shared-build-root` can still catch the race, temporarily make `discovering()` in `ceedlingEngine.ts` always skip the locks. Then run that suite on 1.2.0 with several seeds, where it should fail.
+
+From 1.2.2, the engine also trusts a launcher’s report of another installation’s release, which earlier launchers get wrong ([Ceedling#1365](https://github.com/ThrowTheSwitch/Ceedling/issues/1365)). Check that once on 1.2.2 with the reproduction in that issue, with 1.2.2 as the launcher. `ceedling version` with `WHICH_CEEDLING` must report the older application’s own version.
 
 ### Changing them
 
@@ -213,7 +215,7 @@ From 1.2.1, discovery runs without the engine’s locks on every release, so che
 
 ## 6. Manual Testing Plan
 
-This checklist confirms the extension’s behavior in a real VS Code, where unit and integration tests can’t reach. Run it before a release, against the final code on the integration branch, on Ceedling 1.0.0, 1.1.10, 1.2.0, and 1.2.1. Run `just validate` on each of those versions first.
+This checklist confirms the extension’s behavior in a real VS Code, where unit and integration tests can’t reach. Run it before a release, against the final code on the integration branch, on Ceedling 1.0.0, 1.1.10, 1.2.0, and the newest 1.2 release. Run `just validate` on each of those versions first.
 
 Every step runs against [`tests/manual/`](../tests/manual/), opened as its own folder in the Development Host.
 

@@ -1,14 +1,13 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as semver from 'semver';
 import {
     buildFileLabelRegex,
     buildTestLabelRegex,
     extractCeedlingException,
     extractGdbLogReference,
     extractTestFunctionName,
-    parseCeedlingVersionString,
+    parseCeedlingVersions,
     parseFileListBullets,
     testCaseFilterMatchedExactly,
 } from '../../src/ceedlingOutputParsing';
@@ -52,22 +51,34 @@ suite('parseFileListBullets', () => {
     });
 });
 
-suite('parseCeedlingVersionString', () => {
-    test('parses a plain Ceedling 1.0.0 version string', () => {
+suite('parseCeedlingVersions', () => {
+    test('reads a plain Ceedling 1.0.0 version as the one that runs the project', () => {
         const stdout = readFixture('ceedling-1.0.0', 'version-stdout.txt');
-        assert.strictEqual(parseCeedlingVersionString(stdout), '1.0.0');
+        assert.deepStrictEqual(parseCeedlingVersions(stdout), { application: '1.0.0' });
     });
 
-    // A build's commit suffix is a semver prerelease identifier, so the version still compares.
-    test('parses a Ceedling 1.1.0 version string with a dev-build suffix', () => {
+    test("keeps a Ceedling 1.1.0 build's commit suffix", () => {
         const stdout = readFixture('ceedling-1.1.0', 'version-stdout.txt');
-        const version = parseCeedlingVersionString(stdout);
-        assert.strictEqual(version, '1.1.0-5bbbc8f');
-        assert.strictEqual(semver.lt(version, '1.0.0'), false);
+        assert.deepStrictEqual(parseCeedlingVersions(stdout), { application: '1.1.0-5bbbc8f' });
     });
 
-    test('returns undefined when no "Ceedling => x.y.z" line is present', () => {
-        assert.strictEqual(parseCeedlingVersionString('nothing relevant here\n'), undefined);
+    // A Ceedling in the project's vendor/ceedling is another installation, even a copy of the same
+    // build, so Ceedling reports the launcher on the PATH and the application it runs apart.
+    test('reads the launcher and the application of a project with a vendored copy of the same build', () => {
+        const stdout = readFixture('ceedling-1.2.1', 'version-vendored-stdout.txt');
+        assert.deepStrictEqual(parseCeedlingVersions(stdout), { launcher: '1.2.1-47d2c5e', application: '1.2.1-47d2c5e' });
+    });
+
+    // The application is Ceedling 1.2.0, but a 1.2.1 launcher reports its own release with the
+    // application's commit (Ceedling#1365).
+    test('reads the launcher and the application of a project with a vendored Ceedling 1.2.0, as Ceedling 1.2.1 reports them', () => {
+        const stdout = readFixture('ceedling-1.2.1', 'version-vendored-1.2.0-stdout.txt');
+        assert.deepStrictEqual(parseCeedlingVersions(stdout), { launcher: '1.2.1-47d2c5e', application: '1.2.1-13a540f' });
+    });
+
+    test('returns undefined when no Ceedling version line is present', () => {
+        assert.strictEqual(parseCeedlingVersions('nothing relevant here\n'), undefined);
+        assert.strictEqual(parseCeedlingVersions('  Ceedling Launcher => 1.2.1-47d2c5e\n'), undefined);
     });
 });
 

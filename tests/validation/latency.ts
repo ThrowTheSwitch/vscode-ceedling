@@ -4,18 +4,29 @@
 // the build. Each build's results must be unchanged either way. See docs/Architecture.md, "Discovery without the
 // locks from 1.2.1".
 //
-// usage: node latency.js
-import { capabilities, ceedlingVersion, main, makeEngine, only, recordingReporter, stage, token } from './harness';
+// --vendored copies the image's own Ceedling into the project's vendor/ceedling, which `ceedling
+// version` then reports as another installation. A copy of the same build must gate the same way.
+//
+// usage: node latency.js [--vendored]
+import * as child_process from 'child_process';
+import * as fs from 'fs';
+import { capabilities, ceedlingVersion, main, makeEngine, only, parseArgs, recordingReporter, stage, token, WS } from './harness';
 
 // Each test's result, in id order, so runs compare whatever order their results arrive in.
 const tally = (results: ReadonlyMap<string, string>) => [...results].sort(([a], [b]) => a.localeCompare(b)).map(([id, r]) => `${id}=${r}`).join(', ');
 
 main('latency', async (checks) => {
+    const vendored = parseArgs([], ['--vendored']).flags.has('--vendored');
     const lockFree = capabilities().readOnlyDiscovery;
-    console.log(`Ceedling ${ceedlingVersion()}: discovery ${lockFree ? 'runs alongside builds' : 'waits for builds'}`);
+    console.log(`Ceedling ${ceedlingVersion()}${vendored ? ', vendored' : ''}: discovery ${lockFree ? 'runs alongside builds' : 'waits for builds'}`);
     stage('tests/validation/workspaces/latency');
+    if (vendored) {
+        const gem = child_process.execFileSync('ruby', ['-e', 'print Gem::Specification.find_by_name("ceedling").gem_dir'], { encoding: 'utf8' });
+        fs.cpSync(gem, `${WS}/project/vendor/ceedling`, { recursive: true });
+    }
     const { engine, logs } = makeEngine({ projects: [{ path: 'project', debugLaunchConfig: 'dbg' }] });
     const project = only(await engine.discover());
+    for (const warning of logs.filter((l) => l.level === 'warn')) console.log(`warning: ${warning.message}`);
 
     const baseline = recordingReporter();
     let start = Date.now();

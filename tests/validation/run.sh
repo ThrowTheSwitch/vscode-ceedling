@@ -44,7 +44,7 @@ run_suite() {
 case $suite in
     all)
         status=0
-        for one in "stress" "stress --shared-build-root" "coverage" "gated" "layout" "latency"; do
+        for one in "stress" "stress --shared-build-root" "coverage" "gated" "layout" "latency" "latency --vendored"; do
             # shellcheck disable=SC2086 # each entry is a suite and its arguments
             run_suite $one "$@" || status=1
         done

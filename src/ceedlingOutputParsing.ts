@@ -12,11 +12,21 @@ export function parseFileListBullets(stdout: string): string[] {
         .map((match) => (match[1] ?? '').trim());
 }
 
-// The version in `ceedling version` stdout, e.g. "1.0.0" or a build's "1.1.0-5bbbc8f". undefined
-// when there is none. The caller decides what that means.
-export function parseCeedlingVersionString(stdout: string): string | undefined {
-    const match = /^\s*Ceedling\s*(?:::|=>)\s*(.*)$/m.exec(stdout);
-    return match?.[1]?.trim();
+// The Ceedling builds `ceedling version` reports, e.g. "1.0.0" or a build's "1.1.0-5bbbc8f".
+// `application` runs the project. `launcher`, the Ceedling that `ceedling` starts, appears only when
+// it hands off to another installation, e.g. one vendored in the project's `vendor/ceedling` or named by
+// WHICH_CEEDLING. Even a copy of the same build counts as another.
+export type ReportedCeedling = { application: string, launcher?: string };
+
+// undefined when stdout names no application. The caller decides what that means.
+export function parseCeedlingVersions(stdout: string): ReportedCeedling | undefined {
+    const line = (label: string) => new RegExp(`^\\s*Ceedling${label}\\s*(?:::|=>)\\s*(.*)$`, 'm').exec(stdout)?.[1]?.trim();
+    const launcher = line(' Launcher');
+    const application = launcher === undefined ? line('') : line(' App');
+    if (application === undefined) {
+        return undefined;
+    }
+    return launcher === undefined ? { application } : { application, launcher };
 }
 
 // Captures a test file's pretty label: its name after the configured prefix, without directory or

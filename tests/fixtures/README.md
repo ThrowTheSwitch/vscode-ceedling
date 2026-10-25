@@ -6,7 +6,7 @@ The unit tests check the extension against real Ceedling output, not hand-writte
 
 Fixtures are grouped by where they came from.
 
-- `ceedling-<version>/` holds output captured from that Ceedling release: `ceedling files:test` and `ceedling version` transcripts, compiler and linker failures, and CppUnit XML reports. The unit tests usually loop over the versions they cover. The `ceedling-1.2.1/` failures were captured with Ceedling’s decorators on, so their lines carry the emoji a terminal shows.
+- `ceedling-<version>/` holds output captured from that Ceedling release: `ceedling files:test` and `ceedling version` transcripts, compiler and linker failures, and CppUnit XML reports. The unit tests usually loop over the versions they cover. The `ceedling-1.2.1/` failures were captured with Ceedling’s decorators on, so their lines carry the emoji a terminal shows. Its `version-vendored-*` transcripts come from a project with a Ceedling in `vendor/ceedling`: a copy of the 1.2.1 gem, and the 1.2.0 gem from its own image.
 - `source/` holds C test files. Some are read directly by discovery tests. Others are the inputs whose reports live under `ceedling-<version>/`. Each file's header comment names its reports.
 - `dumpconfig/` holds `ceedling dumpconfig` output. See [its own README](dumpconfig/README.md).
 - `gcovr-<version>/` and `reportgenerator-<version>/` hold Cobertura coverage reports from that tool, run by Ceedling's gcov plugin. The `cobertura-mixed-paths.xml` reports came from Ceedling 1.1.6. The `cobertura-probe.xml` reports came from `capture/capture-gcov.sh` (below).

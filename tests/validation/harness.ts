@@ -7,7 +7,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type vscode from 'vscode';
 import { CeedlingEngine } from '../../src/ceedlingEngine';
-import { capabilitiesOf, type CeedlingCapabilities, type CeedlingFeature, ceedlingRelease } from '../../src/ceedlingProjectConfig';
+import { parseCeedlingVersions } from '../../src/ceedlingOutputParsing';
+import { applicationRelease, capabilitiesOf, type CeedlingCapabilities, type CeedlingFeature } from '../../src/ceedlingProjectConfig';
 import type { Cancellation } from '../../src/ceedlingProcess';
 import type { Logger } from '../../src/logger';
 import type { ProblemMatcher } from '../../src/problemMatcher';
@@ -71,7 +72,8 @@ let release: string | undefined;
 export function ceedlingVersion(): string {
     if (release === undefined) {
         const output = child_process.execFileSync('ceedling', ['version'], { encoding: 'utf8' });
-        release = ceedlingRelease(/Ceedling\s*=>\s*(\S+)/.exec(output)?.[1] ?? '');
+        const reported = parseCeedlingVersions(output);
+        release = reported && applicationRelease(reported)?.release;
         if (release === undefined) throw new Error(`no Ceedling version in: ${output}`);
     }
     return release;
