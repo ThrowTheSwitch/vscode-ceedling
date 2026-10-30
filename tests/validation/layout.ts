@@ -10,11 +10,12 @@
 // usage: node layout.js
 import * as fs from 'fs';
 import { coverageMode } from '../../src/ceedlingEngine';
-import { capabilities, ceedlingVersion, fileOf, main, makeEngine, only, recordingReporter, requires, stage, token, WS } from './harness';
+import { capabilities, ceedlingVersion, fileOf, main, makeEngine, only, parseArgs, recordingReporter, requires, stage, token, WS } from './harness';
 
 const BUILD_NAMES: Record<string, string> = { 'test/unit/test_calc.c': 'unit/test_calc', 'extra/integration/test_calc.c': 'integration/test_calc' };
 
 main('layout', async (checks) => {
+    parseArgs([]);
     if (!requires('nestedTestBuilds', "can't build same-named test files")) return;
     stage('tests/validation/workspaces/layout');
     const { engine, logs } = makeEngine({ projects: [{ path: 'project', debugLaunchConfig: 'dbg' }], mixins: [`${WS}/mixins/gcovr.yml`] });

@@ -13,13 +13,14 @@
 import * as fs from 'fs';
 import { coverageMode } from '../../src/ceedlingEngine';
 import type { CoverageOutcome } from '../../src/testModel';
-import { capabilities, ceedlingVersion, describeOutcome, fileOf, hits, main, makeEngine, only, recordingReporter, requires, stage, token, WS } from './harness';
+import { capabilities, ceedlingVersion, describeOutcome, fileOf, hits, main, makeEngine, only, parseArgs, recordingReporter, requires, stage, token, WS } from './harness';
 
 const UNIT = 'test/unit/test_dup.c', INTEGRATION = 'test/integration/test_dup.c', FILTERS = 'test/test_filters.c';
 const ADD = `${UNIT}::test_unit_add`, LOW = `${INTEGRATION}::test_integration_clamp_low`, HIGH = `${INTEGRATION}::test_integration_clamp_high`;
 const ALPHA = `${FILTERS}::test_filter_alpha`, BETA = `${FILTERS}::test_filter_beta`;
 
 main('gated', async (checks) => {
+    parseArgs([]);
     if (!requires('nestedTestBuilds', "can't build same-named test files")) return;
     const pathTasks = capabilities().pathQualifiedCoverageTasks;
     console.log(`Ceedling ${ceedlingVersion()}: coverage tasks name ${pathTasks ? 'paths' : 'bare filenames'}`);

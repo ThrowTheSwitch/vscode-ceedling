@@ -7,7 +7,8 @@
 #   <ceedling-version>  a throwtheswitch/madsciencelab-plugins image tag, e.g. 1.2.1
 #   <suite>             stress, coverage, gated, layout, latency, all, or a probe:
 #                       probe:fixes, probe:overlap, probe:syscalls
-#   [args...]           passed to the suite (stress and coverage take seconds, maxInFlight, seed)
+#   [args...]           passed to the suite (stress and coverage take seconds, maxInFlight, seed);
+#                       `all` passes them to stress and coverage only
 # The Justfile passes the sidecar's image and node_modules volume names; these defaults match it.
 set -euo pipefail
 version=${1:?usage: run.sh <ceedling-version> <suite> [args...]}
@@ -45,8 +46,10 @@ case $suite in
     all)
         status=0
         for one in "stress" "stress --shared-build-root" "coverage" "gated" "layout" "latency" "latency --vendored"; do
+            # Only stress and coverage take numbers. The other suites reject them.
+            case $one in stress* | coverage*) args=("$@") ;; *) args=() ;; esac
             # shellcheck disable=SC2086 # each entry is a suite and its arguments
-            run_suite $one "$@" || status=1
+            run_suite $one ${args[@]+"${args[@]}"} || status=1
         done
         exit $status
         ;;
