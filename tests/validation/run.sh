@@ -39,25 +39,25 @@ if [ ! -f "$repo/out-test/tests/validation/harness.js" ]; then
     exit 1
 fi
 
-# A gem reaches the image through its own build context. Its content hash names the image, so a
-# rebuilt gem never reuses an image built from an older one.
+# A gem reaches the image through its own build context, empty without one. BuildKit keys the copy
+# on the context's contents, and would otherwise reuse a gem build's layer. The gem's content hash
+# names the image, so a rebuilt gem never reuses an image built from an older one.
 gem=${CEEDLING_GEM:-} base=$version mode=opt
 if [[ $version == *.gem ]]; then
     gem=$version base=${CEEDLING_BASE:-1.2.1} mode=install
 fi
-context=() label=$version
+directory=$(mktemp -d)
+trap 'rm -rf "$directory"' EXIT
+label=$version
 if [ -n "$gem" ]; then
     [ -f "$gem" ] || { echo "error: no gem at '$gem'" >&2; exit 1; }
-    directory=$(mktemp -d)
-    trap 'rm -rf "$directory"' EXIT
     cp "$gem" "$directory/"
     hash=$( (sha256sum "$gem" 2>/dev/null || shasum -a 256 "$gem") | cut -c1-8)
-    context=(--build-context "gem=$directory")
     if [ $mode = install ]; then label="$(basename "$gem" .gem | sed 's/^ceedling-//')-$hash"; else label="$version-with-$hash"; fi
 fi
 image="vscode-ceedling-validate:$label"
 docker build -q -t "$image" --build-arg CEEDLING="$base" --build-arg GEM_MODE=$mode --build-arg SIDECAR="$sidecar_image" \
-    ${context[@]+"${context[@]}"} -f "$repo/sidecar/validate.Dockerfile" "$repo/sidecar" >/dev/null
+    --build-context "gem=$directory" -f "$repo/sidecar/validate.Dockerfile" "$repo/sidecar" >/dev/null
 
 # The repo and node_modules are read-only. Each run builds its projects in the container's own /ws,
 # so nothing is left on the host.

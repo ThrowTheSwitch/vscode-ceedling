@@ -13,7 +13,8 @@ FROM throwtheswitch/madsciencelab-plugins:1.0.0 AS ceedling-1.0.0
 FROM throwtheswitch/madsciencelab-plugins:1.1.10 AS ceedling-1.1.10
 FROM throwtheswitch/madsciencelab-plugins:1.2.0 AS ceedling-1.2.0
 FROM throwtheswitch/madsciencelab-plugins:1.2.1 AS ceedling-1.2.1
-# No gem unless run.sh passes the context.
+# No gem unless the build passes the context. run.sh always passes one, empty without a gem, since
+# BuildKit can reuse a gem build's copy of this stage otherwise.
 FROM scratch AS gem
 
 FROM throwtheswitch/madsciencelab-plugins:${CEEDLING}
