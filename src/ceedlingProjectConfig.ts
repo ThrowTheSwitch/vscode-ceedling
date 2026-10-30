@@ -373,7 +373,7 @@ function projectPathBuildName(testId: string, projectDir: string, platform: Node
     }
     if (paths.isAbsolute(relative)) {
         const [drive, ...rest] = segments(relative);
-        return ['_abs_', drive.replace(/:$/, '').toUpperCase(), ...rest.map(escape)].join('/');
+        return ['_abs_', (drive ?? '').replace(/:$/, '').toUpperCase(), ...rest.map(escape)].join('/');
     }
     return segments(relative).map((segment) => segment === '..' ? '_up_' : escape(segment)).join('/');
 }

@@ -128,6 +128,9 @@ export type EngineDeps = {
 // the release, and the launcher's stands in. See applicationRelease().
 type ProjectCeedling = { release: string, exactRelease: boolean, capabilities: CeedlingCapabilities };
 
+// Where a test's build may sit, its release's own place first.
+type Candidates = readonly [string, ...string[]];
+
 // `configuration` fingerprints the files and settings `state` was resolved from.
 type LoadedProject = CeedlingProject & ProjectCeedling & { state: ProjectState, configuration: string, files: CeedlingFileNode[] };
 
@@ -825,7 +828,7 @@ export class CeedlingEngine {
     // Where the file's executable may sit under Ceedling's test output directory, its release's
     // layout first. A release known exactly says where. Otherwise it may be any release, so each
     // layout's place counts, unless it is another test file's own. See releaseKnown().
-    private executableCandidates(project: LoadedProject, file: CeedlingFileNode): string[] {
+    private executableCandidates(project: LoadedProject, file: CeedlingFileNode): Candidates {
         const executable = (f: CeedlingFileNode, layout?: TestBuildLayout) => {
             const buildName = this.testBuildName(project, f, layout);
             return `${buildName}/${buildName.replace(/^.*\//, '')}${project.state.executableExtension}`;
@@ -835,14 +838,13 @@ export class CeedlingEngine {
 
     // `place(file)` in the release's own layout, then, unless the release is known, in each other
     // layout where no other test file of the project builds.
-    private ownOrUnclaimed(project: LoadedProject, file: CeedlingFileNode, place: (f: CeedlingFileNode, layout?: TestBuildLayout) => string): string[] {
+    private ownOrUnclaimed(project: LoadedProject, file: CeedlingFileNode, place: (f: CeedlingFileNode, layout?: TestBuildLayout) => string): Candidates {
         const own = place(file);
         if (this.releaseKnown(project)) {
             return [own];
         }
         const claimed = new Set(project.files.filter((f) => f.id !== file.id).flatMap((f) => TEST_BUILD_LAYOUTS.map((layout) => place(f, layout))));
-        return [own, ...TEST_BUILD_LAYOUTS.map((layout) => place(file, layout)).filter((p) => p !== own && !claimed.has(p))]
-            .filter((p, i, all) => all.indexOf(p) === i);
+        return [own, ...new Set(TEST_BUILD_LAYOUTS.map((layout) => place(file, layout)).filter((p) => p !== own && !claimed.has(p)))];
     }
 
     // Whether the project runs the release its version check reported. A launcher before 1.2.2
@@ -860,7 +862,7 @@ export class CeedlingEngine {
     // The executable's path under Ceedling's test output directory: the candidate this build wrote,
     // else the newest that exists, else the release's own. A delta build may write nothing, leaving
     // an up-to-date executable as it was, and an older layout's copy predates it.
-    private async executableSubpath(project: LoadedProject, file: CeedlingFileNode, candidates: readonly string[], before: ReadonlyArray<number | undefined>): Promise<string> {
+    private async executableSubpath(project: LoadedProject, file: CeedlingFileNode, candidates: Candidates, before: ReadonlyArray<number | undefined>): Promise<string> {
         const after = await this.executableTimes(project, candidates);
         const written = after.findIndex((time, i) => time !== undefined && time !== before[i]);
         const newest = after.reduce<number>((best, time, i) => time !== undefined && (best < 0 || time > (after[best] ?? 0)) ? i : best, -1);
@@ -870,7 +872,7 @@ export class CeedlingEngine {
         } else if (chosen > 0) {
             this.logger.warn(`executableSubpath: '${file.id}' built at '${candidates[chosen]}', not at '${candidates[0]}', where Ceedling ${project.release} would build it`);
         }
-        return candidates[chosen];
+        return candidates[chosen] ?? candidates[0];
     }
 
     // Where Ceedling builds the test file, beneath each build output directory, in its release's
