@@ -107,13 +107,16 @@ const LAUNCHER_FEATURES = {
     // Handing off to another installation, `ceedling version` reports that installation's own
     // version. Earlier launchers report their own release, with the other one's commit (Ceedling#1365).
     reportsApplicationVersion: '1.2.2',
+    // `ceedling version` reads the project file and takes --project and --mixin, so it reports the
+    // installation `:project` ↳ `:which_ceedling` selects. Earlier launchers reject both options.
+    versionReadsProject: '1.2.2',
 } as const;
 
 export type CeedlingFeature = keyof typeof APPLICATION_FEATURES;
 export type LauncherFeature = keyof typeof LAUNCHER_FEATURES;
 
 export type CeedlingCapabilities = Readonly<Record<CeedlingFeature, boolean>>;
-type LauncherCapabilities = Readonly<Record<LauncherFeature, boolean>>;
+export type LauncherCapabilities = Readonly<Record<LauncherFeature, boolean>>;
 
 // The release a reported version counts as, e.g. `1.2.0` for a build's `1.2.0-13a540f`, which
 // semver would rank below 1.2.0. undefined when the text names no version.
