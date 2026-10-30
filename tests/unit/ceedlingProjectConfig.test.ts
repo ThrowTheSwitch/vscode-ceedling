@@ -412,6 +412,12 @@ suite('testBuildName', () => {
         assert.strictEqual(fromRoot('/ws/test/test_x.c'), 'test/test_x');
     });
 
+    // Ceedling reads a backslash as a separator everywhere, and Ruby's File.extname leaves a dotfile whole.
+    test('from 1.2.2, backslashes separate on any platform, and a dotfile keeps its name', () => {
+        assert.strictEqual(fromRoot('test\\..\\x\\test_x.c'), 'x/test_x');
+        assert.strictEqual(fromRoot('test/.c'), 'test/.c');
+    });
+
     test('from 1.2.2, a path outside the project climbs with _up_', () => {
         assert.strictEqual(fromRoot('../tests/unit/test_x.c'), '_up_/tests/unit/test_x');
         assert.strictEqual(fromRoot('/elsewhere/test_x.c'), '_up_/elsewhere/test_x');
@@ -433,6 +439,9 @@ suite('testBuildName', () => {
         assert.strictEqual(windows('d:/sdk/_up_/test_x.c'), '_abs_/D/sdk/__up_/test_x');
         assert.strictEqual(windows('\\\\server\\share\\t\\test_x.c'), '_unc_/server/share/t/test_x');
         assert.strictEqual(windows('..\\tests\\test_x.c'), '_up_/tests/test_x');
+        assert.strictEqual(windows('C:\\other\\test_x.c'), '_up_/other/test_x');
+        assert.strictEqual(testBuildName('C:\\WS\\test\\test_x.c', 'projectPath', { testPaths: [], projectDir: 'c:\\ws', platform: 'win32' }), 'test/test_x');
+        assert.strictEqual(windows('\\\\_up_\\share\\test_x.c'), '_unc_/__up_/share/test_x');
     });
 });
 

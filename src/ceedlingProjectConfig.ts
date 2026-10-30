@@ -90,8 +90,7 @@ const APPLICATION_FEATURES = {
     pathQualifiedCoverageTasks: '1.2.1',
     // ceedling.yml is a default project file, like project.yml.
     ceedlingYml: '1.2.0',
-    // A test's build files nest under its file's directory within its test path, e.g.
-    // `test/out/unit/test_foo/` for `test/unit/test_foo.c`. See testBuildName().
+    // Same-named test files build apart, each in directories of its own. See testBuildLayout().
     nestedTestBuilds: '1.2.0',
     // A test's build files sit under its path from the project root instead, e.g.
     // `test/out/test/unit/test_foo/`. See testBuildName().
@@ -114,7 +113,7 @@ export type CeedlingFeature = keyof typeof APPLICATION_FEATURES;
 export type LauncherFeature = keyof typeof LAUNCHER_FEATURES;
 
 export type CeedlingCapabilities = Readonly<Record<CeedlingFeature, boolean>>;
-export type LauncherCapabilities = Readonly<Record<LauncherFeature, boolean>>;
+type LauncherCapabilities = Readonly<Record<LauncherFeature, boolean>>;
 
 // The release a reported version counts as, e.g. `1.2.0` for a build's `1.2.0-13a540f`, which
 // semver would rank below 1.2.0. undefined when the text names no version.
@@ -127,7 +126,7 @@ export function isSupportedRelease(release: string): boolean {
 }
 
 export function firstRelease(feature: CeedlingFeature | LauncherFeature): string {
-    return feature in APPLICATION_FEATURES ? APPLICATION_FEATURES[feature as CeedlingFeature] : LAUNCHER_FEATURES[feature as LauncherFeature];
+    return { ...APPLICATION_FEATURES, ...LAUNCHER_FEATURES }[feature];
 }
 
 // The release of the Ceedling that runs a project, and whether `ceedling version` shows it exactly.
@@ -162,8 +161,9 @@ export function launcherCapabilitiesOf(version: string): LauncherCapabilities {
 }
 
 // Where a release builds each test: under its base name, under its directory within its test
-// path from 1.2.0, or under its path from the project root from 1.2.2.
-export type TestBuildLayout = 'flat' | 'testRoot' | 'projectPath';
+// path from 1.2.0, or under its path from the project root from 1.2.2. Newest first.
+export const TEST_BUILD_LAYOUTS = ['projectPath', 'testRoot', 'flat'] as const;
+export type TestBuildLayout = typeof TEST_BUILD_LAYOUTS[number];
 
 export function testBuildLayout(capabilities: CeedlingCapabilities): TestBuildLayout {
     return capabilities.projectPathTestNames ? 'projectPath' : capabilities.nestedTestBuilds ? 'testRoot' : 'flat';
@@ -338,7 +338,7 @@ function stringSetting(config: unknown, fallback: string, ...keys: string[]): st
 
 // The name Ceedling gives a test's build directories, e.g. under test/out and gcov/out.
 // - flat, before 1.2.0: the test file's base name.
-// - testRoot, from 1.2.0: the file's directory within the longest test path holding it comes first,
+// - testRoot, 1.2.0 and 1.2.1: the file's directory within the longest test path holding it comes first,
 //   as Ceedling's PathMirror.relative_subdir places it. `unit/test_foo` for `test/unit/test_foo.c`
 //   under `+:test/**`. Ceedling compares paths as written, with `/`.
 // - projectPath, from 1.2.2: the file's path from the project root, as projectPathBuildName() spells it.
@@ -363,7 +363,9 @@ const MARKER_NAMED = /^_+(?:up|abs|unc|ceedling)_$/i;
 // named like a marker gains a leading `_`, so no real folder reads as one.
 function projectPathBuildName(testId: string, projectDir: string, platform: NodeJS.Platform): string {
     const paths = platform === 'win32' ? path.win32 : path.posix;
-    const relative = paths.relative(projectDir, paths.resolve(projectDir, testId.replace(/\.[^./\\]*$/, '')));
+    // Ruby's File.extname leaves a dotfile's name whole.
+    const withoutExtension = testId.replace(/\\/g, '/').replace(/(?<=[^/])\.[^./]*$/, '');
+    const relative = paths.relative(projectDir, paths.resolve(projectDir, withoutExtension));
     const segments = (text: string) => text.split(/[\\/]/).filter((segment) => segment !== '' && segment !== '.');
     const escape = (segment: string) => MARKER_NAMED.test(segment) ? `_${segment}` : segment;
     if (relative.startsWith('\\\\')) {
