@@ -255,6 +255,13 @@ suite('CeedlingEngine.discover', () => {
         await assert.rejects(makeEngine(world).discover(), (e: unknown) => e instanceof CeedlingLoadError && /0\.31\.1/.test(e.message));
     });
 
+    // A newer launcher reports the application's own release, so the application's decides.
+    test('an unsupported Ceedling behind a supported launcher is a load error naming the application', async () => {
+        const world = new FakeCeedling();
+        runsAnotherCeedling(world, launching('1.2.2-0a1b2c3', '0.31.1'));
+        await assert.rejects(makeEngine(world).discover(), (e: unknown) => e instanceof CeedlingLoadError && /version 0\.31\.1 is not supported/.test(e.message));
+    });
+
     // Real builds report e.g. "1.2.0-13a540f". Semver would otherwise rank that below 1.2.0.
     test('a version with a build suffix is supported', async () => {
         const world = new FakeCeedling();
@@ -328,8 +335,10 @@ suite('CeedlingEngine.discover', () => {
     test('a project with a copy of the same Ceedling in vendor/ceedling loads', async () => {
         const world = new FakeCeedling();
         runsAnotherCeedling(world, versionFixture('version-vendored-stdout.txt'));
-        const { file } = await discovered(world);
+        const logs: LogCall[] = [];
+        const { file } = await discovered(world, { logs });
         assert.strictEqual(file.id, 'test/test_calc.c');
+        assert.deepStrictEqual(logs.filter((l) => l.level === 'warn'), []);
     });
 
     // A 1.1.10 application writes its configuration only to a file, whatever the launcher.
@@ -1166,6 +1175,26 @@ suite('CeedlingEngine concurrent discovery', () => {
         return { projects: [{ path: a, debugLaunchConfig: 'dbg' }, { path: b, debugLaunchConfig: 'dbg' }] };
     }
     const settle = () => new Promise((resolve) => setImmediate(resolve));
+    // Long enough for work the locks don't hold back to start Ceedling.
+    const settled = () => settle().then(settle).then(settle).then(settle);
+    // Whether a promise has settled, readable without awaiting it.
+    function finished(promise: Promise<unknown>): { done: boolean } {
+        const state = { done: false };
+        void promise.finally(() => { state.done = true; });
+        return state;
+    }
+    // Holds each matching Ceedling command until released, then gives its reply.
+    function held(world: FakeCeedling, command: RegExp, reply: Reply = {}) {
+        const releases: Array<() => void> = [];
+        world.handlers.push((line) => command.test(line) ? new Promise<Reply>((resolve) => { releases.push(() => resolve(reply)); }) : undefined);
+        return {
+            release: () => releases.splice(0).forEach((release) => release()),
+            releaseFirst: () => releases.shift()?.(),
+        };
+    }
+    // Discovery's commands so far in a project directory, the folder itself by default.
+    const discoveryCommands = (world: FakeCeedling, directory = '', kind = /dumpconfig|files:test/) =>
+        world.commands.filter((c) => kind.test(c.command) && c.cwd === `${WS}${directory && `/${directory}`}`).length;
 
     test('projects in different directories are checked at the same time', async () => {
         const world = new FakeCeedling();
@@ -1218,18 +1247,16 @@ suite('CeedlingEngine concurrent discovery', () => {
     test("before Ceedling 1.2.1, a rediscovery's configuration check waits for a build in the same directory", async () => {
         const world = new FakeCeedling();
         const { engine, file } = await discovered(world);
-        let release!: () => void;
-        world.handlers.push((command) => /^ceedling test:/.test(command) ? new Promise<Reply>((resolve) => { release = () => resolve({}); }) : undefined);
+        const build = held(world, /^ceedling test:/);
         const run = engine.runFile('default', file, recordingReporter(), token());
         await settle();
-        const before = world.commandsMatching(/dumpconfig/).length;
+        const before = discoveryCommands(world, '', /dumpconfig/);
         const rediscovery = engine.discover();
-        await settle();
-        await settle();
-        assert.strictEqual(world.commandsMatching(/dumpconfig/).length, before, 'no dumpconfig while the build runs');
-        release();
+        await settled();
+        assert.strictEqual(discoveryCommands(world, '', /dumpconfig/), before, 'no dumpconfig while the build runs');
+        build.release();
         await Promise.all([run, rediscovery]);
-        assert.strictEqual(world.commandsMatching(/dumpconfig/).length, before + 1);
+        assert.strictEqual(discoveryCommands(world, '', /dumpconfig/), before + 1);
     });
 
     test('builds in different directories may run at once', async () => {
@@ -1237,12 +1264,11 @@ suite('CeedlingEngine concurrent discovery', () => {
         world.testFiles = ['test/test_calc.c'];
         for (const dir of ['a', 'b']) world.write(`${WS}/${dir}/test/test_calc.c`, 'void test_add(void) {}\n');
         const { engine, projects } = await discovered(world, { settings: twoProjects(world, 'a', 'b') });
-        const held: Array<() => void> = [];
-        world.handlers.push((command) => /^ceedling test:/.test(command) ? new Promise<Reply>((resolve) => { held.push(() => resolve({})); }) : undefined);
+        const builds = held(world, /^ceedling test:/);
         const runs = projects.map((p) => engine.runFile(p.projectKey, p.files[0], recordingReporter(), token()));
         await settle();
         assert.deepStrictEqual(world.commands.filter((c) => /^ceedling test:/.test(c.command)).map((c) => c.cwd).sort(), [`${WS}/a`, `${WS}/b`]);
-        held.forEach((release) => release());
+        builds.release();
         await Promise.all(runs);
     });
 
@@ -1253,16 +1279,14 @@ suite('CeedlingEngine concurrent discovery', () => {
         world.resolvedConfig = `:project:\n  :build_root: ../build\n${world.resolvedConfig}`;
         for (const dir of ['a', 'b']) world.write(`${WS}/${dir}/test/test_calc.c`, 'void test_add(void) {}\n');
         const { engine, projects } = await discovered(world, { settings: twoProjects(world, 'a', 'b') });
-        const held: Array<() => void> = [];
-        world.handlers.push((command) => /^ceedling test:/.test(command) ? new Promise<Reply>((resolve) => { held.push(() => resolve({})); }) : undefined);
+        const builds = held(world, /^ceedling test:/);
         const runs = projects.map((p) => engine.runFile(p.projectKey, p.files[0], recordingReporter(), token()));
         await settle();
         assert.strictEqual(world.commandsMatching(/^ceedling test:/).length, 1, 'one build at a time in the shared build root');
-        held[0]();
-        await settle();
-        await settle();
+        builds.releaseFirst();
+        await settled();
         assert.strictEqual(world.commandsMatching(/^ceedling test:/).length, 2);
-        held[1]();
+        builds.release();
         await Promise.all(runs);
     });
 
@@ -1271,45 +1295,38 @@ suite('CeedlingEngine concurrent discovery', () => {
         world.resolvedConfig = `:project:\n  :build_root: /shared/build\n${world.resolvedConfig}`;
         world.write(`${WS}/a/test/test_calc.c`, 'void test_add(void) {}\n');
         const { engine, projects } = await discovered(world, { settings: twoProjects(world, 'a', 'b') });
-        let release!: () => void;
-        world.handlers.push((command) => /^ceedling test:/.test(command) ? new Promise<Reply>((resolve) => { release = () => resolve({}); }) : undefined);
+        const build = held(world, /^ceedling test:/);
         const run = engine.runFile('a', projects[0].files[0], recordingReporter(), token());
         await settle();
-        const before = world.commands.filter((c) => /dumpconfig/.test(c.command) && c.cwd === `${WS}/b`).length;
+        const before = discoveryCommands(world, 'b', /dumpconfig/);
         const rediscovery = engine.discover();
-        await settle();
-        await settle();
-        assert.strictEqual(world.commands.filter((c) => /dumpconfig/.test(c.command) && c.cwd === `${WS}/b`).length, before, "no dumpconfig in b while a's build runs");
-        release();
+        await settled();
+        assert.strictEqual(discoveryCommands(world, 'b', /dumpconfig/), before, "no dumpconfig in b while a's build runs");
+        build.release();
         await Promise.all([run, rediscovery]);
-        assert.strictEqual(world.commands.filter((c) => /dumpconfig/.test(c.command) && c.cwd === `${WS}/b`).length, before + 1);
+        assert.strictEqual(discoveryCommands(world, 'b', /dumpconfig/), before + 1);
     });
 
     // From Ceedling 1.2.1, dumpconfig and files:test write nothing, so a rediscovery needn't wait out
-    // a run. Holds each matching Ceedling command until released, then gives its reply.
-    function held(world: FakeCeedling, command: RegExp, reply: Reply = {}) {
-        const releases: Array<() => void> = [];
-        world.handlers.push((line) => command.test(line) ? new Promise<Reply>((resolve) => { releases.push(() => resolve(reply)); }) : undefined);
-        return { release: () => releases.splice(0).forEach((release) => release()) };
-    }
-    const discoveryCommands = (world: FakeCeedling, directory = '', kind = /dumpconfig|files:test/) =>
-        world.commands.filter((c) => kind.test(c.command) && c.cwd === `${WS}${directory && `/${directory}`}`).length;
-    // Long enough for work the locks don't hold back to start Ceedling.
-    const settled = () => settle().then(settle).then(settle).then(settle);
-    // The discovery commands a rediscovery runs while a build of the default project's file holds.
-    async function discoveryDuringBuild(world: FakeCeedling): Promise<number> {
-        const { engine, file } = await discovered(world);
+    // a run.
+    // The discovery commands a rediscovery runs while a build of the first project's first file
+    // holds. `change` runs after the first discovery, before the build starts.
+    async function discoveryDuringBuild(world: FakeCeedling, options: { settings?: Record<string, unknown>, change?: () => void } = {}): Promise<{ dumpconfig: number, filesTest: number }> {
+        const { engine, projects: [project] } = await discovered(world, { settings: options.settings });
+        options.change?.();
         const build = held(world, /^ceedling test:/);
-        const run = engine.runFile('default', file, recordingReporter(), token());
+        const run = engine.runFile(project.projectKey, project.files[0], recordingReporter(), token());
         await settle();
-        const before = discoveryCommands(world);
+        const count = () => ({ dumpconfig: discoveryCommands(world, '', /dumpconfig/), filesTest: discoveryCommands(world, '', /files:test/) });
+        const before = count();
         const rediscovery = engine.discover();
         await settled();
-        const during = discoveryCommands(world) - before;
+        const after = count();
         build.release();
         await Promise.all([run, rediscovery]);
-        return during;
+        return { dumpconfig: after.dumpconfig - before.dumpconfig, filesTest: after.filesTest - before.filesTest };
     }
+    const BOTH = { dumpconfig: 1, filesTest: 1 }, NEITHER = { dumpconfig: 0, filesTest: 0 };
 
     test("on Ceedling 1.2.1, a rediscovery doesn't wait for a build in the same directory", async () => {
         const world = new FakeCeedling();
@@ -1398,23 +1415,51 @@ suite('CeedlingEngine concurrent discovery', () => {
         });
     }
 
-    // `ceedling version` never loads the project file, so it reports the launcher's version, not
-    // the one a project's :which_ceedling: selects for every other command.
+    // Before 1.2.2, `ceedling version` never loads the project file, so it reports the launcher's
+    // version, not the one a project's :which_ceedling: selects for every other command.
     test("on Ceedling 1.2.1, a project whose configuration selects another Ceedling still waits for a build", async () => {
         const world = new FakeCeedling();
         world.version = '1.2.1';
-        world.resolvedConfig = `:project:\n  :which_ceedling: vendor/ceedling\n${world.resolvedConfig}`;
-        const { engine, file } = await discovered(world);
-        const build = held(world, /^ceedling test:/);
-        const run = engine.runFile('default', file, recordingReporter(), token());
-        await settle();
-        const before = discoveryCommands(world);
-        const rediscovery = engine.discover();
-        await settled();
-        assert.strictEqual(discoveryCommands(world), before, 'no dumpconfig or files:test while the build runs');
-        build.release();
-        await Promise.all([run, rediscovery]);
-        assert.strictEqual(discoveryCommands(world), before + 2);
+        world.resolvedConfig = `:project:\n  :which_ceedling: tools/ceedling\n${world.resolvedConfig}`;
+        assert.deepStrictEqual(await discoveryDuringBuild(world), NEITHER);
+    });
+
+    // `ceedling version` in the project directory finds vendor/ceedling itself, the installation
+    // `ceedling new --local` vendors and names in :which_ceedling:. Ceedling reads `gem` in any case.
+    for (const which of ['vendor/ceedling', "'./vendor/ceedling/'", `${WS}/vendor/ceedling`, "' Gem '"]) {
+        test(`on Ceedling 1.2.1, a project selecting ${which} with :which_ceedling: doesn't wait for a build`, async () => {
+            const world = new FakeCeedling();
+            world.version = '1.2.1';
+            if (which.includes('vendor')) runsAnotherCeedling(world, versionFixture('version-vendored-stdout.txt'));
+            world.resolvedConfig = `:project:\n  :which_ceedling: ${which}\n${world.resolvedConfig}`;
+            assert.deepStrictEqual(await discoveryDuringBuild(world), BOTH);
+        });
+    }
+
+    // The last discovery's configuration stands for a rediscovery's dumpconfig only while the files it
+    // came from are unchanged. An edit may have just selected another Ceedling, which `version` can't see.
+    type Settings = { projects: Array<{ path: string, debugLaunchConfig: string, mixins: string[] }> };
+    const changes: Array<[string, (world: FakeCeedling, settings: Settings) => void]> = [
+        ['its project file', (world) => world.write(`${WS}/project.yml`, ':project:\n  :which_ceedling: tools/ceedling\n')],
+        ['a mixin file', (world) => world.write(`${WS}/mixins/extra.yml`, ':project:\n  :which_ceedling: tools/ceedling\n')],
+        ['its mixins setting', (_world, settings) => { settings.projects[0].mixins = ['mixins/extra.yml', 'gcc']; }],
+    ];
+    for (const [what, change] of changes) {
+        test(`on Ceedling 1.2.1, a rediscovery after a change to ${what} waits for a build`, async () => {
+            const world = new FakeCeedling();
+            world.version = '1.2.1';
+            world.write(`${WS}/mixins/extra.yml`, ':project: {}\n');
+            const settings: Settings = { projects: [{ path: '.', debugLaunchConfig: 'dbg', mixins: ['mixins/extra.yml'] }] };
+            assert.deepStrictEqual(await discoveryDuringBuild(world, { settings, change: () => change(world, settings) }), NEITHER);
+        });
+    }
+
+    // Listing gates on the configuration this discovery just resolved, not the last one.
+    test('on Ceedling 1.2.1, a rediscovery whose dumpconfig newly selects another Ceedling lists after the build', async () => {
+        const world = new FakeCeedling();
+        world.version = '1.2.1';
+        const selected = `:project:\n  :which_ceedling: tools/ceedling\n${world.resolvedConfig}`;
+        assert.deepStrictEqual(await discoveryDuringBuild(world, { change: () => { world.resolvedConfig = selected; } }), { dumpconfig: 1, filesTest: 0 });
     });
 
     // A vendored Ceedling is one `ceedling version` sees, since it runs in the project directory.
@@ -1422,21 +1467,21 @@ suite('CeedlingEngine concurrent discovery', () => {
     test("on Ceedling 1.2.1, a project with a copy of the same build in vendor/ceedling doesn't wait for a build", async () => {
         const world = new FakeCeedling();
         runsAnotherCeedling(world, versionFixture('version-vendored-stdout.txt'));
-        assert.strictEqual(await discoveryDuringBuild(world), 2);
+        assert.deepStrictEqual(await discoveryDuringBuild(world), BOTH);
     });
 
     // The vendored Ceedling may predate 1.2.1, whose discovery rewrites the build root's sources.
     test('on Ceedling 1.2.1, a project with another build in vendor/ceedling waits for a build', async () => {
         const world = new FakeCeedling();
         runsAnotherCeedling(world, versionFixture('version-vendored-1.2.0-stdout.txt'));
-        assert.strictEqual(await discoveryDuringBuild(world), 0);
+        assert.deepStrictEqual(await discoveryDuringBuild(world), NEITHER);
     });
 
     for (const [application, waits] of [['1.2.1-13a540f', false], ['1.2.0-13a540f', true]] as const) {
         test(`from Ceedling 1.2.2, a project with Ceedling ${application} in vendor/ceedling ${waits ? 'waits' : "doesn't wait"} for a build`, async () => {
             const world = new FakeCeedling();
             runsAnotherCeedling(world, launching('1.2.2-0a1b2c3', application));
-            assert.strictEqual(await discoveryDuringBuild(world), waits ? 0 : 2);
+            assert.deepStrictEqual(await discoveryDuringBuild(world), waits ? NEITHER : BOTH);
         });
     }
 
@@ -1493,7 +1538,9 @@ suite('CeedlingEngine concurrent discovery', () => {
         const run = engine.runFile('default', file, recordingReporter(), token());
         await settle();
         world.testFiles = [];
-        await engine.discover();
+        const rediscovered = finished(engine.discover());
+        await settled();
+        assert.ok(rediscovered.done, 'the rediscovery finishes while the build runs');
         build.release();
         await run;
         assert.deepStrictEqual([...problems.entries.keys()].filter((id) => id.includes('test_calc')), []);
@@ -1510,7 +1557,9 @@ suite('CeedlingEngine concurrent discovery', () => {
         const run = engine.runFunction('a', file, file.functions[0], recordingReporter(), token());
         await settle();
         settings.projects = settings.projects.slice(1);
-        await engine.discover();
+        const rediscovered = finished(engine.discover());
+        await settled();
+        assert.ok(rediscovered.done, 'the rediscovery finishes while the filtered run builds');
         filtered.release();
         await run;
         assert.strictEqual(world.commands.filter((c) => /^ceedling test:/.test(c.command) && c.cwd === `${WS}/a`).length, 2);
@@ -1521,15 +1570,13 @@ suite('CeedlingEngine concurrent discovery', () => {
         world.resolvedConfig = `:project:\n  :build_root: /shared/build\n${world.resolvedConfig}`;
         world.write(`${WS}/a/test/test_calc.c`, 'void test_add(void) {}\n');
         const { engine, projects } = await discovered(world, { settings: twoProjects(world, 'a', 'b') });
-        let release!: () => void;
-        world.handlers.push((command) => /^ceedling test:/.test(command) ? new Promise<Reply>((resolve) => { release = () => resolve({}); }) : undefined);
+        const build = held(world, /^ceedling test:/);
         const run = engine.runFile('a', projects[0].files[0], recordingReporter(), token());
         await settle();
         const clean = engine.clean();
-        await settle();
-        await settle();
+        await settled();
         assert.deepStrictEqual(world.commandsMatching(/^ceedling clean/), [], 'no clean while the shared build root builds');
-        release();
+        build.release();
         await Promise.all([run, clean]);
         assert.strictEqual(world.commandsMatching(/^ceedling clean/).length, 2);
     });
@@ -1557,8 +1604,11 @@ suite('CeedlingEngine concurrent discovery', () => {
         world.testFiles = ['test/test_calc.c', 'test/test_more.c'];
         world.write(`${WS}/test/test_more.c`, 'void test_more(void) {}\n');
         let open!: () => void;
-        world.readGate = new Promise((resolve) => { open = resolve; });
         const discovery = makeEngine(world).discover();
+        // The gate holds only source reads. Reading the configuration comes before dumpconfig.
+        // eslint-disable-next-line no-await-in-loop -- polls until discovery reaches dumpconfig
+        while (!world.commandsMatching(/dumpconfig/).length) await settle();
+        world.readGate = new Promise((resolve) => { open = resolve; });
         // eslint-disable-next-line no-await-in-loop -- polls until discovery reaches listing
         while (!world.commandsMatching(/files:test/).length) await settle();
         await settle();

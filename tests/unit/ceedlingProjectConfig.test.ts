@@ -4,7 +4,7 @@ import yaml from 'js-yaml';
 import * as path from 'path';
 import {
     applicationRelease, capabilitiesOf, type CeedlingFeature, ceedlingRelease, CeedlingLoadError, firstRelease, isSupportedRelease, MINIMUM_CEEDLING_VERSION,
-    coverageProblem, coverageState, pathKey, projectState, projectsFromSettings, testBuildName,
+    coverageProblem, coverageState, pathKey, projectState, projectsFromSettings, testBuildName, versionSeesSelection,
 } from '../../src/ceedlingProjectConfig';
 
 const fixturesRoot = path.resolve(__dirname, '..', '..', '..', 'tests', 'fixtures');
@@ -312,6 +312,20 @@ suite('projectState', () => {
 // Two spellings of one Windows directory must share a lock, or their builds could overlap.
 // Ceedling names a test's build for its file's directory within the longest test path holding it:
 // PathMirror.relative_subdir in 1.2.0 and 1.2.1, over :paths: :test: stripped of decorators and globs.
+// Before 1.2.2 `ceedling version` never reads :which_ceedling:, so its report covers a project only
+// when the setting picks what `version` picks unaided: the installed gem, or vendor/ceedling.
+suite('versionSeesSelection', () => {
+    for (const which of ['gem', 'GEM', ' Gem ', 'vendor/ceedling', './vendor/ceedling/', 'vendor//ceedling', '/ws/vendor/ceedling']) {
+        test(`'${which}' is seen`, () => assert.strictEqual(versionSeesSelection(which, '/ws', 'linux'), true));
+    }
+    for (const which of ['tools/ceedling', 'vendor/ceedling/sub', '../vendor/ceedling', '/opt/ceedling', 'VENDOR/ceedling', 'gems']) {
+        test(`'${which}' isn't seen`, () => assert.strictEqual(versionSeesSelection(which, '/ws', 'linux'), false));
+    }
+    for (const which of ['vendor\\ceedling', 'Vendor\\Ceedling\\', 'c:\\ws\\vendor\\ceedling', 'C:/WS/vendor/ceedling']) {
+        test(`on Windows, '${which}' is seen`, () => assert.strictEqual(versionSeesSelection(which, 'C:\\ws', 'win32'), true));
+    }
+});
+
 suite('testBuildName', () => {
     const nested = (id: string, paths: string[]) => testBuildName(id, paths, true);
 

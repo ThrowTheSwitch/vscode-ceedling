@@ -76,6 +76,13 @@ suite('parseCeedlingVersions', () => {
         assert.deepStrictEqual(parseCeedlingVersions(stdout), { launcher: '1.2.1-47d2c5e', application: '1.2.1-13a540f' });
     });
 
+    // Ceedling on Windows ends its lines with CRLF.
+    test('reads versions from output with CRLF line endings', () => {
+        const stdout = readFixture('ceedling-1.2.1', 'version-vendored-1.2.0-stdout.txt').replace(/\r?\n/g, '\r\n');
+        assert.deepStrictEqual(parseCeedlingVersions(stdout), { launcher: '1.2.1-47d2c5e', application: '1.2.1-13a540f' });
+        assert.deepStrictEqual(parseCeedlingVersions('Welcome to Ceedling!\r\n  Ceedling => 1.0.0\r\n'), { application: '1.0.0' });
+    });
+
     test('returns undefined when no Ceedling version line is present', () => {
         assert.strictEqual(parseCeedlingVersions('nothing relevant here\n'), undefined);
         assert.strictEqual(parseCeedlingVersions('  Ceedling Launcher => 1.2.1-47d2c5e\n'), undefined);

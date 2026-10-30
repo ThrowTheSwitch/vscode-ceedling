@@ -49,8 +49,9 @@ export type ProjectState = {
     coverage: CoverageState | undefined,
     // `:paths` ↳ `:test` as configured, e.g. `+:test/**`, which places each test's build files.
     testPaths: string[],
-    // `:project` ↳ `:which_ceedling`: `gem` for the installed Ceedling, else a path to another. Every
-    // command but `ceedling version`, which never loads the project file, runs the one it selects.
+    // `:project` ↳ `:which_ceedling`: `gem` for the installed Ceedling, else a path to another. Unset,
+    // it reads `gem`, and WHICH_CEEDLING or a `vendor/ceedling` then chooses, as every command does.
+    // Before 1.2.2 `ceedling version` never reads it. See versionSeesSelection().
     whichCeedling: string,
 };
 
@@ -75,7 +76,7 @@ export const ALTERNATE_DEFAULT_PROJECT_FILE = 'ceedling.yml';
 export const MINIMUM_CEEDLING_VERSION = '1.0.0';
 
 // The first Ceedling release with each feature this extension uses only where it exists. Every
-// version gate reads this table, through capabilitiesOf() or firstRelease().
+// feature gate reads this table, through capabilitiesOf() or firstRelease().
 const FIRST_RELEASES = {
     // `dumpconfig --stdout` writes the resolved configuration to stdout instead of a file.
     dumpconfigStdout: '1.2.0',
@@ -120,15 +121,16 @@ export function firstRelease(feature: CeedlingFeature): string {
 }
 
 // The release of the Ceedling that runs a project, and whether `ceedling version` shows it exactly.
-// A launcher before 1.2.2 reports another installation's release as its own, so only the same
-// commit shows that installation's release. Otherwise the launcher's release stands in for it.
-// undefined when either version names no release.
+// A launcher before 1.2.2 reports its own release as the application's, with the application's
+// commit. Only a commit matching the launcher's shows the application's release. Otherwise the
+// launcher's release stands in for it. undefined when either version names no release.
 export function applicationRelease(reported: ReportedCeedling): { release: string, exactRelease: boolean } | undefined {
     const release = ceedlingRelease(reported.application);
     const launcher = reported.launcher ?? reported.application;
     if (release === undefined || ceedlingRelease(launcher) === undefined) {
         return undefined;
     }
+    // A `-<commit>` suffix comes only from an installation with a GIT_COMMIT_SHA file.
     const sameBuild = launcher === reported.application && /-[0-9a-f]+$/i.test(launcher);
     return { release, exactRelease: reported.launcher === undefined || sameBuild || capabilitiesOf(launcher).reportsApplicationVersion };
 }
@@ -227,6 +229,19 @@ async function projectFiles(
         ymlFileName: configuredFile ?? projectFileName,
         ambiguousProjectFile: configuredFile === undefined && hasDefault && hasAlternate,
     };
+}
+
+// Whether `ceedling version`, run in the project directory, reports the Ceedling that `:project` ↳
+// `:which_ceedling` selects without reading it, as every version before 1.2.2 does. It picks the
+// installed gem, or a `vendor/ceedling` it finds there, as `ceedling new --local` vendors and names.
+// WHICH_CEEDLING outranks both alike. Ceedling reads `gem` in any case, around any spaces.
+export function versionSeesSelection(whichCeedling: string, projectDir: string, platform: NodeJS.Platform): boolean {
+    const which = whichCeedling.trim();
+    if (which.toLowerCase() === 'gem') {
+        return true;
+    }
+    const paths = platform === 'win32' ? path.win32 : path.posix;
+    return pathKey(paths.resolve(projectDir, which), platform) === pathKey(paths.resolve(projectDir, 'vendor', 'ceedling'), platform);
 }
 
 export function projectState(resolved: unknown, platform: NodeJS.Platform): ProjectState {

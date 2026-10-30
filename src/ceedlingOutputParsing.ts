@@ -14,14 +14,15 @@ export function parseFileListBullets(stdout: string): string[] {
 
 // The Ceedling builds `ceedling version` reports, e.g. "1.0.0" or a build's "1.1.0-5bbbc8f".
 // `application` runs the project. `launcher`, the Ceedling that `ceedling` starts, appears only when
-// it hands off to another installation, e.g. one vendored in the project's `vendor/ceedling` or named by
-// WHICH_CEEDLING. Even a copy of the same build counts as another.
+// it hands off to another installation, e.g. one vendored in the project's `vendor/ceedling` or
+// named by WHICH_CEEDLING. Even a copy of the same build counts as another.
 export type ReportedCeedling = { application: string, launcher?: string };
 
 // undefined when stdout names no application. The caller decides what that means.
 export function parseCeedlingVersions(stdout: string): ReportedCeedling | undefined {
     const line = (label: string) => new RegExp(`^\\s*Ceedling${label}\\s*(?:::|=>)\\s*(.*)$`, 'm').exec(stdout)?.[1]?.trim();
     const launcher = line(' Launcher');
+    // Without a launcher line, the plain `Ceedling =>` line names the application.
     const application = launcher === undefined ? line('') : line(' App');
     if (application === undefined) {
         return undefined;
