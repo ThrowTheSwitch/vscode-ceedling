@@ -581,6 +581,59 @@ suite('CeedlingEngine with Ceedling 1.2.0', () => {
         world.handlers.push((command) => /^ceedling test:/.test(command) ? { writes: world.reportWrite(cppunit({ passed: ['test/unit/test_calc.c::test_add'] })) } : undefined);
         assert.strictEqual(await engine.compileForDebug('default', file, recordingReporter(), token()), 'test_calc/test_calc.out');
     });
+
+    // A debug build of test/unit/test_calc.c under `+:test/**`, writing the executables `built`.
+    async function debugBuild(world: FakeCeedling, built: string[], logs: LogCall[] = []): Promise<string | undefined> {
+        world.resolvedConfig = `:paths:\n  :test:\n    - "+:test/**"\n${world.resolvedConfig}`;
+        world.testFiles = ['test/unit/test_calc.c'];
+        world.write(`${WS}/test/unit/test_calc.c`, 'void test_add(void) {}\n');
+        const { engine, file } = await discovered(world, { logs });
+        world.handlers.push((command) => /^ceedling test:/.test(command) ? {
+            writes: {
+                ...world.reportWrite(cppunit({ passed: ['test/unit/test_calc.c::test_add'] })),
+                ...Object.fromEntries(built.map((executable) => [`${WS}/build/test/out/${executable}`, 'ELF'])),
+            },
+        } : undefined);
+        return engine.compileForDebug('default', file, recordingReporter(), token());
+    }
+
+    // 1.2.2 names a test by its path from the project root, test root and all.
+    test("from Ceedling 1.2.2, a test file's executable is found under its path from the project root", async () => {
+        const world = new FakeCeedling();
+        world.version = '1.2.2';
+        assert.strictEqual(await debugBuild(world, ['test/unit/test_calc/test_calc.out']), 'test/unit/test_calc/test_calc.out');
+    });
+
+    // A launcher before 1.2.2 can report its own release for a newer application (Ceedling#1365).
+    test("an executable the build wrote in another release's layout is found there, with a note in the log", async () => {
+        const world = new FakeCeedling();
+        world.version = '1.2.1';
+        world.write(`${WS}/build/test/out/unit/test_calc/test_calc.out`, 'ELF, an older build');
+        const logs: LogCall[] = [];
+        assert.strictEqual(await debugBuild(world, ['test/unit/test_calc/test_calc.out'], logs), 'test/unit/test_calc/test_calc.out');
+        assert.ok(logs.some((l) => l.level === 'warn' && /test\/unit\/test_calc\/test_calc\.out/.test(l.message)), 'the fallback is logged');
+    });
+
+    // A delta build leaves an up-to-date executable as it was, so none is new.
+    test("with no executable written, the release's own layout is preferred, then any that exists", async () => {
+        const kept = new FakeCeedling();
+        kept.version = '1.2.2';
+        kept.write(`${WS}/build/test/out/unit/test_calc/test_calc.out`, 'ELF, an older layout');
+        kept.write(`${WS}/build/test/out/test/unit/test_calc/test_calc.out`, 'ELF');
+        assert.strictEqual(await debugBuild(kept, []), 'test/unit/test_calc/test_calc.out');
+        const other = new FakeCeedling();
+        other.version = '1.2.1';
+        other.write(`${WS}/build/test/out/test/unit/test_calc/test_calc.out`, 'ELF');
+        assert.strictEqual(await debugBuild(other, []), 'test/unit/test_calc/test_calc.out');
+    });
+
+    test('with no executable anywhere, the path is the release\'s own, and the miss is logged', async () => {
+        const world = new FakeCeedling();
+        world.version = '1.2.2';
+        const logs: LogCall[] = [];
+        assert.strictEqual(await debugBuild(world, [], logs), 'test/unit/test_calc/test_calc.out');
+        assert.ok(logs.some((l) => l.level === 'warn' && /no built executable/.test(l.message)));
+    });
 });
 
 suite('CeedlingEngine runs', () => {
@@ -1782,6 +1835,29 @@ suite('CeedlingEngine coverage', () => {
         await engine.runFunction('default', integration, integration.functions[0], recordingReporter(), token(), mode);
         assert.strictEqual(world.commandsMatching(/^ceedling gcov:test\/integration\/test_calc\.c --force/).length, 1, 'the fallback ran');
         assert.deepStrictEqual(Object.entries(counters).filter(([, f]) => world.files.has(f)).map(([k]) => k), ['root', 'unit', 'unitNested']);
+    });
+
+    // From 1.2.2 a test's counters sit under its path from the project root, test root included.
+    test("from Ceedling 1.2.2, a function run's whole-file fallback clears the counters under the test's own path", async () => {
+        const world = coverageWorld();
+        world.version = '1.2.2';
+        world.testFiles = ['test/test_calc.c', 'test/unit/test_calc.c'];
+        for (const f of world.testFiles) world.write(`${WS}/${f}`, 'void test_add(void) {}\n');
+        const own = `${WS}/build/gcov/out/test/unit/test_calc/src/calc.gcda`;
+        const namesake = `${WS}/build/gcov/out/test/test_calc/src/calc.gcda`;
+        world.handlers.unshift((command) => /--test-case/.test(command)
+            ? { writes: world.reportWrite(cppunit({ passed: ['test/unit/test_calc.c::test_add', 'test/unit/test_calc.c::test_add_more'] }), 'build', 'gcov') }
+            : undefined);
+        const { engine, projects } = await discovered(world);
+        const file = (id: string) => projects[0].files.find((f) => f.id === id)!;
+        const mode = coverageMode();
+        // A first build spends the request's one counter reset, which would clear the counters below.
+        await engine.runFile('default', file('test/test_calc.c'), recordingReporter(), token(), mode);
+        world.write(own, '');
+        world.write(namesake, '');
+        const unit = file('test/unit/test_calc.c');
+        await engine.runFunction('default', unit, unit.functions[0], recordingReporter(), token(), mode);
+        assert.deepStrictEqual([own, namesake].map((f) => world.files.has(f)), [false, true]);
     });
 
     test("a function run's whole-file fallback clears the counters its own test path places, not a namesake's", async () => {

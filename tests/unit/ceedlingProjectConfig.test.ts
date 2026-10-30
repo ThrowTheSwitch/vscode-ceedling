@@ -3,8 +3,9 @@ import * as fs from 'fs';
 import yaml from 'js-yaml';
 import * as path from 'path';
 import {
-    applicationRelease, capabilitiesOf, type CeedlingFeature, ceedlingRelease, CeedlingLoadError, firstRelease, isSupportedRelease, MINIMUM_CEEDLING_VERSION,
-    coverageProblem, coverageState, pathKey, projectState, projectsFromSettings, testBuildName, versionSeesSelection,
+    applicationRelease, capabilitiesOf, type CeedlingFeature, ceedlingRelease, CeedlingLoadError, firstRelease, isSupportedRelease, launcherCapabilitiesOf,
+    type LauncherFeature, MINIMUM_CEEDLING_VERSION, coverageProblem, coverageState, pathKey, projectState, projectsFromSettings, testBuildLayout, testBuildName,
+    versionSeesSelection,
 } from '../../src/ceedlingProjectConfig';
 
 const fixturesRoot = path.resolve(__dirname, '..', '..', '..', 'tests', 'fixtures');
@@ -149,14 +150,27 @@ suite('Ceedling releases', () => {
     });
 
     test('each capability holds from its first release, and not in the release before', () => {
-        assert.deepStrictEqual(firstRelease('pathQualifiedCoverageTasks'), '1.2.1');
+        assert.strictEqual(firstRelease('pathQualifiedCoverageTasks'), '1.2.1');
         const previous: Record<string, string> = { '1.2.0': '1.1.10', '1.2.1': '1.2.0', '1.2.2': '1.2.1' };
+        const known = (feature: string, first: string) => assert.ok(first in previous, `${feature} from ${first}, a release this test doesn't know`);
         for (const feature of Object.keys(capabilitiesOf('1.0.0')) as CeedlingFeature[]) {
             const first = firstRelease(feature);
-            assert.ok(first in previous, `${feature} from ${first}, a release this test doesn't know`);
+            known(feature, first);
             assert.strictEqual(capabilitiesOf(first)[feature], true, `${feature} at ${first}`);
             assert.strictEqual(capabilitiesOf(previous[first])[feature], false, `${feature} before ${first}`);
         }
+        for (const feature of Object.keys(launcherCapabilitiesOf('1.0.0')) as LauncherFeature[]) {
+            const first = firstRelease(feature);
+            known(feature, first);
+            assert.strictEqual(launcherCapabilitiesOf(first)[feature], true, `launcher ${feature} at ${first}`);
+            assert.strictEqual(launcherCapabilitiesOf(previous[first])[feature], false, `launcher ${feature} before ${first}`);
+        }
+    });
+
+    // A feature belongs to the application or the launcher, never both, so code can't ask the wrong one.
+    test('no feature is both an application and a launcher feature', () => {
+        const application = Object.keys(capabilitiesOf('1.0.0'));
+        assert.deepStrictEqual(Object.keys(launcherCapabilitiesOf('1.0.0')).filter((f) => application.includes(f)), []);
     });
 
     test('a Ceedling that runs no other installation reports its own release exactly', () => {
@@ -176,6 +190,10 @@ suite('Ceedling releases', () => {
         assert.deepStrictEqual(applicationRelease({ launcher: '1.2.2', application: '1.2.1' }), { release: '1.2.1', exactRelease: true });
     });
 
+    test("a launcher's features follow its own release", () => {
+        assert.deepStrictEqual(['1.2.1-47d2c5e', '1.2.2.dev', '1.3.0'].map((v) => launcherCapabilitiesOf(v).reportsApplicationVersion), [false, true, true]);
+    });
+
     test('a report naming no release for either Ceedling has none', () => {
         assert.strictEqual(applicationRelease({ application: 'unknown' }), undefined);
         assert.strictEqual(applicationRelease({ launcher: 'unknown', application: '1.2.0' }), undefined);
@@ -185,7 +203,7 @@ suite('Ceedling releases', () => {
 suite('capabilitiesOf', () => {
     const none = {
         dumpconfigStdout: false, forceTestRerun: false, pathQualifiedTestTasks: false, pathQualifiedCoverageTasks: false, ceedlingYml: false, nestedTestBuilds: false,
-        readOnlyDiscovery: false, reportsApplicationVersion: false,
+        readOnlyDiscovery: false, projectPathTestNames: false,
     };
 
     test('Ceedling before 1.2.0 has none of the 1.2.0 features', () => {
@@ -206,14 +224,20 @@ suite('capabilitiesOf', () => {
 
     test("Ceedling 1.2.1, build suffix included, also takes paths in coverage tasks and discovers without writing, but has none of 1.2.2's", () => {
         for (const version of ['1.2.1', '1.2.1-0a1b2c3']) {
-            assert.deepStrictEqual(capabilitiesOf(version), { ...v121, reportsApplicationVersion: false });
+            assert.deepStrictEqual(capabilitiesOf(version), { ...v121, projectPathTestNames: false });
         }
     });
 
-    test("Ceedling 1.2.2 and later, build suffix included, also report another installation's version", () => {
-        for (const version of ['1.2.2', '1.2.2-0a1b2c3', '1.3.1']) {
-            assert.deepStrictEqual(capabilitiesOf(version), { ...v121, reportsApplicationVersion: true });
+    test('Ceedling 1.2.2 and later, build suffix included, also name each test by its path from the project root', () => {
+        for (const version of ['1.2.2', '1.2.2-0a1b2c3', '1.2.2.dev', '1.3.1']) {
+            assert.deepStrictEqual(capabilitiesOf(version), { ...v121, projectPathTestNames: true });
         }
+    });
+});
+
+suite('testBuildLayout', () => {
+    test('each release builds its tests in the layout it introduced, or the one before', () => {
+        assert.deepStrictEqual(['1.1.10', '1.2.0', '1.2.1', '1.2.2'].map((v) => testBuildLayout(capabilitiesOf(v))), ['flat', 'testRoot', 'testRoot', 'projectPath']);
     });
 });
 
@@ -327,10 +351,13 @@ suite('versionSeesSelection', () => {
 });
 
 suite('testBuildName', () => {
-    const nested = (id: string, paths: string[]) => testBuildName(id, paths, true);
+    const named = (id: string, layout: 'flat' | 'testRoot' | 'projectPath', testPaths: string[] = ['+:test/**']) =>
+        testBuildName(id, layout, { testPaths, projectDir: '/ws', platform: 'linux' });
+    const nested = (id: string, paths: string[]) => named(id, 'testRoot', paths);
+    const fromRoot = (id: string) => named(id, 'projectPath');
 
     test('before Ceedling 1.2.0, a test builds under its bare name', () => {
-        assert.strictEqual(testBuildName('test/unit/test_calc.c', ['+:test/**'], false), 'test_calc');
+        assert.strictEqual(named('test/unit/test_calc.c', 'flat'), 'test_calc');
     });
 
     test("from 1.2.0, a test builds under its directory within its test path, or its bare name at that path's root", () => {
@@ -367,6 +394,45 @@ suite('testBuildName', () => {
 
     test('backslashes in paths and ids read as separators, as Ceedling standardizes them', () => {
         assert.strictEqual(nested('test\\unit\\test_calc.c', ['+:test\\**']), 'unit/test_calc');
+    });
+
+    // From 1.2.2, Ceedling's BuildSubpath.encode names a test by its path from the project root.
+    test('from 1.2.2, a test builds under its path from the project root, whatever its test path', () => {
+        assert.strictEqual(fromRoot('test/unit/test_calc.c'), 'test/unit/test_calc');
+        assert.strictEqual(fromRoot('test/test_calc.c'), 'test/test_calc');
+        assert.strictEqual(fromRoot('test_calc.c'), 'test_calc');
+        assert.strictEqual(named('test/unit/test_calc.c', 'projectPath', ['+:test/unit/**']), 'test/unit/test_calc');
+    });
+
+    test('from 1.2.2, a path is normalized, and only its last extension goes', () => {
+        assert.strictEqual(fromRoot('./test/./unit//test_calc.c'), 'test/unit/test_calc');
+        assert.strictEqual(fromRoot('test/../other/test_x.c'), 'other/test_x');
+        assert.strictEqual(fromRoot('test/unit/test.calc.c'), 'test/unit/test.calc');
+        assert.strictEqual(fromRoot('test/Unit/Test_Calc.C'), 'test/Unit/Test_Calc');
+        assert.strictEqual(fromRoot('/ws/test/test_x.c'), 'test/test_x');
+    });
+
+    test('from 1.2.2, a path outside the project climbs with _up_', () => {
+        assert.strictEqual(fromRoot('../tests/unit/test_x.c'), '_up_/tests/unit/test_x');
+        assert.strictEqual(fromRoot('/elsewhere/test_x.c'), '_up_/elsewhere/test_x');
+    });
+
+    // A folder already named like a marker gains a leading `_`, in any case, so names stay apart.
+    test('from 1.2.2, a folder named like a marker gains a leading underscore', () => {
+        assert.strictEqual(fromRoot('test/_up_/test_x.c'), 'test/__up_/test_x');
+        assert.strictEqual(fromRoot('test/__Abs_/test_x.c'), 'test/___Abs_/test_x');
+        assert.strictEqual(fromRoot('_unc_/_ceedling_/test_x.c'), '__unc_/__ceedling_/test_x');
+        assert.strictEqual(fromRoot('test/up_/_up/test_x.c'), 'test/up_/_up/test_x');
+    });
+
+    test('from 1.2.2 on Windows, another drive goes under _abs_ and a share under _unc_', () => {
+        const windows = (id: string) => testBuildName(id, 'projectPath', { testPaths: [], projectDir: 'C:\\ws', platform: 'win32' });
+        assert.strictEqual(windows('test\\unit\\test_calc.c'), 'test/unit/test_calc');
+        assert.strictEqual(windows('c:\\ws\\test\\test_x.c'), 'test/test_x');
+        assert.strictEqual(windows('D:\\sdk\\test_x.c'), '_abs_/D/sdk/test_x');
+        assert.strictEqual(windows('d:/sdk/_up_/test_x.c'), '_abs_/D/sdk/__up_/test_x');
+        assert.strictEqual(windows('\\\\server\\share\\t\\test_x.c'), '_unc_/server/share/t/test_x');
+        assert.strictEqual(windows('..\\tests\\test_x.c'), '_up_/tests/test_x');
     });
 });
 

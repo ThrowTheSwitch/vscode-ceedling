@@ -47,6 +47,7 @@ import {
     type ProjectState,
     projectState,
     projectsFromSettings,
+    testBuildLayout,
     testBuildName,
     versionSeesSelection,
 } from './ceedlingProjectConfig';
@@ -411,6 +412,8 @@ export class CeedlingEngine {
             reporter.started(id);
         }
         return this.exclusively(project, async () => {
+            const candidates = this.executableCandidates(project, file);
+            const before = await this.executableTimes(project, candidates);
             const outcome = await this.buildAndRun(project, { kind: 'file', file }, TEST_MODE, this.commandArgs(project, file.id, TEST_MODE), reporter, token);
             if (outcome.cancelled) {
                 leaves.forEach((id) => reporter.skipped(id));
@@ -421,7 +424,7 @@ export class CeedlingEngine {
                 return undefined;
             }
             this.reportResults(outcome.report, leaves, outcome.transcript, reporter);
-            return await this.executableSubpath(project, file);
+            return await this.executableSubpath(project, file, candidates, before);
         });
     }
 
@@ -817,22 +820,44 @@ export class CeedlingEngine {
         return diagnostics.slice().sort((a, b) => a.diagnostic.severity - b.diagnostic.severity)[0];
     }
 
-    // The executable's path under Ceedling's test output directory, `<build name>/<name><ext>`, e.g.
-    // `unit/test_foo/test_foo.out` for `test/unit/test_foo.c` from 1.2.0. A missing executable is
-    // logged, and its path returned all the same, for the launch to report.
-    private async executableSubpath(project: LoadedProject, file: CeedlingFileNode): Promise<string> {
-        const buildName = this.testBuildName(project, file);
-        const executable = `${buildName}/${buildName.replace(/^.*\//, '')}${project.state.executableExtension}`;
-        const outputDirectory = this.buildPath(project, 'test', 'out');
-        if (await this.fs.mtimeMs(this.paths.resolve(outputDirectory, executable)) === undefined) {
-            this.logger.warn(`executableSubpath: no built executable for '${file.id}' at '${executable}' under ${outputDirectory}`);
-        }
-        return executable;
+    // Where each release's layout puts the file's executable under Ceedling's test output
+    // directory, `<build name>/<name><ext>`, the project's release's own first. See testBuildName().
+    private executableCandidates(project: LoadedProject, file: CeedlingFileNode): string[] {
+        const own = testBuildLayout(project.capabilities);
+        const layouts = [own, ...(['projectPath', 'testRoot', 'flat'] as const).filter((layout) => layout !== own)];
+        const placed = { testPaths: project.state.testPaths, projectDir: project.absPath, platform: this.platform };
+        return [...new Set(layouts.map((layout) => {
+            const buildName = testBuildName(file.id, layout, placed);
+            return `${buildName}/${buildName.replace(/^.*\//, '')}${project.state.executableExtension}`;
+        }))];
     }
 
-    // Where Ceedling builds the test file, beneath each build output directory.
+    private executableTimes(project: LoadedProject, candidates: readonly string[]): Promise<Array<number | undefined>> {
+        const outputDirectory = this.buildPath(project, 'test', 'out');
+        return Promise.all(candidates.map((candidate) => this.fs.mtimeMs(this.paths.resolve(outputDirectory, candidate))));
+    }
+
+    // The executable's path under Ceedling's test output directory: the candidate this build
+    // wrote, else one that exists, else the release's own. Each release's layout comes first. A
+    // launcher before 1.2.2 can misreport a newer application's release (Ceedling#1365), so the
+    // build itself decides where it went. A delta build may write nothing, leaving one up to date.
+    private async executableSubpath(project: LoadedProject, file: CeedlingFileNode, candidates: readonly string[], before: ReadonlyArray<number | undefined>): Promise<string> {
+        const after = await this.executableTimes(project, candidates);
+        const written = after.findIndex((time, i) => time !== undefined && time !== before[i]);
+        const existing = after.findIndex((time) => time !== undefined);
+        const chosen = written >= 0 ? written : Math.max(existing, 0);
+        if (existing < 0) {
+            this.logger.warn(`executableSubpath: no built executable for '${file.id}' at '${candidates[0]}' under ${this.buildPath(project, 'test', 'out')}`);
+        } else if (chosen > 0) {
+            this.logger.warn(`executableSubpath: '${file.id}' built at '${candidates[chosen]}', not at '${candidates[0]}', where Ceedling ${project.release} would build it`);
+        }
+        return candidates[chosen];
+    }
+
+    // Where Ceedling builds the test file, beneath each build output directory, as the project's
+    // release lays it out.
     private testBuildName(project: LoadedProject, file: CeedlingFileNode): string {
-        return testBuildName(file.id, project.state.testPaths, project.capabilities.nestedTestBuilds);
+        return testBuildName(file.id, testBuildLayout(project.capabilities), { testPaths: project.state.testPaths, projectDir: project.absPath, platform: this.platform });
     }
 
     // A test run writes its report under artifacts/test, a gcov run under artifacts/gcov.
