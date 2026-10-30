@@ -12,9 +12,9 @@ This document is the terse, itemized record of what changed in each release. Its
 * Project configuration is now resolved with Ceedling’s own `ceedling dumpconfig`, instead of the extension parsing and merging `project.yml` and any mixins itself. The extension now sees exactly the configuration a real build sees, plugin defaults included.
 * `:unity` ↳ `:test_prefix` is no longer read, nor the Unity compilation defines once sniffed to select it. Neither was ever a real Ceedling option. `:test_runner` ↳ `:test_prefix` remains the way to change the test function prefix.
 * A workspace folder without a Ceedling project no longer adds an empty _Ceedling_ entry to the _Testing_ view. With several workspace folders, each entry names its folder.
-* Discovery checks the Ceedling version in each project’s own directory, so a Ceedling vendored in a project’s `vendor/ceedling` is respected. It no longer runs `ceedling summary`.
+* Discovery checks the Ceedling version in each project’s own directory, so a Ceedling vendored in a project’s `vendor/ceedling` or selected by `WHICH_CEEDLING` is respected. It no longer runs `ceedling summary`.
 * Discovery is faster in workspaces with several project directories or many test files. Projects in different directories load at the same time, and test files are read in parallel. Reading files no longer blocks VS Code’s extension host.
-* Ceedling commands in different project directories may now run at the same time, e.g. a run in one project while another rediscovers. Commands within one project directory, or in projects sharing a build directory, still run one at a time. From Ceedling 1.2.1, discovery runs alongside them.
+* Ceedling commands in different project directories may now run at the same time, e.g. a run in one project while another rediscovers. Commands within one project directory, or in projects sharing a build directory, still run one at a time.
 
 ## 🌟 Added
 
@@ -27,9 +27,9 @@ This document is the terse, itemized record of what changed in each release. Its
   * Every run reruns its tests. Ceedling 1.2.0’s delta builds otherwise reuse cached results that ignore which single test a run selected.
 * Support for Ceedling 1.2.1:
   * Its `gcov:` tasks take a test file’s path, so coverage runs of same-named test files in different directories each run the right file.
-  * The _Testing_ view updates during a long run, e.g. after adding a test file or editing `project.yml`, rather than after the run finishes.
+  * The _Testing_ view updates during a long run, e.g. after adding a test file, rather than after the run finishes. A project vendoring its Ceedling with `ceedling new --local` updates too.
 * Support for Ceedling 1.2.2:
-  * A project vendoring a Ceedling of another version than the installed one uses its own version’s features, since Ceedling 1.2.2 reports that version ([Ceedling#1365](https://github.com/ThrowTheSwitch/Ceedling/issues/1365)).
+  * With Ceedling 1.2.2 installed, a project running its own Ceedling of a different version, vendored in `vendor/ceedling` or selected by `WHICH_CEEDLING`, uses that version’s features ([Ceedling#1365](https://github.com/ThrowTheSwitch/Ceedling/issues/1365)).
 * The `report_tests_log_factory` plugin’s `cppunit` report, which this extension reads results from, is now enabled automatically by a bundled [mixin](README.md#mixins). Enabling it in `project.yml` is no longer required.
 * New `ceedlingExplorer.mixins` and `ceedlingExplorer.projects[].mixins` settings apply Ceedling mixins, for toolchain targets, CI overrides, or other configuration, without editing `project.yml`. See [Mixins](README.md#mixins).
 * The _Testing_ view updates as you edit a test file, before you save. Adding or removing a test file, or editing `project.yml` or a mixin file, rediscovers the project without a manual refresh.
@@ -40,7 +40,6 @@ This document is the terse, itemized record of what changed in each release. Its
 
 ## 💪 Fixed
 
-* A project with its own Ceedling, vendored in `vendor/ceedling` or selected by `WHICH_CEEDLING`, now loads. Discovery stopped with “Could not run 'ceedling version'”, since it didn’t read the `Ceedling App` line Ceedling reports for such a project.
 * A test declared with whitespace before its parameter list, such as `void test_example (void)`, no longer stays skipped after it passes. Test discovery names each test, and each padded `TEST_CASE( … )`, exactly as Ceedling’s test runner does ([#14](https://github.com/ThrowTheSwitch/vscode-ceedling/issues/14)).
 * Test discovery now follows Ceedling’s own test runner rules. Tests inside comments no longer appear in the _Testing_ view. Floating-point `TEST_RANGE()` cases carry the names Ceedling reports. Parametrized cases appear only when `:unity` ↳ `:use_param_tests` is enabled.
 * A test whose result never arrives now shows an error saying so, instead of silently ending as skipped. The error names the likely cause: the extension and Ceedling disagree about the test’s name.

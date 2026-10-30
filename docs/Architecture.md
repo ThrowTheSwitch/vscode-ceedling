@@ -133,10 +133,10 @@ sequenceDiagram
     EN->>EN: projectsFromSettings()
     par each project directory
         EN->>C: version
-        EN->>C: dumpconfig (under the project's locks before 1.2.1)
+        EN->>C: dumpconfig (under the project's locks unless the gate allows)
     end
     par each project directory
-        EN->>C: files:test (under the project's locks before 1.2.1)
+        EN->>C: files:test (under the project's locks unless the gate allows)
     end
     EN->>EN: read sources (16 at a time), discoverTests()
     EN-->>TC: CeedlingProjectNode[]
@@ -144,8 +144,8 @@ sequenceDiagram
 ```
 
 1. `projectsFromSettings()` turns `ceedlingExplorer.projects` and `ceedlingExplorer.mixins` into `CeedlingProject`s: key, absolute path, project file, launch configuration name, and mixins. Projects whose project file exists become the engine’s `candidates`.
-2. For each candidate, `checkCeedlingVersion()` runs `ceedling version` in the project directory and requires 1.0.0 or later. `capabilitiesOf()` turns the version into the features this extension may use. See [Ceedling versions](#ceedling-versions). `ceedling version` honors a Ceedling vendored in the directory’s `vendor/ceedling`, or `WHICH_CEEDLING`, and then reports the launcher and the application it runs apart. It never loads the project file, though. So a `:project` ↳ `:which_ceedling` there selects a Ceedling it doesn’t check. `ProjectState.whichCeedling` records that choice.
-3. `resolveConfig()` runs `ceedling dumpconfig` with the project’s flags and parses the YAML. Ceedling 1.2.0 writes it to stdout (`--stdout`). Earlier versions write it to a uniquely named temporary file, which is then removed. `projectState()` reads the `ProjectState` from it: `buildRoot`, `reportFilename`, `testPrefix`, `testFilePrefix`, `executableExtension`, `useParamTests`, `reportPluginEnabled`, `coverage`, and `testPaths`.
+2. For each candidate, `checkCeedlingVersion()` runs `ceedling version` in the project directory and requires 1.0.0 or later. `capabilitiesOf()` turns the version into the features this extension may use. See [Ceedling versions](#ceedling-versions). `ceedling version` honors a Ceedling vendored in the directory’s `vendor/ceedling`, or named by `WHICH_CEEDLING`. It then reports the launcher and the application separately. Before 1.2.2 it never loads the project file, so it can’t check a Ceedling that `:project` ↳ `:which_ceedling` selects. `ProjectState.whichCeedling` records that choice for `discovering()`.
+3. `resolveConfig()` runs `ceedling dumpconfig` with the project’s flags and parses the YAML. Ceedling 1.2.0 writes it to stdout (`--stdout`). Earlier versions write it to a uniquely named temporary file, which is then removed. `projectState()` reads the `ProjectState` from it: `buildRoot`, `reportFilename`, `testPrefix`, `testFilePrefix`, `executableExtension`, `useParamTests`, `reportPluginEnabled`, `coverage`, `testPaths`, and `whichCeedling`. `configurationFingerprint()` digests the files and settings the state came from, kept as `LoadedProject.configuration`. The next discovery trusts the state only while that digest is unchanged.
 4. Once every project has loaded, `listTestFiles()` runs `ceedling files:test` and parses its bullets with `parseFileListBullets()`. A failed listing fails discovery, naming each project whose listing failed.
 5. `testFileNodes()` reads each file and calls `discoverTests(source, { testPrefix, useParamTests })`. It finds tests in source exactly as Ceedling’s test runner generator does, so every reported result lands on a discovered item. A function’s id is `file::name`, and a case’s is `file::name(args)`, exactly the names in Ceedling’s report.
 
@@ -233,10 +233,10 @@ Each kind of work has its own bound. Each workspace folder has its own `Ceedling
 | Discovery requests | Each other | `SingleFlight`: one discovery plus at most one rerun |
 | Project loads and listings within a discovery | Other project directories | `mapGrouped()`: concurrent across directories, in order within one |
 | Source reads | Every other read in the engine | `Limiter`: 16 open reads at once |
-| Builds, cleans, and discovery before 1.2.1 | Commands for projects apart in both directory and build root | `KeyedLock`: one command per key at a time |
+| Builds, cleans, and discovery when it takes the locks | Commands for projects apart in both directory and build root | `KeyedLock`: one command per key at a time |
 | Plan entries of one run request | Nothing | The controller awaits each in turn, so results arrive in tree order |
 | Separate run requests | Each other | The engine’s locks |
-| Discovery’s `dumpconfig` and `files:test` | Runs, debug builds, clean, and clobber, from Ceedling 1.2.1 | `mapGrouped()` alone from 1.2.1. Before, also the engine’s locks |
+| Discovery’s `dumpconfig` and `files:test` | Runs, debug builds, clean, and clobber, from Ceedling 1.2.1 where the gate allows | `mapGrouped()` alone where the gate allows. Otherwise also the engine’s locks |
 | Reparses of unsaved edits | Each other | `Debouncer`: the latest edit per file, after 400 ms |
 
 ```mermaid
@@ -256,20 +256,20 @@ flowchart TB
 
 ### Locks
 
-Runs, debug builds, clean, and clobber run inside `CeedlingEngine.exclusively(project, work)`. So does clearing a test’s coverage counters, which deletes files in the build root. Before Ceedling 1.2.1, discovery’s `dumpconfig` and `files:test` do too. Each holds two keys of the engine’s `KeyedLock`.
+Runs, debug builds, clean, and clobber run inside `CeedlingEngine.exclusively(project, work)`. So does clearing a test’s coverage counters, which deletes files in the build root. Discovery’s `dumpconfig` and `files:test` do too, unless `discovering()` finds them read-only. Each holds two keys of the engine’s `KeyedLock`.
 
 - `directory:<pathKey(project directory)>` serializes work in one directory, where several projects may share files.
-- `build:<pathKey(resolved build root)>` serializes work in one build root, which projects in different directories share when a common mixin sets `:project` ↳ `:build_root`. It is known once `dumpconfig` has resolved the project. Before 1.2.1, a rediscovery’s `dumpconfig` takes the build root the last discovery found, which any build still running uses. Its `files:test` takes the one just resolved.
+- `build:<pathKey(resolved build root)>` serializes work in one build root, which projects in different directories share when a common mixin sets `:project` ↳ `:build_root`. It is known once `dumpconfig` has resolved the project. A rediscovery’s `dumpconfig` that takes the locks takes the build root the last discovery found, which any build still running uses. Its `files:test` takes the one just resolved.
 
-The build root is where Ceedling’s shared state lives. Before Ceedling 1.2.1, every command that loads a project rewrites the vendored Unity and CMock sources under `build/vendor/` in place, so a second command can leave a build compiling a half-written header. In every version, builds in one build root share its CppUnit report, its Cobertura reports, and its coverage counters. `ceedling version` loads no project and takes no lock. From 1.2.1, discovery’s commands take no lock either, since they write nothing. See [Discovery without the locks from 1.2.1](#discovery-without-the-locks-from-121).
+The build root is where Ceedling’s shared state lives. Before Ceedling 1.2.1, every command that loads a project rewrites the vendored Unity and CMock sources under `build/vendor/` in place, so a second command can leave a build compiling a half-written header. In every version, builds in one build root share its CppUnit report, its Cobertura reports, and its coverage counters. `ceedling version` takes no lock. From 1.2.1, discovery’s commands take no lock either where the gate holds, since they write nothing. See [Discovery without the locks from 1.2.1](#discovery-without-the-locks-from-121).
 
-Before Ceedling 1.2.1, a project no discovery has loaded yet holds only its directory key, since its build root is what its `dumpconfig` is about to resolve. That first `dumpconfig` can rewrite a shared build root’s vendored sources under another project’s build. This happens only for a project added while a sibling sharing its build root runs. Taking every known build root instead would make every discovery wait behind every run.
+A project no discovery has loaded yet holds only its directory key, since its build root is what its `dumpconfig` is about to resolve. Before Ceedling 1.2.1, that first `dumpconfig` can rewrite a shared build root’s vendored sources under another project’s build. This happens only for a project added while a sibling sharing its build root runs. Taking every known build root instead would make every discovery wait behind every run.
 
 ### Invariants
 
 The concurrency design rests on these invariants. A change that breaks one needs a new argument for safety.
 
-1. **Every Ceedling command runs inside `exclusively()` except `version` and, from 1.2.1, discovery’s.** Callers of `buildAndRun()` hold the project’s locks. `resolveConfig()` and `listTestFiles()` run through `discovering()`, which takes the locks only before 1.2.1.
+1. **Every Ceedling command runs inside `exclusively()` except `version` and, where the gate holds, discovery’s.** Callers of `buildAndRun()` hold the project’s locks. `resolveConfig()` and `listTestFiles()` run through `discovering()`. It skips the locks only for a project whose exact release has `readOnlyDiscovery` and whose known configuration selects the Ceedling `ceedling version` checked. See [What the gate guards](#discovery-without-the-locks-from-121).
 2. **Locks are taken in sorted key order.** `KeyedLock.runAll()` dedupes and sorts its keys, then takes them one at a time, so two callers never each hold a key the other waits for. Within one key, work runs in arrival order.
 3. **A build reads its own reports before it releases its locks.** `buildAndRun()` deletes stale CppUnit and Cobertura reports first, and reads the new ones under the same locks, so no other build’s report can pass as this one’s.
 4. **Each plan entry uses the project as it was when that entry began.** `discover()` replaces the engine’s `projects` map only after every project loads. An entry already holding its `LoadedProject` keeps its arguments, directory, and build root through a concurrent discovery, failed or not. So does a function run’s whole-file fallback. A later entry of the same request looks its project up afresh.
@@ -281,11 +281,11 @@ The concurrency design rests on these invariants. A change that breaks one needs
 Every version gate reads one table, `FIRST_RELEASES` in `ceedlingProjectConfig.ts`. It names the first Ceedling release with each feature the engine uses only where it exists. Code asks about features, never versions.
 
 - **Reading a version.** `checkCeedlingVersion()` parses `ceedling version` with `parseCeedlingVersions()`. A project running another installation, e.g. one in `vendor/ceedling`, reports two: the launcher that `ceedlingExplorer.ceedlingCommand` starts, and the application it runs. `applicationRelease()` reduces the application’s to its release through `ceedlingRelease()`. A build suffix such as `1.2.0-13a540f`, or `1.2.1.dev`, counts as its release, though semver ranks it below. `isSupportedRelease()` compares the release with `MINIMUM_CEEDLING_VERSION`, 1.0.0. The loaded project keeps it as `LoadedProject.release`.
-- **An exact release.** Before 1.2.2, a launcher reports another installation’s release as its own, with that installation’s commit ([Ceedling#1365](https://github.com/ThrowTheSwitch/Ceedling/issues/1365)). So `applicationRelease()` counts the application’s release as exact only from a 1.2.2 launcher, or when both report the same build, commit and all. Otherwise the launcher’s release stands in, `LoadedProject.exactRelease` is false, and the engine logs a warning. `reportsApplicationVersion` is the one capability read from the launcher’s release, not the project’s.
+- **An exact release.** Before 1.2.2, a launcher reports its own release as another installation’s, with that installation’s commit ([Ceedling#1365](https://github.com/ThrowTheSwitch/Ceedling/issues/1365)). So `applicationRelease()` counts the application’s release as exact only from a 1.2.2 launcher, or when both report the same build, commit and all. Otherwise the launcher’s release stands in, `LoadedProject.exactRelease` is false, and the engine logs a warning. `reportsApplicationVersion` is the one capability read from the launcher’s release, not the project’s.
 - **Gating.** `capabilitiesOf(release)` turns the release into one boolean per feature, kept as `LoadedProject.capabilities`. The engine branches on those booleans alone.
 - **Messages.** Text that names a version takes it from the table, through `firstRelease()`, or from the project’s own release. The coverage warning for same-named test files in `commandArgs()` uses both.
 - **Adding a gate.** A new feature needs a table entry, with a comment saying what it changes, and a row in the table below. The `capabilitiesOf` unit tests spell out every feature’s value per release, so a new entry fails them until they say what each release has. Another test checks that each feature switches on exactly at its first release.
-- **Validation.** The validation suites gate on the same table, through `capabilities()` and `requires()` in `tests/validation/harness.ts`. Each run therefore checks the engine’s claims about a release against that release. The fake Ceedling in `tests/fixtures/fake-ceedling/` keeps its own version rules, since it models Ceedling, not the extension.
+- **Validation.** The validation suites gate on the same table, through `capabilities()` and `requires()` in `tests/validation/harness.ts`. A wrong entry then fails a suite whose checks depend on the feature itself, such as `stress`, `gated`, `layout`, or a probe. The fake Ceedling in `tests/fixtures/fake-ceedling/` keeps its own version rules, since it models Ceedling, not the extension.
 
 | Capability | From | Effect |
 |---|---|---|
@@ -306,14 +306,19 @@ Ceedling 1.2.1 resolves three problems this extension works around ([#1360](http
 
 ### Discovery without the locks from 1.2.1
 
-From Ceedling 1.2.1, discovery’s `dumpconfig` and `files:test` take none of the project’s locks, so a rediscovery never waits for a run. `discovering()` runs them directly when the project’s `readOnlyDiscovery` capability holds, and through `exclusively()` otherwise. In the `latency` validation suite on 1.2.1, a rediscovery during a 4.4-second build takes about 1.0 second, its own cost, instead of about 4.9 seconds with the locks. That suite checks both behaviors. From 1.2.1, a rediscovery during a build must finish first. Before 1.2.1, it must finish after the build (see [Development.md](Development.md#5-validation-against-real-ceedling)).
+From Ceedling 1.2.1, discovery’s `dumpconfig` and `files:test` can run without the project’s locks, so a rediscovery usually needn’t wait for a run. `discovering()` runs them directly when the gate below holds, and through `exclusively()` otherwise. On 1.2.1, a rediscovery during a 5-second build takes about 1.0 second, its own cost, instead of about 5 seconds with the locks. The `latency` validation suite measures that difference and checks both sides of the gate (see [Development.md](Development.md#5-validation-against-real-ceedling)).
 
 **Why it is safe from 1.2.1.** From 1.2.1, discovery writes nothing a build reads. Ceedling 1.2.1 brings `build/vendor/` up to date only for test and release builds, writes only changed files, and replaces each whole by renaming a temporary copy. Nothing discovery reads under `build/` changes its output.
 - **No writes.** `probe:syscalls` traces every filesystem call both commands make under a build root populated by a full test and coverage build. On 1.2.1 neither writes anything outside `/dev`, `/proc`, and `/tmp`. They list `build/vendor/unity/src` and `build/vendor/cmock/src`, and check that other directories exist. On 1.2.0 the same commands open the 8 vendored sources for writing and truncate them. Ceedling writes a log file only with `--log` or `--logfile`, which discovery never passes.
 - **Directories only.** Before the first build, discovery creates the build root’s skeleton, 20 empty directories. Builds create the same ones, and both tolerate a directory that already exists.
 - **Clean and clobber.** Discovery needs no lock against them either. Ceedling lists what they delete up front, then deletes each entry on its own, ignoring failures. A discovery during either can only recreate empty directories, which the next command would create anyway. `probe:overlap` shows that a `clobber` of 20,000 padded files, overlapped by discovery, leaves nothing outside `build/vendor/` and forces a full rebuild. `stress` overlaps discovery with both.
 
-**What the gate guards.** Each project’s own Ceedling decides, since its commands are the ones that write. A 1.2.0 project sharing a build root with a 1.2.1 project still waits for the 1.2.1 project’s builds. The version check must show that Ceedling’s release exactly, so before 1.2.2 a project vendoring another build always waits. The check can’t see a `:which_ceedling` in the project file, so `discovering()` also requires the project’s last known configuration to select no other Ceedling. A project not yet loaded therefore takes the locks for its first `dumpconfig`, and one selecting another Ceedling in its configuration always does. Without the gate, `stress --shared-build-root` on 1.2.0 caught a run compiling a half-written `unity.h`, so the suite can tell the two policies apart. On 1.2.1, with no discovery locks, it passes. `latency --vendored` checks that a copy of the installed build in `vendor/ceedling` gates as the installed one does.
+**What the gate guards.** Discovery skips the locks only when the project’s own Ceedling is known to write nothing.
+- **Per project.** Each project’s own Ceedling decides, since its commands are the ones that write. A 1.2.0 project sharing a build root with a 1.2.1 project still waits for the 1.2.1 project’s builds.
+- **An exact release.** The version check must show that Ceedling’s release exactly. Before 1.2.2, a project vendoring another build therefore always waits.
+- **The configuration.** Before 1.2.2 the version check can’t see a `:which_ceedling` in the project file. `versionSeesSelection()` accepts a configuration that selects what the check sees anyway: `gem`, or the project’s own `vendor/ceedling`, as `ceedling new --local` writes. Any other selection waits.
+- **A known configuration.** A rediscovery’s `dumpconfig` gates on the configuration the last discovery resolved, so it holds only while `LoadedProject.configuration` still matches. An edit to the project file or a mixin file, or to the project’s mixins setting, may have just selected another Ceedling. That `dumpconfig` takes the locks, as does a project’s first. A mixin given by name counts only by its name.
+- **Validation.** Without the gate, `stress --shared-build-root` on 1.2.0 caught a run compiling a half-written `unity.h`, so the suite can tell the two policies apart. On 1.2.1 it passes. `latency --vendored` checks that a copy of the installed build in `vendor/ceedling`, found without `:which_ceedling`, gates as the installed one does.
 
 **The risk.** The capability holds for every release from 1.2.1, but a later Ceedling could start writing during discovery again. [Development.md](Development.md#on-a-new-ceedling-release) lists the checks to rerun on each new release.
 
