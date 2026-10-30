@@ -47,6 +47,15 @@ suite('gcc preset against real compile-failure output', () => {
     }
 });
 
+// Ceedling 1.2.2's hand-off notices name installations by path, which no compiler pattern may read
+// as a diagnostic, though they come on stdout.
+suite('gcc preset against Ceedling 1.2.2 hand-off notices', () => {
+    test('finds nothing in them, even read as compiler output', () => {
+        const stdout = readFixture('ceedling-1.2.2', 'files-test-handoff-stdout.txt');
+        assert.deepStrictEqual(getGccPatternsPreset().flatMap((pattern) => getPatternProblems(stdout, stdout, PROJECT_PATH, pattern)), []);
+    });
+});
+
 // A missing header is GCC's "fatal error", not "error". Ceedling 1.0.0 passes it through as is.
 // Ceedling 1.2.0 instead reports its own exception, naming no file or line, before compiling.
 suite('gcc preset against a real missing-header failure', () => {

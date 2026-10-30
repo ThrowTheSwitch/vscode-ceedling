@@ -26,7 +26,7 @@ function namesIn(source: string, options = PARAMS_ON): string[] {
 }
 
 suite('discoverTests: golden parity with real Ceedling reports', () => {
-    for (const version of ['ceedling-1.0.0', 'ceedling-1.1.10', 'ceedling-1.2.0']) {
+    for (const version of ['ceedling-1.0.0', 'ceedling-1.1.10', 'ceedling-1.2.0', 'ceedling-1.2.2']) {
         test(`${version}: test_unity_parity.c`, async () => {
             const report = await parseCppUnitReport(readFixture(version, 'cppunit-report-unity-parity.xml'));
             const expected = report.passed.map((t) => t.name.replace(/^test\/test_unity_parity\.c::/, ''));
