@@ -97,6 +97,34 @@ export function fileOf(project: CeedlingProjectNode, id: string): CeedlingFileNo
     return file;
 }
 
+// The most recently written executable named `name` under a build root's test/out, relative to it,
+// or undefined. A suite compares the engine's debug path with what Ceedling actually built, rather
+// than with a layout it assumes. A delta build leaves an up-to-date executable as it was, so the
+// newest one, not one written during the step, is the build's own. An older layout's copy is older.
+export function newestExecutable(buildRoot: string, name: string): string | undefined {
+    const out = path.join(buildRoot, 'test', 'out');
+    if (!fs.existsSync(out)) return undefined;
+    const files = fs.readdirSync(out, { recursive: true, encoding: 'utf8' })
+        .filter((relative) => path.basename(relative) === name && fs.statSync(path.join(out, relative)).isFile());
+    return files.sort((a, b) => fs.statSync(path.join(out, b)).mtimeMs - fs.statSync(path.join(out, a)).mtimeMs)[0];
+}
+
+// Starts a full build of the project, rediscovers `delay` ms later, then waits for both. Times are
+// Date.now(). `dumpconfigAt` is when discovery's dumpconfig started, which the project's locks hold
+// back until the build ends; Infinity if it never ran.
+export async function rediscoverDuringBuild(engine: CeedlingEngine, logs: readonly LogCall[], project: CeedlingProjectNode, reporter: RunReporter, delay = 300):
+    Promise<{ discoveryStart: number, discoveryEnd: number, dumpconfigAt: number, buildEnd: number, discovered: CeedlingProjectNode[] }> {
+    const run = engine.runProjectAll(project.projectKey, project.files, reporter, token()).then(() => Date.now());
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    const discoveryStart = Date.now();
+    const mark = logs.length;
+    const discovered = await engine.discover();
+    const discoveryEnd = Date.now();
+    const buildEnd = await run;
+    const dumpconfigAt = logs.slice(mark).find((l) => /^ceedling: \S+ dumpconfig/.test(l.message))?.at ?? Infinity;
+    return { discoveryStart, discoveryEnd, dumpconfigAt, buildEnd, discovered };
+}
+
 export function hasCommand(name: string): boolean {
     return child_process.spawnSync('sh', ['-c', `command -v ${name}`]).status === 0;
 }

@@ -10,10 +10,9 @@
 // on both. Ceedling before 1.2.0 can't build same-named test files at all, so the suite skips.
 //
 // usage: node gated.js
-import * as fs from 'fs';
 import { coverageMode } from '../../src/ceedlingEngine';
 import type { CoverageOutcome } from '../../src/testModel';
-import { capabilities, ceedlingVersion, describeOutcome, fileOf, hits, main, makeEngine, only, parseArgs, recordingReporter, requires, stage, token, WS } from './harness';
+import { capabilities, ceedlingVersion, describeOutcome, fileOf, hits, main, makeEngine, newestExecutable, only, parseArgs, recordingReporter, requires, stage, token, WS } from './harness';
 
 const UNIT = 'test/unit/test_dup.c', INTEGRATION = 'test/integration/test_dup.c', FILTERS = 'test/test_filters.c';
 const ADD = `${UNIT}::test_unit_add`, LOW = `${INTEGRATION}::test_integration_clamp_low`, HIGH = `${INTEGRATION}::test_integration_clamp_high`;
@@ -138,8 +137,9 @@ main('gated', async (checks) => {
     }
     await step(`G10 debug build ${INTEGRATION}`, async (r) => {
         const executable = await engine.compileForDebug('project', file(INTEGRATION), r, token());
+        const built = newestExecutable(`${WS}/project/build`, 'test_dup.out');
         console.log(`    executable: ${executable}`);
-        checks.expect(executable === 'integration/test_dup/test_dup.out' && fs.existsSync(`${WS}/project/build/test/out/${executable}`), `G10: executable ${executable}`);
+        checks.expect(executable === built, `G10: executable ${executable}, but Ceedling built ${built ?? 'nothing'}`);
     }, (s) => results('G10', s.results, { [LOW]: 'passed', [HIGH]: 'passed' }));
 
     engine.dispose();
