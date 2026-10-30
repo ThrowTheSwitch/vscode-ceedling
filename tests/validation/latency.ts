@@ -13,10 +13,7 @@ import * as child_process from 'child_process';
 import * as fs from 'fs';
 import { parseCeedlingVersions } from '../../src/ceedlingOutputParsing';
 import { applicationRelease } from '../../src/ceedlingProjectConfig';
-import { capabilities, ceedlingVersion, main, makeEngine, only, parseArgs, recordingReporter, rediscoverDuringBuild, stage, token, WS } from './harness';
-
-// Each test's result, in id order, so runs compare whatever order their results arrive in.
-const tally = (results: ReadonlyMap<string, string>) => [...results].sort(([a], [b]) => a.localeCompare(b)).map(([id, r]) => `${id}=${r}`).join(', ');
+import { capabilities, ceedlingVersion, main, makeEngine, only, parseArgs, recordingReporter, rediscoverDuringBuild, stage, tally, token, WS } from './harness';
 
 main('latency', async (checks) => {
     const vendored = parseArgs([], ['--vendored']).flags.has('--vendored');
@@ -50,11 +47,11 @@ main('latency', async (checks) => {
     for (let i = 1; i <= 3; i++) {
         const reporter = recordingReporter();
         // eslint-disable-next-line no-await-in-loop -- each sample starts its own build, then rediscovers during it
-        const { discoveryStart, discoveryEnd, dumpconfigAt, buildEnd } = await rediscoverDuringBuild(engine, logs, project, reporter);
+        const { discoveryStart, discoveryEnd, dumpconfigAt, buildEnd, heldBack } = await rediscoverDuringBuild(engine, logs, project, reporter);
         const gap = buildEnd - discoveryEnd;
         console.log(`  discovery during a build: ${discoveryEnd - discoveryStart} ms, ending ${Math.abs(gap)} ms ${gap >= 0 ? 'before' : 'after'} the build`);
         if (lockFree) checks.expect(dumpconfigAt < buildEnd, `sample ${i}: discovery's dumpconfig started after the build ended`);
-        else checks.expect(discoveryEnd > buildEnd, `sample ${i}: discovery ended before the build did`);
+        else checks.expect(heldBack, `sample ${i}: discovery's dumpconfig started before the build ended`);
         checks.expect(tally(reporter.results) === tally(baseline.results), `sample ${i}: results ${tally(reporter.results)}, expected ${tally(baseline.results)}`);
     }
     engine.dispose();

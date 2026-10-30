@@ -9,7 +9,7 @@ import type vscode from 'vscode';
 import { CeedlingEngine } from '../../src/ceedlingEngine';
 import { parseCeedlingVersions } from '../../src/ceedlingOutputParsing';
 import { applicationRelease, capabilitiesOf, type CeedlingCapabilities, type CeedlingFeature } from '../../src/ceedlingProjectConfig';
-import type { Cancellation } from '../../src/ceedlingProcess';
+import { type Cancellation, ceedlingEnvironment } from '../../src/ceedlingProcess';
 import type { Logger } from '../../src/logger';
 import type { ProblemMatcher } from '../../src/problemMatcher';
 import type { CeedlingFileNode, CeedlingProjectNode, CoverageOutcome, RunReporter } from '../../src/testModel';
@@ -68,7 +68,7 @@ export function parseArgs(defaults: readonly number[], flags: readonly string[] 
 
 // The image's Ceedling release, asked once. Suites gate on capabilities(), which the engine's own
 // gates read too. A wrong table entry then shows only in a suite whose checks depend on the feature
-// itself, as stress, gated, layout, and the probes do. latency follows the table either way.
+// itself, as stress, gated, and layout do. latency and mixed follow the table either way.
 let release: string | undefined;
 export function ceedlingVersion(): string {
     if (release === undefined) {
@@ -97,32 +97,65 @@ export function fileOf(project: CeedlingProjectNode, id: string): CeedlingFileNo
     return file;
 }
 
-// The most recently written executable named `name` under a build root's test/out, relative to it,
-// or undefined. A suite compares the engine's debug path with what Ceedling actually built, rather
-// than with a layout it assumes. A delta build leaves an up-to-date executable as it was, so the
-// newest one, not one written during the step, is the build's own. An older layout's copy is older.
-export function newestExecutable(buildRoot: string, name: string): string | undefined {
+// Where suites find other Ceedling installations to select. See sidecar/validate.Dockerfile.
+export const INSTALLATIONS = '/opt/ceedling';
+
+// Each test's result, in id order, so runs compare whatever order their results arrive in.
+export const tally = (results: ReadonlyMap<string, string>) => [...results].sort(([a], [b]) => a.localeCompare(b)).map(([id, r]) => `${id}=${r}`).join(', ');
+
+// Every executable named `name` under a build root's test/out, relative to it, newest first.
+export function executables(buildRoot: string, name: string): string[] {
     const out = path.join(buildRoot, 'test', 'out');
-    if (!fs.existsSync(out)) return undefined;
-    const files = fs.readdirSync(out, { recursive: true, encoding: 'utf8' })
-        .filter((relative) => path.basename(relative) === name && fs.statSync(path.join(out, relative)).isFile());
-    return files.sort((a, b) => fs.statSync(path.join(out, b)).mtimeMs - fs.statSync(path.join(out, a)).mtimeMs)[0];
+    if (!fs.existsSync(out)) return [];
+    const modified = (relative: string) => fs.statSync(path.join(out, relative)).mtimeMs;
+    return fs.readdirSync(out, { recursive: true, encoding: 'utf8' })
+        .filter((relative) => path.basename(relative) === name && fs.statSync(path.join(out, relative)).isFile())
+        .sort((a, b) => modified(b) - modified(a));
 }
 
-// Starts a full build of the project, rediscovers `delay` ms later, then waits for both. Times are
-// Date.now(). `dumpconfigAt` is when discovery's dumpconfig started, which the project's locks hold
-// back until the build ends; Infinity if it never ran.
-export async function rediscoverDuringBuild(engine: CeedlingEngine, logs: readonly LogCall[], project: CeedlingProjectNode, reporter: RunReporter, delay = 300):
-    Promise<{ discoveryStart: number, discoveryEnd: number, dumpconfigAt: number, buildEnd: number, discovered: CeedlingProjectNode[] }> {
+// Deletes every executable named `name`, so the next build of its test links one. A delta build
+// otherwise leaves an up-to-date executable as it was, whatever its source's timestamp.
+export function removeExecutables(buildRoot: string, name: string): void {
+    for (const relative of executables(buildRoot, name)) fs.rmSync(path.join(buildRoot, 'test', 'out', relative));
+}
+
+// The one executable named `name` under a build root's test/out, relative to it. undefined when
+// there is none or several. After removeExecutables(), it is what the next build wrote. A suite
+// compares the engine's debug path with it, rather than with a layout it assumes.
+export function builtExecutable(buildRoot: string, name: string): string | undefined {
+    const built = executables(buildRoot, name);
+    return built.length === 1 ? built[0] : undefined;
+}
+
+// Ceedling run directly, as the engine would run it, with the engine's environment and the current
+// WHICH_CEEDLING. `exception` is Ceedling's EXCEPTION text, if it stopped with one.
+export function ceedlingAlone(args: readonly string[], cwd: string): { runs: boolean, output: string, exception: string | undefined } {
+    const result = child_process.spawnSync('ceedling', args, { cwd, encoding: 'utf8', timeout: 300000, env: ceedlingEnvironment(process.env) });
+    const output = `${result.stdout}\n${result.stderr}`;
+    return { runs: result.status === 0, output, exception: /EXCEPTION:\s*(.*)$/m.exec(output)?.[1]?.trim() };
+}
+
+// How much later a lock's release can reach a waiting command than the build's own end.
+const LOCK_HANDOFF_MS = 100;
+
+// Starts a full build of the project, rediscovers 300 ms later, then waits for both. Times are
+// Date.now(). `dumpconfigAt` is when discovery's dumpconfig started, Infinity if it never ran.
+// `heldBack` says the project's locks held it until the build ended.
+export async function rediscoverDuringBuild(engine: CeedlingEngine, logs: readonly LogCall[], project: CeedlingProjectNode, reporter: RunReporter):
+    Promise<{ discoveryStart: number, discoveryEnd: number, dumpconfigAt: number, buildEnd: number, heldBack: boolean, discovered: CeedlingProjectNode[] }> {
     const run = engine.runProjectAll(project.projectKey, project.files, reporter, token()).then(() => Date.now());
-    await new Promise((resolve) => setTimeout(resolve, delay));
-    const discoveryStart = Date.now();
-    const mark = logs.length;
-    const discovered = await engine.discover();
-    const discoveryEnd = Date.now();
-    const buildEnd = await run;
-    const dumpconfigAt = logs.slice(mark).find((l) => /^ceedling: \S+ dumpconfig/.test(l.message))?.at ?? Infinity;
-    return { discoveryStart, discoveryEnd, dumpconfigAt, buildEnd, discovered };
+    try {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const discoveryStart = Date.now();
+        const mark = logs.length;
+        const discovered = await engine.discover();
+        const discoveryEnd = Date.now();
+        const buildEnd = await run;
+        const dumpconfigAt = logs.slice(mark).find((l) => /^ceedling: \S+ dumpconfig/.test(l.message))?.at ?? Infinity;
+        return { discoveryStart, discoveryEnd, dumpconfigAt, buildEnd, heldBack: dumpconfigAt >= buildEnd - LOCK_HANDOFF_MS, discovered };
+    } finally {
+        await run.catch(() => undefined);
+    }
 }
 
 export function hasCommand(name: string): boolean {
