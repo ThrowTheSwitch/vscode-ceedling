@@ -29,6 +29,8 @@ This document is the terse, itemized record of what changed in each release. Its
   * Its `gcov:` tasks take a test file’s path, so coverage runs of same-named test files in different directories each run the right file.
   * The _Testing_ view updates during a long run, e.g. after adding a test file, rather than after the run finishes. A project vendoring its Ceedling with `ceedling new --local` updates too.
 * Support for Ceedling 1.2.2:
+  * Debugging and coverage find each test’s build in Ceedling 1.2.2’s layout, which places it under the test’s path from the project root.
+  * Debugging finds the executable wherever the build wrote it, even when an installed Ceedling before 1.2.2 misreports the version of the Ceedling a project runs.
   * With Ceedling 1.2.2 installed, a project running its own Ceedling of a different version, vendored in `vendor/ceedling` or selected by `WHICH_CEEDLING`, uses that version’s features ([Ceedling#1365](https://github.com/ThrowTheSwitch/Ceedling/issues/1365)).
 * The `report_tests_log_factory` plugin’s `cppunit` report, which this extension reads results from, is now enabled automatically by a bundled [mixin](README.md#mixins). Enabling it in `project.yml` is no longer required.
 * New `ceedlingExplorer.mixins` and `ceedlingExplorer.projects[].mixins` settings apply Ceedling mixins, for toolchain targets, CI overrides, or other configuration, without editing `project.yml`. See [Mixins](README.md#mixins).

@@ -193,22 +193,30 @@ Diagnostics are keyed by run scope: the project key for a project run, `projectK
 
 ### Test build directories
 
-Ceedling builds each test file in directories named for it, under `test/out`, `gcov/out`, and the rest of the build root. Debugging needs the executable there, and a coverage collision needs the counters. `testBuildName(testId, testPaths, nested)` in `ceedlingProjectConfig.ts` computes that name exactly as Ceedling does.
+Ceedling builds each test file in directories named for it, under `test/out`, `gcov/out`, and the rest of the build root. Debugging needs the executable there, and a coverage collision needs the counters. Each release lays them out in one of three ways, which `testBuildLayout(capabilities)` names. `testBuildName(testId, layout, project)` in `ceedlingProjectConfig.ts` then computes the name exactly as Ceedling does.
 
-- **Before 1.2.0** the name is the test file’s base name, e.g. `test_foo` for `test/unit/test_foo.c`.
-- **From 1.2.0** the file’s directory within its test path comes first, e.g. `unit/test_foo`. Ceedling’s `TestBuildSetup` derives it through `PathMirror.relative_subdir` over `:paths` ↳ `:test`, which `ProjectState.testPaths` holds as configured.
-- **Roots.** Each test path loses a leading `+:` or `-:` and the whitespace around it. A test path with a glob (`*`, `?`, `{`, `}`) is cut back to the directory before its first glob, so `+:test/**` gives `test`. One led by a glob gives nothing. Subtractive paths count as roots too, as in Ceedling.
-- **Choice.** The longest root that equals the file’s directory, or contains it, decides. A file under no root, or directly in one, builds under its base name. Paths compare as written, with backslashes read as `/`.
+- **`flat`, before 1.2.0.** The name is the test file’s base name, e.g. `test_foo` for `test/unit/test_foo.c`.
+- **`testRoot`, 1.2.0 and 1.2.1.** The file’s directory within its test path comes first, e.g. `unit/test_foo`. Ceedling’s `TestBuildSetup` derives it through `PathMirror.relative_subdir` over `:paths` ↳ `:test`, which `ProjectState.testPaths` holds as configured.
+  - **Roots.** Each test path loses a leading `+:` or `-:` and the whitespace around it. A test path with a glob (`*`, `?`, `{`, `}`) is cut back to the directory before its first glob, so `+:test/**` gives `test`. One led by a glob gives nothing. Subtractive paths count as roots too, as in Ceedling.
+  - **Choice.** The longest root that equals the file’s directory, or contains it, decides. A file under no root, or directly in one, builds under its base name. Paths compare as written, with backslashes read as `/`.
+- **`projectPath`, from 1.2.2.** The name is the file’s path from the project root without its extension, e.g. `test/unit/test_foo`, as Ceedling’s `BuildSubpath.encode` spells it. The path is normalized, and each `..` becomes `_up_`. On Windows, a path on another drive goes under `_abs_/<DRIVE>`, and one on a share under `_unc_`. A segment named like a marker, `_up_`, `_abs_`, `_unc_` or `_ceedling_` in any case, gains a leading `_`.
 
-Ceedling itself can’t build some same-named layouts ([Ceedling#1364](https://github.com/ThrowTheSwitch/Ceedling/issues/1364)). To find a test’s own source, it searches every test file for the test’s build name. When that name ends another test file’s path, the search finds both and stops with `EXCEPTION: Ambiguous file reference`, whatever path the task named.
+Ceedling 1.2.0 and 1.2.1 can’t build some same-named layouts ([Ceedling#1364](https://github.com/ThrowTheSwitch/Ceedling/issues/1364)). To find a test’s own source, they search every test file for the test’s build name. When that name ends another test file’s path, the search finds both and stops with `EXCEPTION: Ambiguous file reference`, whatever path the task named.
 - With the single test path `+:test/**`, `test/test_calc.c` builds as `test_calc`, which ends `test/unit/test_calc.c`. The first file can’t be built. The second can.
 - With `+:test/unit/**` and `+:extra/**`, `test/unit/test_calc.c` builds as `test_calc` and `extra/unit/test_calc.c` as `unit/test_calc`. Each name ends both paths, so neither file can be built.
 
-`test:all` fails in both. `testBuildName()` still names every directory correctly.
+`test:all` fails in both. `testBuildName()` still names every directory correctly. Ceedling 1.2.2 fixes this by naming each build for its test’s whole path from the project root.
 
 ### Debugging
 
-`handleDebug()` debugs one test file. `compileForDebug()` runs the file exactly as a run does and reports its real results. It then returns the executable’s path relative to Ceedling’s test output directory. That path is `<build name>/<name><executableExtension>`, from `testBuildName()`. See [Test build directories](#test-build-directories). `resolveLaunchConfig()` in `debugLaunch.ts` splices that path into every `${command:ceedlingExplorer.debugTestExecutable}` in a copy of the named launch configuration.
+`handleDebug()` debugs one test file. `compileForDebug()` runs the file exactly as a run does and reports its real results. It then returns the executable’s path relative to Ceedling’s test output directory. That path is `<build name>/<name><executableExtension>`. See [Test build directories](#test-build-directories).
+
+A release known exactly says where its executable goes. Otherwise the project may run any release. A launcher before 1.2.2 reports its own release for another installation ([Ceedling#1365](https://github.com/ThrowTheSwitch/Ceedling/issues/1365)), and never reads a `:which_ceedling` that selects one it wouldn’t find unaided. `releaseKnown()` decides, as `discovering()` does for the locks.
+- `executableCandidates()` lists where the executable may sit. For a known release, that is its own layout alone. Otherwise every layout counts, its own first, except a place that is another test file’s own.
+- `compileForDebug()` notes each candidate’s modification time before the build.
+- `executableSubpath()` then takes the candidate the build wrote. A delta build may write none, leaving an up-to-date executable as it was, so it next takes the newest that exists, then the release’s own. It logs a warning when it takes another layout’s, or finds none.
+
+`resolveLaunchConfig()` in `debugLaunch.ts` splices that path into every `${command:ceedlingExplorer.debugTestExecutable}` in a copy of the named launch configuration.
 
 ### Coverage
 
@@ -216,7 +224,7 @@ A coverage run is an ordinary run with a `RunMode` of `coverage`. The controller
 
 - **Configuration.** `coverageState()` reads the resolved configuration. It says whether reports wait for `report:gcov`. It also lists where each enabled utility writes its Cobertura report, relative to the build root, gcovr’s first. ReportGenerator writes `ReportGenerator/Cobertura.xml`, or `ReportGenerator/Cobertura/Cobertura.xml` with several report types. `coverageProblem()` explains a project that writes no Cobertura report.
 - **Building.** `commandArgs()` uses `coverageCommandArgs`. Before Ceedling 1.2.1 it passes the bare file name, since the `gcov:` task prepends the test file prefix to a name lacking it. From 1.2.1 it passes the path. It appends `report:gcov` when reports wait for that task. Under the project’s locks, `prepareCoverage()` deletes stale Cobertura reports. Once per counter directory per request, it also deletes the `.gcda` counters, and the `.gcov` files gcov writes from them, under `<build>/gcov/out`, unless `coverageResetsCounters` is off.
-- **Collisions.** A `--test-case` collision clears only its test’s own counters before the whole-file fallback. `clearTestCounters()` deletes those beneath the test’s build directory in `gcov/out`, from `testBuildName()`, so same-named test files elsewhere keep theirs.
+- **Collisions.** A `--test-case` collision clears only its test’s own counters before the whole-file fallback. `clearTestCounters()` deletes those beneath the test’s build directory in `gcov/out`, from `testBuildName()`, so same-named test files elsewhere keep theirs. For a release not known exactly, it clears each layout’s place, as debugging looks in each, except one that is another test file’s own.
 - **Paths.** Cobertura names files relative to one of its `<source>` roots, or absolutely. `reportedFiles()` gives each file a candidate per source, resolved against the project directory, where Ceedling runs the tools. The engine keeps the first candidate that exists.
 - **Showing.** Each build that produced test results reports a `CoverageOutcome` through `RunReporter.coverage()`. A failed build reports one only for a configuration that can’t give coverage. `mergeCoverage()` keeps the last report per report path, and adds up reports from separate build directories. A `missing` outcome becomes a notification and a line in the run’s output.
 
@@ -278,25 +286,26 @@ The concurrency design rests on these invariants. A change that breaks one needs
 
 ### Ceedling versions
 
-Every version gate reads one table, `FIRST_RELEASES` in `ceedlingProjectConfig.ts`. It names the first Ceedling release with each feature the engine uses only where it exists. Code asks about features, never versions.
+Every version gate reads one of two tables in `ceedlingProjectConfig.ts`. Each names the first Ceedling release with each feature the engine uses only where it exists. `APPLICATION_FEATURES` belong to the installation that runs the project. `LAUNCHER_FEATURES` belong to the `ceedling` command, which may hand the project off to another installation. Code asks about features, never versions.
 
 - **Reading a version.** `checkCeedlingVersion()` parses `ceedling version` with `parseCeedlingVersions()`. A project running another installation, e.g. one in `vendor/ceedling`, reports two: the launcher that `ceedlingExplorer.ceedlingCommand` starts, and the application it runs. `applicationRelease()` reduces the application’s to its release through `ceedlingRelease()`. A build suffix such as `1.2.0-13a540f`, or `1.2.1.dev`, counts as its release, though semver ranks it below. `isSupportedRelease()` compares the release with `MINIMUM_CEEDLING_VERSION`, 1.0.0. The loaded project keeps it as `LoadedProject.release`.
-- **An exact release.** Before 1.2.2, a launcher reports its own release as another installation’s, with that installation’s commit ([Ceedling#1365](https://github.com/ThrowTheSwitch/Ceedling/issues/1365)). So `applicationRelease()` counts the application’s release as exact only from a 1.2.2 launcher, or when both report the same build, commit and all. Otherwise the launcher’s release stands in, `LoadedProject.exactRelease` is false, and the engine logs a warning. `reportsApplicationVersion` is the one capability read from the launcher’s release, not the project’s.
-- **Gating.** `capabilitiesOf(release)` turns the release into one boolean per feature, kept as `LoadedProject.capabilities`. The engine branches on those booleans alone.
+- **An exact release.** Before 1.2.2, a launcher reports its own release as another installation’s, with that installation’s commit ([Ceedling#1365](https://github.com/ThrowTheSwitch/Ceedling/issues/1365)). So `applicationRelease()` counts the application’s release as exact only from a 1.2.2 launcher, or when both report the same build, commit and all. Otherwise the launcher’s release stands in, `LoadedProject.exactRelease` is false, and the engine logs a warning. `reportsApplicationVersion` is a launcher feature, read through `launcherCapabilitiesOf()`.
+- **Gating.** `capabilitiesOf(release)` turns the application’s release into one boolean per application feature, kept as `LoadedProject.capabilities`. `launcherCapabilitiesOf()` does the same for the launcher’s. The engine branches on those booleans alone. Their types differ, so code can’t ask an application for a launcher feature.
 - **Messages.** Text that names a version takes it from the table, through `firstRelease()`, or from the project’s own release. The coverage warning for same-named test files in `commandArgs()` uses both.
-- **Adding a gate.** A new feature needs a table entry, with a comment saying what it changes, and a row in the table below. The `capabilitiesOf` unit tests spell out every feature’s value per release, so a new entry fails them until they say what each release has. Another test checks that each feature switches on exactly at its first release.
+- **Adding a gate.** A new feature needs an entry in its table, with a comment saying what it changes, and a row in the table below. The `capabilitiesOf` unit tests spell out every application feature’s value per release, so a new application entry fails them until they say what each release has. Another test checks that each feature switches on exactly at its first release. `tests/unit/docs.test.ts` checks that the table below lists every feature at its first release.
 - **Validation.** The validation suites gate on the same table, through `capabilities()` and `requires()` in `tests/validation/harness.ts`. A wrong entry then fails a suite whose checks depend on the feature itself, such as `stress`, `gated`, or `layout`. `latency` and `mixed` follow the table, and the probes judge nothing. The fake Ceedling in `tests/fixtures/fake-ceedling/` keeps its own version rules, since it models Ceedling, not the extension.
 
-| Capability | From | Effect |
-|---|---|---|
-| `dumpconfigStdout` | 1.2.0 | `dumpconfig --stdout`, with no temporary file |
-| `forceTestRerun` | 1.2.0 | Every build adds `--force-test-rerun` |
-| `pathQualifiedTestTasks` | 1.2.0 | `test:` tasks take the file’s project-relative path |
-| `pathQualifiedCoverageTasks` | 1.2.1 | `gcov:` tasks take the path too |
-| `ceedlingYml` | 1.2.0 | `ceedling.yml` is a default project file |
-| `nestedTestBuilds` | 1.2.0 | A test’s build directories nest under its directory within its test path |
-| `readOnlyDiscovery` | 1.2.1 | `dumpconfig` and `files:test` run without the project’s locks |
-| `reportsApplicationVersion` | 1.2.2 | A launcher’s report of another installation’s release is exact |
+| Feature | From | Of | Effect |
+|---|---|---|---|
+| `dumpconfigStdout` | 1.2.0 | Application | `dumpconfig --stdout`, with no temporary file |
+| `forceTestRerun` | 1.2.0 | Application | Every build adds `--force-test-rerun` |
+| `pathQualifiedTestTasks` | 1.2.0 | Application | `test:` tasks take the file’s project-relative path |
+| `pathQualifiedCoverageTasks` | 1.2.1 | Application | `gcov:` tasks take the path too |
+| `ceedlingYml` | 1.2.0 | Application | `ceedling.yml` is a default project file |
+| `nestedTestBuilds` | 1.2.0 | Application | Same-named test files build apart. See `testBuildLayout()` |
+| `projectPathTestNames` | 1.2.2 | Application | A test’s build directories sit under its path from the project root |
+| `readOnlyDiscovery` | 1.2.1 | Application | `dumpconfig` and `files:test` run without the project’s locks |
+| `reportsApplicationVersion` | 1.2.2 | Launcher | A launcher’s report of another installation’s release is exact |
 
 Ceedling 1.2.1 resolves three problems this extension works around ([#1360](https://github.com/ThrowTheSwitch/Ceedling/issues/1360), [#1361](https://github.com/ThrowTheSwitch/Ceedling/issues/1361), [#1362](https://github.com/ThrowTheSwitch/Ceedling/issues/1362)). Not every workaround can go.
 
