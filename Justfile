@@ -61,6 +61,11 @@ validate VERSION SUITE="all" *ARGS="": image
     just _run "npm run -s build:tests"
     SIDECAR_IMAGE={{image_name}} NODE_MODULES_VOLUME={{node_modules_volume}} tests/validation/run.sh {{VERSION}} {{SUITE}} {{ARGS}}
 
+# Run every validation suite and probe on each supported Ceedling (MATRIX, CEEDLING_GEM: see tests/validation/matrix.sh)
+validate-matrix *ARGS="": image
+    just _run "npm run -s build:tests"
+    SIDECAR_IMAGE={{image_name}} NODE_MODULES_VOLUME={{node_modules_volume}} tests/validation/matrix.sh {{ARGS}}
+
 # Package the extension into a .vsix
 package: image
     just _run "npm run package"
