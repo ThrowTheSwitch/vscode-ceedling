@@ -25,9 +25,9 @@ const EXPECTED: Record<string, string> = {
 };
 const expectedOf = (id: string) => EXPECTED[id.split('::')[1].replace(/\(.*$/, '')];
 
-// Checks one run's reporting: results only for `reportable` tests, by default its own, none after
-// the run returns, one per test, and in a run that wasn't cancelled, the expected outcome for
-// every one of its own.
+// Checks one run's reporting. Only `reportable` tests may report, by default the run's own, each
+// once and none after the run returns. A run not cancelled must give each of its own the expected
+// outcome.
 function checkedReporter(checks: Checks, label: string, leaves: readonly string[], reportable = leaves) {
     const state = new Map<string, string>();
     let finished = false;
@@ -67,7 +67,7 @@ main('stress', async (checks) => {
 
     let tree = await engine.discover();
     console.log(`projects: ${tree.map((p) => `${p.projectKey} (${p.files.length} files)`).join(', ')}${sharedBuildRoot ? ', one build root' : ''}`);
-    // Every project is a copy of tests/manual, so each lists its test files, in Ceedling's order.
+    // Every project is a copy of tests/manual, so each lists the same test files.
     const manualTests = fs.readdirSync(path.join(WS, 'a/test')).filter((f) => f.startsWith('test_') && f.endsWith('.c')).map((f) => `test/${f}`).sort();
     const checkListing = (label: string) => {
         checks.expect(tree.length === 4, `${label} found ${tree.length} projects`);
@@ -78,16 +78,19 @@ main('stress', async (checks) => {
     };
     checkListing('the first discovery');
     const counts: Record<string, number> = {};
-    // Builds, cleans, and clobbers in flight, and the discoveries that started during one.
+    // Builds, cleans, and clobbers started and not yet returned, queued or running, and the
+    // discoveries started meanwhile.
     let busy = 0, overlapped = 0;
 
     await churn(seconds, maxInFlight, async () => {
-        const kind = pick(['runFile', 'runFile', 'runFunction', 'runProject', 'debug', 'discover', 'discover', 'clean', 'clobber', 'reparse']);
-        counts[kind] = (counts[kind] ?? 0) + 1;
+        let kind = pick(['runFile', 'runFile', 'runFunction', 'runProject', 'debug', 'discover', 'discover', 'clean', 'clobber', 'reparse']);
         const project = pick(tree);
-        const file = pick(project.files);
+        // A discovery that listed no files has already failed checkListing. The next one may recover.
+        if (project.files.length === 0) kind = 'discover';
+        const file = project.files.length > 0 ? pick(project.files) : { id: '(none)', functions: [] } as unknown as CeedlingFileNode;
         const t = token();
         if (random() < 0.2) setTimeout(() => t.fire(), Math.floor(random() * 3000));
+        counts[kind] = (counts[kind] ?? 0) + 1;
         const label = `${kind} ${project.projectKey}/${file.id}`;
         const building = kind !== 'discover' && kind !== 'reparse';
         if (building) busy++;
@@ -135,6 +138,6 @@ main('stress', async (checks) => {
     for (const missing of logs.filter((l) => l.message.startsWith('executableSubpath:'))) checks.fail(missing.message);
     for (const leftover of await leftovers()) checks.fail(`left behind: ${leftover}`);
     engine.dispose();
-    console.log(`${seconds} s, ${maxInFlight} at once, seed ${seed}; operations ${JSON.stringify(counts)}; discoveries during a build, clean, or clobber: ${overlapped}`);
+    console.log(`${seconds} s, ${maxInFlight} at once, seed ${seed}; operations ${JSON.stringify(counts)}; discoveries started while a build, clean, or clobber was queued or running: ${overlapped}`);
     for (const line of logSummary(logs)) console.log(`  log ${line}`);
 });

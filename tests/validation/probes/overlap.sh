@@ -48,7 +48,7 @@ for i in 1 2 3; do
     discovering & loop=$!
     sleep 0.5; ceedling clobber $M > /tmp/clobber 2>&1
     stop $loop
-    left=$(find build -type f -not -path 'build/vendor/*' | wc -l)
+    left=$(find build -type f -not -path 'build/vendor/*' 2>/dev/null | wc -l)
     ceedling test:all $M > /tmp/next 2>&1
     echo "  clobber $i: exceptions $(grep -c EXCEPTION /tmp/clobber); files left $left; next build compiles $(compiles /tmp/next) of $(compiles /tmp/first); discovery commands that failed: $(failures)"
 done

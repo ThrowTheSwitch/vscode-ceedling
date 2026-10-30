@@ -16,7 +16,9 @@ CALLS=open,openat,creat,mkdir,mkdirat,rename,renameat,renameat2,unlink,unlinkat,
 for command in "dumpconfig --stdout" "files:test"; do
     strace -f -qq -o /tmp/trace -e trace=$CALLS ceedling $command $M >/dev/null 2>&1
     grep '/ws/project/build\|"build' /tmp/trace > /tmp/hits
-    WRITES='O_WRONLY|O_RDWR|O_CREAT|O_TRUNC|mkdir|rename|unlink|rmdir|utimensat|truncate|chmod|symlink|link(at)?\('
+    # A writing call by name, anchored after strace's pid so a path naming one doesn't count, or an
+    # open for writing.
+    WRITES='^[0-9]+ +(mkdirat?|rename(at2?)?|unlinkat?|rmdir|utimensat|f?truncate|f?chmod(at)?|symlink(at)?|link(at)?)\(|O_WRONLY|O_RDWR|O_CREAT|O_TRUNC'
     writes=$(grep -E "$WRITES" /tmp/hits | grep -v -E 'ENOENT|EEXIST')
     reads=$(grep -E 'O_RDONLY' /tmp/hits | grep -v ENOENT)
     elsewhere=$(grep -v '/ws/project/build\|"build' /tmp/trace | grep -E "$WRITES" | grep -v -E 'ENOENT|EEXIST|"/(dev|proc|tmp)/')

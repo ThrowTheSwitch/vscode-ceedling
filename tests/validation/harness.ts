@@ -67,7 +67,8 @@ export function parseArgs(defaults: readonly number[], flags: readonly string[] 
 }
 
 // The image's Ceedling release, asked once. Suites gate on capabilities(), which the engine's own
-// gates read too, so a suite checks the engine's claims about each version against real Ceedling.
+// gates read too. A wrong table entry then shows only in a suite whose checks depend on the feature
+// itself, as stress, gated, layout, and the probes do. latency follows the table either way.
 let release: string | undefined;
 export function ceedlingVersion(): string {
     if (release === undefined) {
@@ -222,6 +223,7 @@ export function main(name: string, suite: (checks: Checks) => Promise<void>): vo
         process.exit(checks.violations.length ? 1 : 0);
     }, (error: unknown) => {
         console.log(`${name}: stopped: ${error instanceof Error ? error.stack : String(error)}`);
+        for (const violation of [...new Set(checks.violations)].slice(0, 30)) console.log(`  - ${violation.slice(0, 400)}`);
         process.exit(1);
     });
 }
