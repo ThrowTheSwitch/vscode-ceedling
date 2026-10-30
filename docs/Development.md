@@ -154,22 +154,32 @@ See [tests/manual/README.md](../tests/manual/README.md) for the `project.yml` se
 
 ## 5. Validation Against Real Ceedling
 
-The unit and integration tests run against a simulated Ceedling. The validation suites run the engine against real Ceedling releases instead, to catch what a simulation can’t: races at real build speeds, each version’s own behavior, and real gcovr and ReportGenerator output. They aren’t part of `just test` or CI. Run them on every supported version before a release, on each new Ceedling release, and after changing the engine’s locking, its Ceedling command lines, or its coverage handling.
+The unit and integration tests run against a simulated Ceedling. The validation suites run the engine against real Ceedling releases instead, to catch what a simulation can’t: races at real build speeds, each version’s own behavior, and real gcovr and ReportGenerator output. They aren’t part of `just test` or CI. Before a release, run `just validate-matrix`. Also run them on each new Ceedling release, and after changing the engine’s locking, its Ceedling command lines, or its coverage handling.
 
 ```sh
 just validate 1.2.1                   # every suite, on Ceedling 1.2.1
 just validate 1.2.0 gated             # one suite
 just validate 1.1.10 stress 120 6 7   # 120 seconds, 6 operations at once, seed 7
 just validate 1.2.1 probe:syscalls    # one probe
+just validate /abs/ceedling-1.2.2.gem # every suite, on a local Ceedling gem
+just validate-matrix 45               # every suite and probe, on each version in MATRIX
 ```
 
-A suite prints what it ran and every violation it found, and exits 0 only when every check held. `all`, the default, runs every suite. `stress` runs twice, the second time with one build root. `coverage`, `gated`, and `layout` follow. `latency` runs twice, the second time with a vendored Ceedling. Trailing numbers go to `stress` and `coverage` only, so `just validate 1.2.1 all 45` gives each of their overlap phases 45 seconds. That takes about four minutes per version, and the default of 60 seconds about a minute more.
+A suite prints what it ran and every violation it found. It exits 0 only when every check held.
+
+`all`, the default, runs every suite in a fixed order. `stress` runs first, then again with one build root. `coverage`, `gated`, and `layout` follow. `latency` runs next, then again with a vendored Ceedling. `mixed` and `upgrade` run last. Trailing numbers go to `stress` and `coverage` only. `just validate 1.2.1 all 45` gives each of their overlap phases 45 seconds, and takes about six minutes. The default of 60 seconds takes about a minute more.
 
 ### How they run
 
 - `just validate` compiles the tests into `out-test/` in the sidecar, then runs [`tests/validation/run.sh`](../tests/validation/run.sh) on the host. Run it from the host, not in `just shell`, since it needs Docker. `just install` must have run, to fill the `node_modules` volume.
-- Compiling replaces `out-test/`, as `just test` and `just coverage` do, so run one `just validate` at a time. To run several versions at once, compile once, then call `tests/validation/run.sh <version> <suite>` for each.
-- `run.sh` builds `vscode-ceedling-validate:<version>` from [`sidecar/validate.Dockerfile`](../sidecar/validate.Dockerfile). The image is `throwtheswitch/madsciencelab-plugins:<version>` plus the sidecar’s Node and `strace`. Any tag of that image works as a version.
+- Compiling replaces `out-test/`, as `just test` and `just coverage` do, so run one `just validate` at a time. To run several versions at once, compile once with `just _run "npm run -s build:tests"`. Then call `tests/validation/run.sh <version> <suite>` for each.
+- `run.sh` builds an image from [`sidecar/validate.Dockerfile`](../sidecar/validate.Dockerfile). For a version, it is `vscode-ceedling-validate:<version>`: `throwtheswitch/madsciencelab-plugins:<version>` plus the sidecar’s Node and `strace`. Any tag of that image works as a version.
+- Every image also holds each published release’s installation under `/opt/ceedling/<version>`, for `mixed` and `upgrade` to select. The first build therefore pulls every release’s image. The Dockerfile names each release. See [On a new Ceedling release](#on-a-new-ceedling-release).
+- A Ceedling `.gem` file’s path works in place of a version. Use it for a release not yet published. `run.sh` installs the gem over `CEEDLING_BASE`, which defaults to 1.2.1, and tags the image `<gem version>-<hash>`. The hash is the gem’s content hash, so a rebuilt gem never reuses an older image. Give the path absolute, since `just` runs from the repo root.
+- `CEEDLING_GEM=<path>` adds a gem’s installation to `/opt/ceedling` in any version’s image, tagged `<version>-with-<hash>`. `mixed` and `upgrade` then run each older launcher against the newer application. A gem given as the version can’t also be given this way.
+- `run.sh` always passes the Docker build a `gem` context, empty when there is no gem. Without one, BuildKit can reuse a gem build’s cached copy, and a plain image then holds that gem.
+- `just validate-matrix [seconds]` runs [`tests/validation/matrix.sh`](../tests/validation/matrix.sh) on each version in `MATRIX`. The default is 1.0.0, 1.1.10, 1.2.0, and 1.2.1, and a `CEEDLING_GEM` gem joins as one more version. Each version runs every entry of `all`, which `run.sh <version> list` prints, then `stress` with seeds 2 and 3. From 1.2.0 it also runs each probe. Versions and runs go one at a time.
+- The matrix prints each version’s failed suites and exits 1 if any suite failed. The probes judge nothing, so their output is only in the logs. Each run’s log lands in `out-validate/<timestamp>/<name>/<run>.log`, where a gem’s name is its file’s. `out-validate/` is ignored by git, and `just clean` keeps it.
 - Each suite runs in a fresh container, with the repo and the `node_modules` volume mounted read-only. It copies its projects from fixtures into the container’s own `/ws` and builds them there, so nothing is left on the host.
 - A suite drives the compiled `CeedlingEngine` directly, with VS Code’s side stubbed: settings, the logger, and the Problems panel. Every Ceedling command it issues is real.
 
@@ -179,9 +189,11 @@ A suite prints what it ran and every violation it found, and exits 0 only when e
 |---|---|---|
 | `stress` | Random runs of files, functions, and projects, debug builds, discoveries, reparses, cleans, and clobbers overlap across four projects, two of them sharing a directory. A fifth are cancelled at a random moment. Each completed run must report each of its own tests once, with the outcome [`tests/manual/`](../tests/manual/) expects. Each discovery must list every project’s test files. No Ceedling process or temporary file may be left. `--shared-build-root` gives all four projects one build root. Takes seconds (60), operations at once (6), and a seed (1). | All |
 | `coverage` | Exact outcomes one run at a time: gcovr preferred over ReportGenerator, counters reset or kept, a function run, a source above the project, ReportGenerator alone. Then coverage runs overlapping plain runs, discovery, reparses, and clean. Takes seconds (60), operations at once (5), and a seed (1). | All. 1.0.0’s image has no ReportGenerator, so its checks skip. |
-| `gated` | The engine’s per-version command lines, on same-named test files: coverage tasks named by path from 1.2.1, or by bare name with a warning on 1.2.0. Also `:report_task:`, a changed `--test-case` filter, plain runs, and the debug executable’s directory. | 1.2.0 and later |
-| `layout` | Exact test build directories in a project with two test roots: each debug build’s executable, and a same-named file’s coverage counters kept through a whole-file rerun. | 1.2.0 and later. Coverage from 1.2.1, since 1.2.0’s `gcov:` tasks can’t name either file. |
+| `gated` | The engine’s per-version command lines, on same-named test files: coverage tasks named by path from 1.2.1, or by bare name with a warning on 1.2.0. Also `:report_task:`, a changed `--test-case` filter, plain runs, and a debug build’s executable, checked against what Ceedling built. | 1.2.0 and later |
+| `layout` | Exact test build directories in a project with two test roots. Each debug build must return the newest executable of its name, which is what Ceedling just built. A coverage request whose filter falls back to a whole-file rerun must give the hits of a request that ran the whole file at once. | 1.2.0 and later. Coverage from 1.2.1, since 1.2.0’s `gcov:` tasks can’t name either file. |
 | `latency` | Runs a rediscovery during a full build that a slow test keeps running about 4 seconds. From 1.2.1, the rediscovery’s `dumpconfig` must start before the build ends. Before 1.2.1, the rediscovery must end after the build, since it waits for the build’s locks, as [Architecture.md](Architecture.md#discovery-without-the-locks-from-121) explains. The build’s results must be unchanged. `--vendored` first copies the image’s own Ceedling into the project’s `vendor/ceedling`, without `:which_ceedling`. `ceedling version` must then report a launcher and an application, and the copy must gate as the installed Ceedling does. | All |
+| `mixed` | Each installation under `/opt/ceedling`, selected each way Ceedling allows: `:which_ceedling` in the project file or in a mixin, `WHICH_CEEDLING`, and a copy in `vendor/ceedling`. Ceedling alone first shows whether the image’s launcher can run it, and must name the installation it launches. Where it can’t, Ceedling’s own exception must reach the user. Where it can, a run’s results must match the image’s own Ceedling’s, and a rediscovery during it must list every test file. A debug build of a nested test must return the executable Ceedling just built. Before 1.2.1 the rediscovery must take the locks. From 1.2.1 the suite only prints whether it skipped them. | All |
+| `upgrade` | A project built by each older installation, through `WHICH_CEEDLING`, then by the image’s own Ceedling, as after an upgrade. A debug build of a nested test must return the executable just built, never one an older layout left. Coverage must equal a clobbered build’s. Installations the launcher can’t run are skipped. | All. On 1.0.0 nothing is older. It matters most on 1.2.2, which moves each test’s build output. |
 
 A seed replays the same sequence of operations, though not their timing, so a failure may need several runs to recur.
 
@@ -196,10 +208,11 @@ The probes run Ceedling alone, without the engine, to show the Ceedling behavior
 ### On a new Ceedling release
 
 Each new Ceedling release needs these checks before the extension supports it, since discovery skips the engine’s locks on every release from 1.2.1.
-1. Run `just validate <version>`, then `just validate <version> probe:syscalls` and `just validate <version> probe:overlap`.
+1. Run `just validate <version>`, then `just validate <version> probe:syscalls` and `just validate <version> probe:overlap`. Before the release is published, run `CEEDLING_GEM=<path> just validate-matrix` instead. It runs every check on the gem, and every older launcher against it.
 2. `probe:syscalls` must show no writes under `build/`, nor any outside `/dev`, `/proc`, and `/tmp`. `probe:overlap` must show `clobber` leaving no files outside `build/vendor/`, and the next build recompiling every file.
 3. To confirm that `stress --shared-build-root` can still catch the race, temporarily make `discovering()` in `ceedlingEngine.ts` always skip the locks. Then run that suite on 1.2.0 with several seeds, where it should fail.
 4. Record the release’s new features. Add each to `FIRST_RELEASES` in `ceedlingProjectConfig.ts` and to the table in [Architecture.md](Architecture.md#ceedling-versions). Update the supported range in the README, and capture `tests/fixtures/ceedling-<version>/` transcripts.
+5. Once its image is published, add it to `sidecar/validate.Dockerfile`. That takes a `FROM` stage for its image and a `COPY` from that image’s Ruby gem directory. Add its version to `MATRIX`’s default in `matrix.sh` and to the versions this section names. Consider making it the `CEEDLING_BASE` default in `run.sh`.
 
 From 1.2.2, the engine also trusts a launcher’s report of another installation’s release, which earlier launchers get wrong ([Ceedling#1365](https://github.com/ThrowTheSwitch/Ceedling/issues/1365)). Check this once on 1.2.2. Install 1.2.2 as the launcher and follow the reproduction in that issue. `ceedling version` with `WHICH_CEEDLING` must report the older application’s own version.
 
@@ -212,14 +225,17 @@ From 1.2.2, the engine also trusts a launcher’s report of another installation
   - `capabilities()` and `requires()`, which gate a suite on the engine’s own version table, never on a version literal;
   - recording reporters;
   - `churn()` for random overlap;
+  - `removeExecutables()`, `builtExecutable()`, and `executables()`, which find the executable a debug build actually wrote;
+  - `rediscoverDuringBuild()`, which times a rediscovery during a full build;
+  - `ceedlingAlone()`, which runs Ceedling directly with the engine’s environment;
   - the leftover check;
   - `main()`, which prints the verdict and sets the exit code.
 - Fixtures live in [`tests/validation/workspaces/`](../tests/validation/workspaces/). `stress` copies [`tests/manual/`](../tests/manual/) instead.
-- A new suite is a `.ts` file there. `run.sh` finds it by name. Add it to `all` in `run.sh` if it should gate releases.
+- A new suite is a `.ts` file in `tests/validation/`. Add it to `all` in `run.sh`, which accepts only the suites `all` names. `matrix.sh` then runs it too.
 
 ## 6. Manual Testing Plan
 
-This checklist confirms the extension’s behavior in a real VS Code, where unit and integration tests can’t reach. Run it before a release, against the final code on the integration branch, on Ceedling 1.0.0, 1.1.10, 1.2.0, and the newest 1.2 release. Run `just validate` on each of those versions first.
+This checklist confirms the extension’s behavior in a real VS Code, where unit and integration tests can’t reach. Run it before a release, against the final code on the integration branch, on Ceedling 1.0.0, 1.1.10, 1.2.0, and the newest 1.2 release. Run `just validate-matrix` first.
 
 Every step runs against [`tests/manual/`](../tests/manual/), opened as its own folder in the Development Host.
 
@@ -295,6 +311,7 @@ There are two modes.
 | `just lint` | Reports lint findings |
 | `just coverage` | Runs the unit suite with coverage, writing `coverage/index.html` |
 | `just validate <version> [suite]` | Runs the validation suites against a real Ceedling release, from the host. See [Section 5](#5-validation-against-real-ceedling) |
+| `just validate-matrix [seconds]` | Runs every validation suite and probe on each version in `MATRIX`, from the host. See [Section 5](#5-validation-against-real-ceedling) |
 | `just package` | Produces a `.vsix` |
 | `just publish` | Publishes to the Marketplace. Requires `VSCE_PAT` |
 | `just shell` | Opens an interactive container session |
