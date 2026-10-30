@@ -1,5 +1,5 @@
 // A test that crashes and one that passes, for :use_backtrace: :gdb's crash report and log path.
-// Its reports: ceedling-1.2.2/cppunit-report-crash.xml and gdb-crash-stdout.txt.
+// Its report is ceedling-1.2.2/cppunit-report-crash.xml.
 #include "unity.h"
 
 void setUp(void) {}

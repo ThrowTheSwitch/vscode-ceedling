@@ -22,18 +22,20 @@ mkdir -p "$work/test" "$work/gem" "$out"
 for file in "$@"; do cp "$file" "$work/test/"; done
 mixins=(--mixin /mixins/report-tests-log-factory.yml)
 if [ -n "${CAPTURE_MIXIN:-}" ]; then cp "$CAPTURE_MIXIN" "$work/extra.yml"; mixins+=(--mixin /project/extra.yml); fi
-# A gem installs as root over 1.2.1's Ceedling, which it then replaces.
+# A gem installs as root over 1.2.1's Ceedling, which it then replaces unless it is 1.2.1 itself.
 image="throwtheswitch/madsciencelab-plugins:$version" setup=":"
 if [[ $version == *.gem ]]; then
     cp "$version" "$work/gem/"
     image="throwtheswitch/madsciencelab-plugins:1.2.1"
-    setup="gem install --local --no-document /project/gem/*.gem >/dev/null && gem uninstall -x ceedling -v 1.2.1 >/dev/null"
+    # Two versions listed, e.g. `ceedling (1.2.2, 1.2.1)`, mean the gem is another one.
+    setup="gem install --local --no-document /project/gem/*.gem >/dev/null && { ! gem list ceedling | grep -q , || gem uninstall -x ceedling -v 1.2.1 >/dev/null; }"
 fi
 if [ "${CAPTURE_VENDOR:-}" = 1 ]; then
     setup="$setup && mkdir -p vendor && cp -R \"\$(ruby -e 'print Gem::Specification.find_by_name(%q(ceedling)).gem_dir')\" vendor/ceedling"
 fi
+# Root installs the gem. What the run leaves goes back to the caller, so the trap can remove it.
 status=0
 docker run --rm --user root -e CEEDLING_DECORATORS=false -v "$work":/project -v "$repo/assets/mixins":/mixins -w /project --entrypoint sh "$image" \
-    -c "$setup && ceedling ${CAPTURE_TASK:-test:all} ${mixins[*]}" >"$out/stdout.txt" 2>"$out/stderr.txt" || status=$?
+    -c "$setup && ceedling ${CAPTURE_TASK:-test:all} ${mixins[*]}; s=\$?; chown -R $(id -u):$(id -g) /project; exit \$s" >"$out/stdout.txt" 2>"$out/stderr.txt" || status=$?
 echo "ceedling exit status: $status"
 cp "$work/build/artifacts/test/cppunit_tests_report.xml" "$out/" 2>/dev/null || echo "no CppUnit report was produced"
