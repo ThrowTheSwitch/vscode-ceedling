@@ -4,8 +4,7 @@
 // since only the filesystem knows which exists.
 
 import type path from 'path';
-import xml2js from 'xml2js';
-import { field, list, text } from './parsedXml';
+import { field, list, parseXml, text } from './parsedXml';
 
 export type CoveredLine = {
     // 1-based, as Cobertura numbers lines.
@@ -30,7 +29,7 @@ export type CoberturaReport = {
 
 // Rejects malformed XML, and a document without a <coverage> root.
 export async function parseCoberturaReport(text: string): Promise<CoberturaReport> {
-    return readCoberturaReport(await new xml2js.Parser({ explicitArray: false }).parseStringPromise(text));
+    return readCoberturaReport(await parseXml(text));
 }
 
 // Reads a report as xml2js parses it with `explicitArray: false`. A compiled but never executed
@@ -44,15 +43,15 @@ export function readCoberturaReport(parsedXml: unknown): CoberturaReport {
         throw new Error('The coverage report has no <coverage> element.');
     }
     const files: CoberturaReport['files'] = [];
-    for (const pkg of list(field(field(coverage, 'packages'), 'package'))) {
-        for (const cls of list(field(field(pkg, 'classes'), 'class'))) {
+    for (const pkg of list(field(coverage, 'packages', 'package'))) {
+        for (const cls of list(field(pkg, 'classes', 'class'))) {
             const filename = text(attribute(cls, 'filename'));
             if (filename !== '') {
                 files.push({ filename, lines: readLines(field(cls, 'lines')), functions: readFunctions(field(cls, 'methods')) });
             }
         }
     }
-    const sources = list(field(field(coverage, 'sources'), 'source')).map((source) => text(source).trim()).filter((source) => source !== '');
+    const sources = list(field(coverage, 'sources', 'source')).map((source) => text(source).trim()).filter((source) => source !== '');
     return { sources, files };
 }
 
@@ -135,7 +134,7 @@ function readFunctions(container: unknown): CoveredFunction[] {
     const functions: CoveredFunction[] = [];
     for (const method of list(field(container, 'method'))) {
         const name = text(attribute(method, 'name'));
-        const first = list(field(field(method, 'lines'), 'line'))[0];
+        const first = list(field(method, 'lines', 'line'))[0];
         const line = lineNumber(attribute(first, 'number'));
         if (name !== '' && line !== undefined) {
             functions.push({ name, line, hits: hitCount(attribute(first, 'hits')) ?? 0 });
@@ -159,5 +158,5 @@ function branchOutcomes(conditionCoverage: unknown): boolean[] {
 
 // xml2js puts an element's attributes under `$`.
 function attribute(element: unknown, name: string): unknown {
-    return field(field(element, '$'), name);
+    return field(element, '$', name);
 }

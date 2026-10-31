@@ -168,7 +168,7 @@ Read each property below as `ceedlingExplorer.<property>`.
 
 Each `ceedlingExplorer.projects` entry describes one Ceedling project.
 
-- `path` names the project. It is either a directory holding a `project.yml` file, or another .yml file applied over the `project.yml` beside it. With Ceedling 1.2.0 and later, `ceedling.yml` works in place of `project.yml`, but a directory may not hold both. The path is relative to the workspace folder.
+- `path` names the project. It is either a directory holding a `project.yml` file, or another YAML file, `.yml` or `.yaml`, applied over the `project.yml` beside it. With Ceedling 1.2.0 and later, `ceedling.yml` works in place of `project.yml`, but a directory may not hold both. The path is relative to the workspace folder.
 - `debugLaunchConfig` is the *name* of the `launch.json` configuration that debugs this project’s tests. See [Debugging](#debugging).
 - `name` (optional) labels the project’s tests in the _Testing_ view.
 - `mixins` (optional) are this project’s own [mixins](#mixins), lowest to highest priority. Without it, the project uses `ceedlingExplorer.mixins`. An explicit `[]` opts the project out of that workspace-wide list.

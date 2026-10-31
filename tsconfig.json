@@ -7,7 +7,6 @@
     "module": "commonjs",
     "outDir": "out",
     "rootDir": ".",
-    "importHelpers": true,
     "sourceMap": true,
     "strict": true,
     "noImplicitReturns": true,

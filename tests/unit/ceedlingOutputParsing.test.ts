@@ -8,6 +8,7 @@ import {
     extractCeedlingException,
     extractGdbLogReference,
     extractTestFunctionName,
+    outputLines,
     parseCeedlingVersions,
     parseFileListBullets,
     testCaseFilterMatchedExactly,
@@ -103,6 +104,12 @@ suite('buildFileLabelRegex / buildTestLabelRegex', () => {
         const match = regex.exec('test/test_calculator.c');
         assert.ok(match);
         assert.strictEqual(match[1], 'calculator');
+    });
+
+    // Ceedling's :test_file_prefix is a literal string, as discovery's filter reads it.
+    test('buildFileLabelRegex reads the prefix literally', () => {
+        assert.strictEqual(buildFileLabelRegex('t.st_').exec('test/test_calc.c'), null);
+        assert.strictEqual(buildFileLabelRegex('t+_').exec('test/t+_calc.c')?.[1], 'calc');
     });
 
     test('buildFileLabelRegex labels a file at the project root and one under backslashes', () => {
@@ -285,5 +292,11 @@ suite('detectLayoutUpgrade', () => {
         for (const separator of ['\n', '\r\n', '\r']) {
             assert.strictEqual(detectLayoutUpgrade(`Dependency cache x comes from an earlier Ceedling${separator}build layout. Run \`ceedling clobber\`.`), false, JSON.stringify(separator));
         }
+    });
+});
+
+suite('outputLines', () => {
+    test('splits on LF, CRLF, and a lone CR alike', () => {
+        assert.deepStrictEqual(outputLines('a\nb\r\nc\rd'), ['a', 'b', 'c', 'd']);
     });
 });

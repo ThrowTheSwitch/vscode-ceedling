@@ -2,12 +2,15 @@ import crypto from 'crypto';
 import path from 'path';
 import util from 'util';
 import vscode from 'vscode';
-import { CeedlingEngine, CeedlingLoadError, coverageMode, type LayoutUpgrade } from './ceedlingEngine';
+import { CeedlingEngine, type LayoutUpgrade } from './ceedlingEngine';
+import { coverageMode } from './coverageRun';
+import { loadFailureMessage } from './ceedlingProjectConfig';
 import { debugTarget, resolveLaunchConfig } from './debugLaunch';
 import { type CoverageReport, mergeCoverage } from './coberturaReport';
 import { type Logger } from './logger';
 import { ProblemMatcher } from './problemMatcher';
 import { buildRunPlan, type PlanTarget, type RunPlanEntry } from './runPlan';
+import { ActivityTracker } from './concurrency';
 import { SingleFlight } from './singleFlight';
 import { type CeedlingFileNode, type CeedlingProjectNode, type CeedlingTestFunction, type CoverageOutcome, type RunReporter } from './testModel';
 import { createRunReporter, type ReportMessage } from './testReporting';
@@ -34,6 +37,8 @@ export class CeedlingTestController {
     private controller: vscode.TestController | undefined;
     private controllerDisposables: vscode.Disposable[] = [];
     private readonly engine: CeedlingEngine;
+    // Each run's compiler problems, in the Problems panel.
+    private readonly problems = new ProblemMatcher();
     private readonly disposables: vscode.Disposable[] = [];
     private readonly discovery: SingleFlight;
     // Each watcher with its listeners, keyed by what it watches: a configuration file, or a
@@ -63,7 +68,7 @@ export class CeedlingTestController {
     // A discovery in flight at disposal must not build a TestController or watchers afterwards.
     private disposed = false;
     // Runs and debug sessions under way, for an offered clobber to wait out.
-    private readonly active = new Set<Promise<void>>();
+    private readonly active = new ActivityTracker();
 
     constructor(
         public readonly workspaceFolder: vscode.WorkspaceFolder,
@@ -73,9 +78,9 @@ export class CeedlingTestController {
         private label: string,
     ) {
         this.logger.debug(`CeedlingTestController created for ${workspaceFolder.uri.toString()}`);
-        this.engine = new CeedlingEngine(workspaceFolder, logger, isDevelopmentMode, {
-            configProvider: (uri) => vscode.workspace.getConfiguration('ceedlingExplorer', uri),
-            problemMatcher: new ProblemMatcher(logger),
+        this.engine = new CeedlingEngine(workspaceFolder.uri.fsPath, logger, isDevelopmentMode, {
+            settings: () => vscode.workspace.getConfiguration('ceedlingExplorer', workspaceFolder.uri),
+            diagnostics: this.problems,
             bundledMixinPath: path.join(extensionPath, 'assets', 'mixins', 'report-tests-log-factory.yml'),
             onLayoutUpgrade: (upgrade) => { this.offerClobber(upgrade).catch((e) => this.logger.error(`offerClobber: ${util.format(e)}`)); },
         });
@@ -114,7 +119,7 @@ export class CeedlingTestController {
     // without a TestController has nothing to run.
     async run(request: vscode.TestRunRequest, token: vscode.CancellationToken, coverage = false): Promise<void> {
         if (this.controller) {
-            await this.tracked(this.handleRun(request, token, coverage));
+            await this.active.track(this.handleRun(request, token, coverage));
         }
     }
 
@@ -142,17 +147,11 @@ export class CeedlingTestController {
         if (await vscode.window.showWarningMessage(upgrade.message, CLOBBER_ACTION) !== CLOBBER_ACTION) {
             return;
         }
-        await Promise.allSettled([...this.active]);
+        await this.active.settled();
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- dispose() may run during the awaits
         if (!this.disposed) {
             await this.runTask('Clobber', (token) => this.engine.clobberProject(upgrade.projectKey, token));
         }
-    }
-
-    private tracked(work: Promise<void>): Promise<void> {
-        this.active.add(work);
-        work.finally(() => this.active.delete(work)).catch(() => { /* the caller sees the rejection */ });
-        return work;
     }
 
     dispose(): void {
@@ -162,6 +161,7 @@ export class CeedlingTestController {
         [...this.configurationWatchers.values(), ...this.sourceWatchers.values(), ...this.disposables].forEach((d) => { d.dispose(); });
         this.disposeController();
         this.engine.dispose();
+        this.problems.dispose();
         this.reported.dispose();
         this.coverageReported.dispose();
         this.coverageProblemReported.dispose();
@@ -181,8 +181,8 @@ export class CeedlingTestController {
         controller.refreshHandler = () => this.refresh();
         this.controllerDisposables = [
             controller,
-            controller.createRunProfile('Run', vscode.TestRunProfileKind.Run, (request, token) => this.tracked(this.handleRun(request, token)), true),
-            controller.createRunProfile('Debug', vscode.TestRunProfileKind.Debug, (request, token) => this.tracked(this.handleDebug(request, token)), true),
+            controller.createRunProfile('Run', vscode.TestRunProfileKind.Run, (request, token) => this.active.track(this.handleRun(request, token)), true),
+            controller.createRunProfile('Debug', vscode.TestRunProfileKind.Debug, (request, token) => this.active.track(this.handleDebug(request, token)), true),
         ];
         this.controller = controller;
         return controller;
@@ -200,11 +200,11 @@ export class CeedlingTestController {
     private onConfigurationChanged(event: vscode.ConfigurationChangeEvent): void {
         const { clearDiagnostics, rediscoverFor } = settingsChangeEffects(
             (setting) => event.affectsConfiguration(`ceedlingExplorer.${setting}`, this.workspaceFolder.uri),
-            () => this.engine.getConfiguration().get<string>('problemMatching.mode', 'disabled'),
+            () => this.engine.setting('problemMatching.mode'),
         );
         if (clearDiagnostics) {
             this.logger.debug(`onConfigurationChanged: problem matching disabled, clearing diagnostics`);
-            this.engine.problemMatcher.clear();
+            this.problems.clear();
         }
         if (rediscoverFor.length > 0) {
             this.logger.debug(`onConfigurationChanged: ${rediscoverFor.join(', ')} changed, refreshing`);
@@ -251,9 +251,9 @@ export class CeedlingTestController {
             if (this.disposed) {
                 return;
             }
-            const message = e instanceof CeedlingLoadError ? e.message : `Failed to load Ceedling project: ${util.format(e)}`;
-            this.logger.error(message);
-            vscode.window.showErrorMessage(message);
+            const { notice, log } = loadFailureMessage(e);
+            this.logger.error(log);
+            void vscode.window.showErrorMessage(notice);
             this.projects = [];
         }
         this.rebuildTree();
@@ -267,7 +267,7 @@ export class CeedlingTestController {
         const controller = this.controller;
         const wanted = controller !== undefined && this.engine.coverageEnabled();
         if (wanted && !this.coverageProfile) {
-            const profile = controller.createRunProfile('Coverage', vscode.TestRunProfileKind.Coverage, (request, token) => this.tracked(this.handleRun(request, token, true)), false);
+            const profile = controller.createRunProfile('Coverage', vscode.TestRunProfileKind.Coverage, (request, token) => this.active.track(this.handleRun(request, token, true)), false);
             profile.loadDetailedCoverage = (_run, fileCoverage) => Promise.resolve(this.coverageDetails.get(fileCoverage) ?? []);
             this.coverageProfile = profile;
         } else if (!wanted && this.coverageProfile) {

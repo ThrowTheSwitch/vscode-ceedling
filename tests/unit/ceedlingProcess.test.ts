@@ -2,7 +2,8 @@ import * as assert from 'assert';
 import * as child_process from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
-import { buildCommandLine, type Cancellation, type CeedlingInvocation, CeedlingRunner, ceedlingEnvironment, descendantsOf, killProcessTree, parseProcStatParent, quoteIfNeeded } from '../../src/ceedlingProcess';
+import { buildCommandLine, type CeedlingInvocation, CeedlingRunner, ceedlingEnvironment, descendantsOf, killProcessTree, parseProcStatParent, quoteIfNeeded } from '../../src/ceedlingProcess';
+import { cancellation } from '../support/fakes';
 
 type ExecCall = { command: string, options: child_process.ExecOptions, finish: (error: Error | null, stdout: string, stderr: string) => void };
 
@@ -12,24 +13,6 @@ function deferredExec(calls: ExecCall[], pid = 4242): typeof child_process.exec 
         calls.push({ command, options, finish: (error, stdout, stderr) => callback(error, stdout, stderr) });
         return { pid } as child_process.ChildProcess;
     }) as unknown as typeof child_process.exec;
-}
-
-// A manually fired cancellation, shaped like vscode.CancellationToken.
-function cancellation(): Cancellation & { fire(): void, listeners: number } {
-    const listeners = new Set<() => void>();
-    const token = {
-        isCancellationRequested: false,
-        onCancellationRequested(listener: () => void) {
-            listeners.add(listener);
-            return { dispose: () => listeners.delete(listener) };
-        },
-        fire() {
-            token.isCancellationRequested = true;
-            for (const listener of [...listeners]) listener();
-        },
-        get listeners() { return listeners.size; },
-    };
-    return token;
 }
 
 function invocation(overrides: Partial<CeedlingInvocation> = {}): CeedlingInvocation {

@@ -65,6 +65,18 @@ export default defineConfig(
         },
     },
     {
+        // The core has no `vscode` dependency, not even for types, so it runs and is unit-tested in
+        // plain Node. Only the adapter modules reach VS Code, and the core reaches none of them.
+        files: ['src/**/*.ts'],
+        ignores: ['src/main.ts', 'src/testController.ts', 'src/logger.ts', 'src/problemMatcher.ts'],
+        rules: {
+            '@typescript-eslint/no-restricted-imports': ['error', {
+                paths: [{ name: 'vscode', message: 'The core is vscode-free. Take what it needs through an interface, as Log and DiagnosticsSink do.' }],
+                patterns: [{ group: ['./main', './testController', './logger', './problemMatcher'], message: 'The core never imports the VS Code adapter modules.' }],
+            }],
+        },
+    },
+    {
         // Test doubles cast deliberately, implement async interfaces without awaiting, and tests
         // assert on values they know exist.
         files: ['tests/**/*.ts'],

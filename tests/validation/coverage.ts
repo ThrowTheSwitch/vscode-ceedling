@@ -10,7 +10,7 @@
 // Images without ReportGenerator (Ceedling 1.0.0's) skip its checks.
 //
 // usage: node coverage.js [seconds=60] [maxInFlight=5] [seed=1]
-import { coverageMode } from '../../src/ceedlingEngine';
+import { coverageMode } from '../../src/coverageRun';
 import { churn, describeOutcome, fileOf, hasCommand, hits, leftovers, logSummary, main, makeEngine, only, parseArgs, recordingReporter, seeded, stage, token, WS } from './harness';
 
 main('coverage', async (checks) => {

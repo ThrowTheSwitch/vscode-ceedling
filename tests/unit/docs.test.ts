@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
-import { capabilitiesOf, type CeedlingFeature, firstRelease, launcherCapabilitiesOf, type LauncherFeature } from '../../src/ceedlingProjectConfig';
+import { capabilitiesOf, type CeedlingFeature, firstRelease, launcherCapabilitiesOf, type LauncherFeature } from '../../src/ceedlingVersions';
 
 // Documentation that restates code, checked against it so the two can't drift apart.
 suite('Architecture.md', () => {

@@ -10,7 +10,7 @@
 // Ceedling before 1.2.0 builds both files in one directory, so the suite skips.
 //
 // usage: node layout.js
-import { coverageMode } from '../../src/ceedlingEngine';
+import { coverageMode } from '../../src/coverageRun';
 import {
     builtExecutable, capabilities, ceedlingVersion, describeOutcome, fileOf, hits, main, makeEngine, only, parseArgs, recordingReporter, removeExecutables, requires, stage, token, WS,
 } from './harness';

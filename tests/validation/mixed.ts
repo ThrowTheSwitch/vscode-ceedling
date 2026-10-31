@@ -14,7 +14,7 @@
 // usage: node mixed.js
 import * as fs from 'fs';
 import type { CeedlingEngine } from '../../src/ceedlingEngine';
-import { capabilitiesOf, ceedlingRelease } from '../../src/ceedlingProjectConfig';
+import { capabilitiesOf, ceedlingRelease } from '../../src/ceedlingVersions';
 import {
     builtExecutable, ceedlingAlone, ceedlingVersion, fileOf, INSTALLATIONS, leftovers, main, makeEngine, only, parseArgs, recordingReporter,
     rediscoverDuringBuild, removeExecutables, stage, tally, token, WS,

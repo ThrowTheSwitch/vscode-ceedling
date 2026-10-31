@@ -1,5 +1,5 @@
 // Concurrency control for asynchronous work: grouped mapping that keeps input order, a lock per
-// key, and a limit shared by every caller.
+// key, a limit shared by every caller, and a record of work under way.
 
 type Entry<T> = { item: T, index: number };
 type Failure = { reason: unknown };
@@ -101,5 +101,27 @@ export class Limiter {
                 this.active--;
             }
         }
+    }
+}
+
+// Work under way, for something that must wait it all out, e.g. a clobber offered mid-run, which
+// would otherwise land between a run's builds.
+export class ActivityTracker {
+    private readonly active = new Set<Promise<unknown>>();
+
+    get size(): number {
+        return this.active.size;
+    }
+
+    // Records `work` until it ends, and hands it back. Its rejection stays the caller's.
+    track<T>(work: Promise<T>): Promise<T> {
+        this.active.add(work);
+        work.finally(() => this.active.delete(work)).catch(() => { /* the caller sees the rejection */ });
+        return work;
+    }
+
+    // Settles once all work tracked so far has ended, however it ended.
+    async settled(): Promise<void> {
+        await Promise.allSettled([...this.active]);
     }
 }

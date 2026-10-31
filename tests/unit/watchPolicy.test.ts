@@ -4,15 +4,16 @@ import { Debouncer, settingsChangeEffects, sourceEventEffect, watcherChanges } f
 suite('settingsChangeEffects', () => {
     const affecting = (...settings: string[]) => (setting: string) => settings.includes(setting);
 
+    // Discovery parses Ceedling's output too, so whether escape sequences are stripped from it counts.
     test('a setting that changes what discovery finds rediscovers, naming it', () => {
-        for (const setting of ['projects', 'mixins', 'shellPath', 'ceedlingCommand', 'prettyTestLabel', 'prettyTestFileLabel']) {
+        for (const setting of ['projects', 'mixins', 'shellPath', 'ceedlingCommand', 'prettyTestLabel', 'prettyTestFileLabel', 'ansiEscapeSequencesRemoved']) {
             assert.deepStrictEqual(settingsChangeEffects(affecting(setting), () => 'gcc'), { clearDiagnostics: false, rediscoverFor: [setting] });
         }
     });
 
     // These apply on the next run, from the settings read then.
     test('a setting a run reads for itself changes nothing now', () => {
-        assert.deepStrictEqual(settingsChangeEffects(affecting('testCommandArgs', 'ansiEscapeSequencesRemoved'), () => 'gcc'),
+        assert.deepStrictEqual(settingsChangeEffects(affecting('testCommandArgs', 'coverageCommandArgs', 'coverageResetsCounters'), () => 'gcc'),
             { clearDiagnostics: false, rediscoverFor: [] });
     });
 

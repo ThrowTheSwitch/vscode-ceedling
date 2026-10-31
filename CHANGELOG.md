@@ -29,13 +29,14 @@ This document is the terse, itemized record of what changed in each release. Its
   * Its `gcov:` tasks take a test file’s path, so coverage runs of same-named test files in different directories each run the right file.
   * The _Testing_ view updates during a long run, e.g. after adding a test file, rather than after the run finishes. A project vendoring its Ceedling with `ceedling new --local` updates too.
 * Support for Ceedling 1.2.2:
-  * Debugging and coverage find each test’s build in Ceedling 1.2.2’s layout, which places it under the test’s path from the project root.
+  * Debugging and coverage find each test’s build in Ceedling 1.2.2’s layout, which places it under the test’s path from the project root. Debugging also finds the executable of a test file named like one of Ceedling’s path markers, e.g. `_up_.c`.
   * Debugging finds the executable wherever the build wrote it, even when an installed Ceedling before 1.2.2 misreports the version of the Ceedling a project runs.
   * With Ceedling 1.2.2 installed, a project running its own Ceedling of a different version uses that version’s features ([Ceedling#1365](https://github.com/ThrowTheSwitch/Ceedling/issues/1365)). That Ceedling may be vendored in `vendor/ceedling`, or selected by `WHICH_CEEDLING` or by `:project` ↳ `:which_ceedling` in `project.yml` or a mixin.
   * With Ceedling 1.2.2 installed, the _Testing_ view updates during a long run even right after an edit to `project.yml` or a mixin file, for a project running Ceedling 1.2.1 or later.
   * The first build after upgrading to Ceedling 1.2.2 from 1.2.0 or 1.2.1 offers to clobber the project, removing what the old build layout left. With `ceedlingExplorer.coverageResetsCounters` off, coverage counts the old layout’s counters until then.
 * A project that fails to load shows Ceedling’s own `EXCEPTION` message, e.g. why the installed Ceedling can’t run the project’s own.
 * The `report_tests_log_factory` plugin’s `cppunit` report, which this extension reads results from, is now enabled automatically by a bundled [mixin](README.md#mixins). Enabling it in `project.yml` is no longer required.
+* `ceedlingExplorer.projects[].path` may name a `.yaml` project file, as a mixin may. Either extension may be in any letter case.
 * New `ceedlingExplorer.mixins` and `ceedlingExplorer.projects[].mixins` settings apply Ceedling mixins, for toolchain targets, CI overrides, or other configuration, without editing `project.yml`. See [Mixins](README.md#mixins).
 * The _Testing_ view updates as you edit a test file, before you save. Adding or removing a test file, editing `project.yml` or a mixin file, or changing the Ceedling in a project’s `vendor/ceedling` rediscovers the project without a manual refresh.
 * Unity’s `TEST_MATRIX()` parametrized tests and exclusive `TEST_RANGE(<start, end, step>)` ranges now appear in the _Testing_ view as individual test cases.
@@ -64,9 +65,12 @@ This document is the terse, itemized record of what changed in each release. Its
 * Ceedling 1.0.0’s encoding crash on non-ASCII source is now prevented on every platform, including macOS. The extension no longer overrides your locale to do so.
 * When Ceedling can’t run at all, the error now says so and points to `ceedlingExplorer.shellPath`, instead of reporting an unsupported “version 0.0.0”.
 * When Ceedling can’t list a project’s test files, an error now names the project and the settings to check, instead of the project silently showing no tests.
-* Changing `ceedlingExplorer.mixins`, `ceedlingExplorer.shellPath`, or `ceedlingExplorer.ceedlingCommand` now rediscovers tests. Changing problem-matching settings no longer clears the _Problems_ panel unless problem matching is turned off.
-* Pretty file labels now apply to test files at a project’s root and on Windows-style paths.
+* Changing `ceedlingExplorer.mixins`, `ceedlingExplorer.shellPath`, `ceedlingExplorer.ceedlingCommand`, or `ceedlingExplorer.ansiEscapeSequencesRemoved` now rediscovers tests. Changing problem-matching settings no longer clears the _Problems_ panel unless problem matching is turned off.
+* Pretty file labels now apply to test files at a project’s root and on Windows-style paths, and treat `:test_file_prefix` as literal text, as Ceedling does, so a prefix with characters such as `+` or `(` still shortens labels.
 * Routine errors no longer pull the _Ceedling Explorer_ log into view and take focus.
+* Closing or reloading the window now stops every Ceedling process still running, in every workspace folder. Before, shutdown could stop partway and leave a run going.
+* A malformed `ceedlingExplorer.projects` entry, e.g. a `path` that isn’t text, now shows an error naming the setting, instead of an internal error.
+* An unexpected discovery failure now shows its message in the notification, without a stack trace. The log keeps the stack.
 
 ## 👋 Removed
 

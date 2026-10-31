@@ -5,14 +5,12 @@
 import * as child_process from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import type vscode from 'vscode';
 import { CeedlingEngine, type LayoutUpgrade } from '../../src/ceedlingEngine';
 import { parseCeedlingVersions } from '../../src/ceedlingOutputParsing';
-import { applicationRelease, capabilitiesOf, type CeedlingCapabilities, type CeedlingFeature } from '../../src/ceedlingProjectConfig';
-import { type Cancellation, ceedlingEnvironment } from '../../src/ceedlingProcess';
-import type { Logger } from '../../src/logger';
-import type { ProblemMatcher } from '../../src/problemMatcher';
+import { applicationRelease, capabilitiesOf, type CeedlingCapabilities, type CeedlingFeature } from '../../src/ceedlingVersions';
+import { ceedlingEnvironment } from '../../src/ceedlingProcess';
 import type { CeedlingFileNode, CeedlingProjectNode, CoverageOutcome, RunReporter } from '../../src/testModel';
+import { cancellation, recordingLog, settingsFrom } from '../support/fakes';
 
 export const WS = '/ws';
 // Compiled suites live in out-test/tests/validation.
@@ -27,19 +25,14 @@ type LogCall = { level: string, message: string, at: number };
 export function makeEngine(settings: Record<string, unknown>): { engine: CeedlingEngine, logs: LogCall[], upgrades: LayoutUpgrade[] } {
     const logs: LogCall[] = [];
     const upgrades: LayoutUpgrade[] = [];
-    const record = (level: string) => (...args: unknown[]) => { logs.push({ level, message: args.map(String).join(' '), at: Date.now() }); };
-    const logger = {
-        trace: record('trace'), debug: record('debug'), info: record('info'), warn: record('warn'), error: record('error'),
-        showWarning: record('showWarning'), showError: record('showError'), dispose() { },
-    } as unknown as Logger;
-    const problems = { match: () => [], set() { }, retain() { }, retainIds() { }, clear() { }, dispose() { } } as unknown as ProblemMatcher;
+    const logger = recordingLog((level, message) => { logs.push({ level, message, at: Date.now() }); });
     const engine = new CeedlingEngine(
-        { uri: { fsPath: WS, toString: () => `file://${WS}` }, name: 'ws', index: 0 } as unknown as vscode.WorkspaceFolder,
+        WS,
         logger,
         false,
         {
-            configProvider: () => ({ get: (key: string, fallback?: unknown) => (key in settings ? settings[key] : fallback) }) as unknown as vscode.WorkspaceConfiguration,
-            problemMatcher: problems,
+            settings: () => settingsFrom(settings),
+            diagnostics: { set() { }, retain() { }, retainIds() { } },
             bundledMixinPath: path.join(REPO, 'assets/mixins/report-tests-log-factory.yml'),
             onLayoutUpgrade: (upgrade) => upgrades.push(upgrade),
         },
@@ -146,7 +139,7 @@ const LOCK_HANDOFF_MS = 100;
 // `heldBack` says the project's locks held it until the build ended.
 export async function rediscoverDuringBuild(engine: CeedlingEngine, logs: readonly LogCall[], project: CeedlingProjectNode, reporter: RunReporter):
     Promise<{ discoveryStart: number, discoveryEnd: number, dumpconfigAt: number, buildEnd: number, heldBack: boolean, discovered: CeedlingProjectNode[] }> {
-    const run = engine.runProjectAll(project.projectKey, project.files, reporter, token()).then(() => Date.now());
+    const run = engine.runProjectAll(project.projectKey, project.files, reporter, cancellation()).then(() => Date.now());
     try {
         await new Promise((resolve) => setTimeout(resolve, 300));
         const discoveryStart = Date.now();
@@ -165,18 +158,7 @@ export function hasCommand(name: string): boolean {
     return child_process.spawnSync('sh', ['-c', `command -v ${name}`]).status === 0;
 }
 
-export function token(): Cancellation & { fire(): void } {
-    const listeners = new Set<() => void>();
-    const t = {
-        isCancellationRequested: false,
-        onCancellationRequested(listener: () => void) {
-            listeners.add(listener);
-            return { dispose: () => listeners.delete(listener) };
-        },
-        fire() { t.isCancellationRequested = true; for (const l of [...listeners]) l(); },
-    };
-    return t;
-}
+export { cancellation as token };
 
 // Xorshift, so one seed always replays the same sequence of operations.
 export function seeded(seed: number): { random: () => number, pick: <T>(list: readonly T[]) => T } {
