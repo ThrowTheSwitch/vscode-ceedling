@@ -85,3 +85,13 @@ export function extractCeedlingException(output: string): string | undefined {
     block[0] = (block[0] ?? '').replace(/^[^\w\s]*\s*/, '');
     return block.join('\n').trimEnd();
 }
+
+// Whether a build's output carries Ceedling's warning that its dependency cache comes from an
+// earlier build layout, as on the first build after upgrading to 1.2.2 from 1.2.0 or 1.2.1. The
+// old layout's output stays until a clobber. The warning's key words, all on one line in any case,
+// identify it, so a reworded, decorated, or wrapped-path warning still counts.
+const LAYOUT_UPGRADE_WORDS = [/dependency cache/i, /\bearlier\b/i, /build layout/i, /\bclobber\b/i];
+
+export function detectLayoutUpgrade(output: string): boolean {
+    return output.split(/\r\n?|\n/).some((line) => LAYOUT_UPGRADE_WORDS.every((word) => word.test(line)));
+}

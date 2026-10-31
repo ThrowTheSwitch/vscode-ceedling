@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import path from 'path';
 import util from 'util';
 import vscode from 'vscode';
-import { CeedlingEngine, CeedlingLoadError, coverageMode } from './ceedlingEngine';
+import { CeedlingEngine, CeedlingLoadError, coverageMode, type LayoutUpgrade } from './ceedlingEngine';
 import { debugTarget, resolveLaunchConfig } from './debugLaunch';
 import { type CoverageReport, mergeCoverage } from './coberturaReport';
 import { type Logger } from './logger';
@@ -18,6 +18,8 @@ import { Debouncer, settingsChangeEffects, type SourceEvent, sourceEventEffect, 
 const DEBUG_REQUEST_KEY = '__ceedlingDebugRequest';
 // How long typing pauses before an unsaved test file is reparsed.
 const EDIT_REPARSE_DELAY_MS = 400;
+// The action offered once Ceedling moves a project's build to a new layout.
+const CLOBBER_ACTION = 'Clobber';
 
 // One result a run reported to the Testing view, for the integration tests. VS Code's API can't
 // read another extension's run results.
@@ -73,6 +75,7 @@ export class CeedlingTestController {
             configProvider: (uri) => vscode.workspace.getConfiguration('ceedlingExplorer', uri),
             problemMatcher: new ProblemMatcher(logger),
             bundledMixinPath: path.join(extensionPath, 'assets', 'mixins', 'report-tests-log-factory.yml'),
+            onLayoutUpgrade: (upgrade) => void this.offerClobber(upgrade),
         });
         this.discovery = new SingleFlight(() => this.discover());
 
@@ -124,6 +127,15 @@ export class CeedlingTestController {
 
     async clobber(): Promise<void> {
         await this.runTask('Clobber', (token) => this.engine.clobber(token));
+    }
+
+    // The old layout's output stays until a clobber, which the notice offers for that project alone.
+    private async offerClobber(upgrade: LayoutUpgrade): Promise<void> {
+        const choice = await vscode.window.showWarningMessage(upgrade.message, CLOBBER_ACTION);
+        // The folder may have gone while the notice showed.
+        if (choice === CLOBBER_ACTION && !this.disposed) {
+            await this.runTask('Clobber', (token) => this.engine.clobberProject(upgrade.projectKey, token));
+        }
     }
 
     dispose(): void {

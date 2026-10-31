@@ -16,6 +16,9 @@
 // the process is killed. Reports follow the structure of the captured CppUnit reports. Every
 // invocation's arguments are appended to `fake-ceedling.log` as a JSON line.
 //
+// A build finding `build/cache/.test.dep_cache.json` at schema version 1, as Ceedling 1.2.0 and
+// 1.2.1 leave it, logs 1.2.2's captured upgrade warning and moves the cache to version 2.
+//
 // `gcov` enables the gcov plugin. Its `gcov:` tasks run tests as `test:` tasks do, and write a gcovr
 // Cobertura report of each run test file's `coverage`, unless `reportTask` defers that to a
 // `report:gcov` task on the same command line. A line is [number, hits] or [number, hits,
@@ -34,6 +37,9 @@ const option = (name) => args.find((a) => a.startsWith(`--${name}=`))?.slice(nam
 const mixins = args.flatMap((a, i) => args[i - 1] === '--mixin' ? [a] : []);
 const buildRoot = path.join(cwd, 'build');
 
+if (/^(test|gcov):/.test(task)) {
+    upgradeCache();
+}
 if (task === 'version') {
     process.stdout.write(`Welcome to Ceedling!\n  Ceedling => ${scenario.version}\n      CMock => 2.6.0\n      Unity => 2.7.2\n`);
 } else if (task === 'dumpconfig' && args[1] === '--stdout') {
@@ -53,6 +59,15 @@ if (task === 'version') {
 } else {
     process.stderr.write(`fake ceedling: unsupported command: ${args.join(' ')}\n`);
     process.exitCode = 1;
+}
+
+// The first build after an upgrade sets an earlier layout's cache aside, and says so on stdout.
+function upgradeCache() {
+    const cache = path.join(buildRoot, 'cache', '.test.dep_cache.json');
+    if (!fs.existsSync(cache) || JSON.parse(fs.readFileSync(cache, 'utf8')).schema_version !== 1) return;
+    const captured = fs.readFileSync(path.join(__dirname, '..', 'ceedling-1.2.2', 'test-upgrade-stdout.txt'), 'utf8');
+    process.stdout.write(`${captured.split('\n').find((line) => /Dependency cache/.test(line))}\n`);
+    fs.writeFileSync(cache, JSON.stringify({ schema_version: 2, entries: {} }));
 }
 
 // Every test file under test/, as `ceedling files:test` lists them, project-relative.

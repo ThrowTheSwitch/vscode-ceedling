@@ -4,6 +4,7 @@ import * as path from 'path';
 import {
     buildFileLabelRegex,
     buildTestLabelRegex,
+    detectLayoutUpgrade,
     extractCeedlingException,
     extractGdbLogReference,
     extractTestFunctionName,
@@ -241,5 +242,46 @@ suite('extractCeedlingException', () => {
 
     test('is undefined when Ceedling raised no exception', () => {
         assert.strictEqual(extractCeedlingException('Compiling test_x.c...\nNo EXCEPTION here: an ordinary line\n'), undefined);
+    });
+});
+
+suite('detectLayoutUpgrade', () => {
+    const captured = readFixture('ceedling-1.2.2', 'test-upgrade-stdout.txt');
+    const warning = captured.split('\n').find((line) => /Dependency cache/.test(line)) ?? '';
+
+    // A reworded warning fails here once recaptured, and the upgrade validation suite fails on a
+    // live Ceedling whose warning drifted.
+    test('recognizes the warning Ceedling 1.2.2 logs on the first build after an upgrade', () => {
+        assert.ok(warning !== '', 'the capture holds the warning');
+        assert.strictEqual(detectLayoutUpgrade(captured), true);
+    });
+
+    test('keys on its words, not its exact wording, decoration, or cache path', () => {
+        for (const variant of [
+            warning.replace('WARNING:', '⚠️ WARNING:'),
+            warning.toUpperCase(),
+            warning.replace('rebuilding everything once', 'rebuilding all'),
+            warning.replace('build/cache/.test.dep_cache.json', 'C:\\proj\\build\\cache\\.gcov.dep_cache.json'),
+            `${captured.replace(/\n/g, '\r\n')}`,
+            'Dependency cache x was written by an earlier build layout; run clobber.',
+        ]) {
+            assert.strictEqual(detectLayoutUpgrade(variant), true, variant);
+        }
+    });
+
+    test('ignores other warnings, a hand-off notice, and an earlier release\'s build', () => {
+        for (const output of [
+            'WARNING: Dependency cache build/cache/.test.dep_cache.json does not contain a JSON object -- treating it as absent (full rebuild for tracked targets).',
+            captured.replace(warning, ''),
+            readFixture('ceedling-1.2.2', 'files-test-handoff-stdout.txt'),
+            readFixture('ceedling-1.2.1', 'test-stdout.txt'),
+            '',
+        ]) {
+            assert.strictEqual(detectLayoutUpgrade(output), false, output.slice(0, 200));
+        }
+    });
+
+    test('needs every word on one line', () => {
+        assert.strictEqual(detectLayoutUpgrade('Dependency cache x comes from an earlier Ceedling\nbuild layout. Run `ceedling clobber`.'), false);
     });
 });
