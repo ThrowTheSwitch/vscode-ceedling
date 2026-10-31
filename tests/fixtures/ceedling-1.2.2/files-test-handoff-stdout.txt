@@ -1,11 +1,11 @@
 Loaded project configuration from working directory.
  > Using: /project/project.yml
  > Working directory: /project
-NOTICE: Ceedling launcher 1.2.2.dev at /var/lib/gems/3.3.0/gems/ceedling-1.2.2.dev/ is handing off to Ceedling 1.2.2.dev at /project/vendor/ceedling/, which runs in its own process.
+NOTICE: Ceedling launcher 1.2.2 at /var/lib/gems/3.3.0/gems/ceedling-1.2.2/ is handing off to Ceedling 1.2.2 at /project/vendor/ceedling/, which runs in its own process.
 Loaded project configuration from working directory.
  > Using: /project/project.yml
  > Working directory: /project
-NOTICE: Ceedling 1.2.2.dev at /project/vendor/ceedling/ is now running, launched from Ceedling 1.2.2.dev at /var/lib/gems/3.3.0/gems/ceedling-1.2.2.dev/.
+NOTICE: Ceedling 1.2.2 at /project/vendor/ceedling/ is now running, launched from Ceedling 1.2.2 at /var/lib/gems/3.3.0/gems/ceedling-1.2.2/.
 
 -------
 CAPTURE

@@ -6,7 +6,7 @@ Loaded project configuration from working directory.
 CAPTURE
 -------
 
-Ceedling set up completed in 154 milliseconds
+Ceedling set up completed in 340 milliseconds
 
 WARNING: Dependency cache build/cache/.test.dep_cache.json comes from an earlier Ceedling build layout -- rebuilding everything once. Run `ceedling clobber` to remove any orphaned build output left in the old layout.
 
@@ -61,5 +61,5 @@ Running Test Suite Reports
 Generating artifact build/artifacts/test/cppunit_tests_report.xml...
 
 
-Ceedling operations completed in 323 milliseconds
+Ceedling operations completed in 456 milliseconds
 
