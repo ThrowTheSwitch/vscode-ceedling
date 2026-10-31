@@ -5,9 +5,10 @@
 import * as child_process from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import semver from 'semver';
 import type vscode from 'vscode';
 import { CeedlingEngine } from '../../src/ceedlingEngine';
+import { parseCeedlingVersions } from '../../src/ceedlingOutputParsing';
+import { applicationRelease, capabilitiesOf, type CeedlingCapabilities, type CeedlingFeature } from '../../src/ceedlingProjectConfig';
 import type { Cancellation } from '../../src/ceedlingProcess';
 import type { Logger } from '../../src/logger';
 import type { ProblemMatcher } from '../../src/problemMatcher';
@@ -17,13 +18,14 @@ export const WS = '/ws';
 // Compiled suites live in out-test/tests/validation.
 const REPO = path.resolve(__dirname, '../../..');
 
-type LogCall = { level: string, message: string };
+// `at` is when the engine logged it, in Date.now() milliseconds.
+type LogCall = { level: string, message: string, at: number };
 
 // An engine for the workspace at /ws. `settings` stays live: a suite changes a setting by
 // assigning to it, as a user editing settings.json would.
 export function makeEngine(settings: Record<string, unknown>): { engine: CeedlingEngine, logs: LogCall[] } {
     const logs: LogCall[] = [];
-    const record = (level: string) => (...args: unknown[]) => { logs.push({ level, message: args.map(String).join(' ') }); };
+    const record = (level: string) => (...args: unknown[]) => { logs.push({ level, message: args.map(String).join(' '), at: Date.now() }); };
     const logger = {
         trace: record('trace'), debug: record('debug'), info: record('info'), warn: record('warn'), error: record('error'),
         showWarning: record('showWarning'), showError: record('showError'), dispose() { },
@@ -64,18 +66,28 @@ export function parseArgs(defaults: readonly number[], flags: readonly string[] 
     return { numbers, flags: given };
 }
 
+// The image's Ceedling release, asked once. Suites gate on capabilities(), which the engine's own
+// gates read too. A wrong table entry then shows only in a suite whose checks depend on the feature
+// itself, as stress, gated, layout, and the probes do. latency follows the table either way.
+let release: string | undefined;
 export function ceedlingVersion(): string {
-    const output = child_process.execFileSync('ceedling', ['version'], { encoding: 'utf8' });
-    const version = semver.coerce(/Ceedling\s*=>\s*(\S+)/.exec(output)?.[1]);
-    if (!version) throw new Error(`no Ceedling version in: ${output}`);
-    return version.version;
+    if (release === undefined) {
+        const output = child_process.execFileSync('ceedling', ['version'], { encoding: 'utf8' });
+        const reported = parseCeedlingVersions(output);
+        release = reported && applicationRelease(reported)?.release;
+        if (release === undefined) throw new Error(`no Ceedling version in: ${output}`);
+    }
+    return release;
 }
 
-// Whether the image's Ceedling is `minimum` or later. If not, says why the suite skips.
-export function atLeast(minimum: string, reason: string): boolean {
-    const version = ceedlingVersion();
-    if (semver.gte(version, minimum)) return true;
-    console.log(`skipped: Ceedling ${version} ${reason}`);
+export function capabilities(): CeedlingCapabilities {
+    return capabilitiesOf(ceedlingVersion());
+}
+
+// Whether the image's Ceedling has `feature`. If not, says why the suite skips.
+export function requires(feature: CeedlingFeature, reason: string): boolean {
+    if (capabilities()[feature]) return true;
+    console.log(`skipped: Ceedling ${ceedlingVersion()} ${reason}`);
     return false;
 }
 
@@ -211,6 +223,7 @@ export function main(name: string, suite: (checks: Checks) => Promise<void>): vo
         process.exit(checks.violations.length ? 1 : 0);
     }, (error: unknown) => {
         console.log(`${name}: stopped: ${error instanceof Error ? error.stack : String(error)}`);
+        for (const violation of [...new Set(checks.violations)].slice(0, 30)) console.log(`  - ${violation.slice(0, 400)}`);
         process.exit(1);
     });
 }

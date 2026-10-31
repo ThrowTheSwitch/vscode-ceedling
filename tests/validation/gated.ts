@@ -11,20 +11,19 @@
 //
 // usage: node gated.js
 import * as fs from 'fs';
-import semver from 'semver';
 import { coverageMode } from '../../src/ceedlingEngine';
 import type { CoverageOutcome } from '../../src/testModel';
-import { atLeast, ceedlingVersion, describeOutcome, fileOf, hits, main, makeEngine, only, recordingReporter, stage, token, WS } from './harness';
+import { capabilities, ceedlingVersion, describeOutcome, fileOf, hits, main, makeEngine, only, parseArgs, recordingReporter, requires, stage, token, WS } from './harness';
 
 const UNIT = 'test/unit/test_dup.c', INTEGRATION = 'test/integration/test_dup.c', FILTERS = 'test/test_filters.c';
 const ADD = `${UNIT}::test_unit_add`, LOW = `${INTEGRATION}::test_integration_clamp_low`, HIGH = `${INTEGRATION}::test_integration_clamp_high`;
 const ALPHA = `${FILTERS}::test_filter_alpha`, BETA = `${FILTERS}::test_filter_beta`;
 
 main('gated', async (checks) => {
-    if (!atLeast('1.2.0', "can't build same-named test files")) return;
-    const version = ceedlingVersion();
-    const pathTasks = semver.gte(version, '1.2.1');
-    console.log(`Ceedling ${version}: coverage tasks name ${pathTasks ? 'paths' : 'bare filenames'}`);
+    parseArgs([]);
+    if (!requires('nestedTestBuilds', "can't build same-named test files")) return;
+    const pathTasks = capabilities().pathQualifiedCoverageTasks;
+    console.log(`Ceedling ${ceedlingVersion()}: coverage tasks name ${pathTasks ? 'paths' : 'bare filenames'}`);
     stage('tests/validation/workspaces/gated');
     const settings: Record<string, unknown> = { projects: [{ path: 'project', debugLaunchConfig: 'dbg' }], mixins: [`${WS}/mixins/gcovr.yml`], coverageResetsCounters: true };
     const { engine, logs } = makeEngine(settings);

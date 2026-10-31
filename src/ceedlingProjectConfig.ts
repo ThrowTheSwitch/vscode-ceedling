@@ -4,6 +4,7 @@
 
 import path from 'path';
 import semver from 'semver';
+import type { ReportedCeedling } from './ceedlingOutputParsing';
 
 // Discovery cannot proceed: an unusable Ceedling, configuration, or project path. A workspace
 // folder with no Ceedling project in it is not an error.
@@ -48,6 +49,10 @@ export type ProjectState = {
     coverage: CoverageState | undefined,
     // `:paths` ↳ `:test` as configured, e.g. `+:test/**`, which places each test's build files.
     testPaths: string[],
+    // `:project` ↳ `:which_ceedling`: `gem` for the installed Ceedling, else a path to another. Unset,
+    // it reads `gem`, and WHICH_CEEDLING or a `vendor/ceedling` then chooses, as every command does.
+    // Before 1.2.2 `ceedling version` never reads it. See versionSeesSelection().
+    whichCeedling: string,
 };
 
 // What a coverage run leaves to read. Ceedling's gcov plugin writes a Cobertura report through
@@ -67,37 +72,74 @@ export const DEFAULT_CPPUNIT_REPORT_FILENAME = 'cppunit_tests_report.xml';
 export const DEFAULT_PROJECT_FILE = 'project.yml';
 export const ALTERNATE_DEFAULT_PROJECT_FILE = 'ceedling.yml';
 
-// Ceedling features this extension uses only where they exist.
-export type CeedlingCapabilities = {
+// The oldest Ceedling this extension runs.
+export const MINIMUM_CEEDLING_VERSION = '1.0.0';
+
+// The first Ceedling release with each feature this extension uses only where it exists. Every
+// feature gate reads this table, through capabilitiesOf() or firstRelease().
+const FIRST_RELEASES = {
     // `dumpconfig --stdout` writes the resolved configuration to stdout instead of a file.
-    dumpconfigStdout: boolean,
+    dumpconfigStdout: '1.2.0',
     // Delta builds reuse cached results unless `--force-test-rerun` is given. Before 1.2.1 their
     // cache ignores --test-case. In every version it ignores deleted coverage counters.
-    forceTestRerun: boolean,
+    forceTestRerun: '1.2.0',
     // A `test:` task accepts a project-relative path, which tells same-named test files apart.
-    pathQualifiedTestTasks: boolean,
+    pathQualifiedTestTasks: '1.2.0',
     // A `gcov:` task does too. Ceedling 1.2.0's gcov plugin still took a bare name.
-    pathQualifiedCoverageTasks: boolean,
+    pathQualifiedCoverageTasks: '1.2.1',
     // ceedling.yml is a default project file, like project.yml.
-    ceedlingYml: boolean,
+    ceedlingYml: '1.2.0',
     // A test's build files nest under its file's directory within its test path, e.g.
     // `test/out/unit/test_foo/` for `test/unit/test_foo.c`. See testBuildName().
-    nestedTestBuilds: boolean,
-};
+    nestedTestBuilds: '1.2.0',
+    // `dumpconfig` and `files:test` write no files. Earlier versions rewrite the build root's
+    // vendored Unity and CMock sources in place (Ceedling#1361). Both still create the build root's
+    // missing directories, as every command does.
+    readOnlyDiscovery: '1.2.1',
+    // As a launcher handing off to another installation, `ceedling version` reports that
+    // installation's own version. Earlier launchers report their own release, with the other
+    // installation's commit (Ceedling#1365). Unlike every other feature, this one is the launcher's.
+    reportsApplicationVersion: '1.2.2',
+} as const;
 
-// The features of a reported Ceedling version. A build suffix such as `1.2.0-13a540f` counts as
-// its release, though semver would rank it below.
+export type CeedlingFeature = keyof typeof FIRST_RELEASES;
+
+export type CeedlingCapabilities = Readonly<Record<CeedlingFeature, boolean>>;
+
+// The release a reported version counts as, e.g. `1.2.0` for a build's `1.2.0-13a540f`, which
+// semver would rank below 1.2.0. undefined when the text names no version.
+export function ceedlingRelease(reported: string): string | undefined {
+    return semver.coerce(reported)?.version;
+}
+
+export function isSupportedRelease(release: string): boolean {
+    return semver.gte(release, MINIMUM_CEEDLING_VERSION);
+}
+
+export function firstRelease(feature: CeedlingFeature): string {
+    return FIRST_RELEASES[feature];
+}
+
+// The release of the Ceedling that runs a project, and whether `ceedling version` shows it exactly.
+// A launcher before 1.2.2 reports its own release as the application's, with the application's
+// commit. Only a commit matching the launcher's shows the application's release. Otherwise the
+// launcher's release stands in for it. undefined when either version names no release.
+export function applicationRelease(reported: ReportedCeedling): { release: string, exactRelease: boolean } | undefined {
+    const release = ceedlingRelease(reported.application);
+    const launcher = reported.launcher ?? reported.application;
+    if (release === undefined || ceedlingRelease(launcher) === undefined) {
+        return undefined;
+    }
+    // A `-<commit>` suffix comes only from an installation with a GIT_COMMIT_SHA file.
+    const sameBuild = launcher === reported.application && /-[0-9a-f]+$/i.test(launcher);
+    return { release, exactRelease: reported.launcher === undefined || sameBuild || capabilitiesOf(launcher).reportsApplicationVersion };
+}
+
+// The features of a reported Ceedling version, as of its release.
 export function capabilitiesOf(version: string): CeedlingCapabilities {
-    const release = semver.coerce(version);
-    const atLeast = (minimum: string) => release !== null && semver.gte(release, minimum);
-    return {
-        dumpconfigStdout: atLeast('1.2.0'),
-        forceTestRerun: atLeast('1.2.0'),
-        pathQualifiedTestTasks: atLeast('1.2.0'),
-        pathQualifiedCoverageTasks: atLeast('1.2.1'),
-        ceedlingYml: atLeast('1.2.0'),
-        nestedTestBuilds: atLeast('1.2.0'),
-    };
+    const release = ceedlingRelease(version);
+    const entries = Object.entries(FIRST_RELEASES).map(([feature, first]) => [feature, release !== undefined && semver.gte(release, first)]);
+    return Object.fromEntries(entries) as Record<CeedlingFeature, boolean>;
 }
 
 // Projects in settings order. With none configured, one default project sits at the workspace
@@ -189,6 +231,19 @@ async function projectFiles(
     };
 }
 
+// Whether `ceedling version`, run in the project directory, reports the Ceedling that `:project` ↳
+// `:which_ceedling` selects without reading it, as every version before 1.2.2 does. It picks the
+// installed gem, or a `vendor/ceedling` it finds there, as `ceedling new --local` vendors and names.
+// WHICH_CEEDLING outranks both alike. Ceedling reads `gem` in any case, around any spaces.
+export function versionSeesSelection(whichCeedling: string, projectDir: string, platform: NodeJS.Platform): boolean {
+    const which = whichCeedling.trim();
+    if (which.toLowerCase() === 'gem') {
+        return true;
+    }
+    const paths = platform === 'win32' ? path.win32 : path.posix;
+    return pathKey(paths.resolve(projectDir, which), platform) === pathKey(paths.resolve(projectDir, 'vendor', 'ceedling'), platform);
+}
+
 export function projectState(resolved: unknown, platform: NodeJS.Platform): ProjectState {
     const enabledPlugins = setting(resolved, ':plugins', ':enabled');
     return {
@@ -201,6 +256,7 @@ export function projectState(resolved: unknown, platform: NodeJS.Platform): Proj
         reportPluginEnabled: Array.isArray(enabledPlugins) && enabledPlugins.includes('report_tests_log_factory'),
         coverage: coverageState(resolved),
         testPaths: stringList(setting(resolved, ':paths', ':test')),
+        whichCeedling: stringSetting(resolved, 'gem', ':project', ':which_ceedling'),
     };
 }
 

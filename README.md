@@ -44,7 +44,7 @@ Requires VS Code 1.88.0 or later.
 
 ## Ceedling
 
-Requires Ceedling 1.0.0 or later. Ceedling 1.0.0 through 1.2.1 are supported. [Code coverage](#code-coverage) also needs Ceedling’s gcov plugin and a coverage report tool.
+Requires Ceedling 1.0.0 or later. Ceedling 1.0.0 through 1.2.2 are supported. [Code coverage](#code-coverage) also needs Ceedling’s gcov plugin and a coverage report tool.
 
 _[Ceedling documentation](https://throwtheswitch.github.io/Ceedling/latest/)_
 

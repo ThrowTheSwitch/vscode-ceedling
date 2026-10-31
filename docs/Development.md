@@ -154,7 +154,7 @@ See [tests/manual/README.md](../tests/manual/README.md) for the `project.yml` se
 
 ## 5. Validation Against Real Ceedling
 
-The unit and integration tests run against a simulated Ceedling. The validation suites run the engine against real Ceedling releases instead, to catch what a simulation can’t: races at real build speeds, each version’s own behavior, and real gcovr and ReportGenerator output. They aren’t part of `just test` or CI. Run them on every supported version before a release, and after changing the engine’s locking, its Ceedling command lines, or its coverage handling.
+The unit and integration tests run against a simulated Ceedling. The validation suites run the engine against real Ceedling releases instead, to catch what a simulation can’t: races at real build speeds, each version’s own behavior, and real gcovr and ReportGenerator output. They aren’t part of `just test` or CI. Run them on every supported version before a release, on each new Ceedling release, and after changing the engine’s locking, its Ceedling command lines, or its coverage handling.
 
 ```sh
 just validate 1.2.1                   # every suite, on Ceedling 1.2.1
@@ -163,7 +163,7 @@ just validate 1.1.10 stress 120 6 7   # 120 seconds, 6 operations at once, seed 
 just validate 1.2.1 probe:syscalls    # one probe
 ```
 
-A suite prints what it ran and every violation it found, and exits 0 only when every check held. `all`, the default, runs `stress` twice, the second time with one build root, then `coverage`, `gated`, and `layout`. Trailing numbers go to `stress` and `coverage`, so `just validate 1.2.1 all 45` gives each of their overlap phases 45 seconds. That takes about three minutes per version, and the default of 60 seconds about a minute more.
+A suite prints what it ran and every violation it found, and exits 0 only when every check held. `all`, the default, runs every suite. `stress` runs twice, the second time with one build root. `coverage`, `gated`, and `layout` follow. `latency` runs twice, the second time with a vendored Ceedling. Trailing numbers go to `stress` and `coverage` only, so `just validate 1.2.1 all 45` gives each of their overlap phases 45 seconds. That takes about four minutes per version, and the default of 60 seconds about a minute more.
 
 ### How they run
 
@@ -177,11 +177,11 @@ A suite prints what it ran and every violation it found, and exits 0 only when e
 
 | Suite | Checks | Versions |
 |---|---|---|
-| `stress` | Random runs of files, functions, and projects, debug builds, discoveries, reparses, and cleans overlap across four projects, two of them sharing a directory. A fifth are cancelled at a random moment. Each completed run must report each of its own tests once, with the outcome [`tests/manual/`](../tests/manual/) expects. No Ceedling process or temporary file may be left. `--shared-build-root` gives all four projects one build root. Takes seconds (60), operations at once (6), and a seed (1). | All |
+| `stress` | Random runs of files, functions, and projects, debug builds, discoveries, reparses, cleans, and clobbers overlap across four projects, two of them sharing a directory. A fifth are cancelled at a random moment. Each completed run must report each of its own tests once, with the outcome [`tests/manual/`](../tests/manual/) expects. Each discovery must list every project’s test files. No Ceedling process or temporary file may be left. `--shared-build-root` gives all four projects one build root. Takes seconds (60), operations at once (6), and a seed (1). | All |
 | `coverage` | Exact outcomes one run at a time: gcovr preferred over ReportGenerator, counters reset or kept, a function run, a source above the project, ReportGenerator alone. Then coverage runs overlapping plain runs, discovery, reparses, and clean. Takes seconds (60), operations at once (5), and a seed (1). | All. 1.0.0’s image has no ReportGenerator, so its checks skip. |
 | `gated` | The engine’s per-version command lines, on same-named test files: coverage tasks named by path from 1.2.1, or by bare name with a warning on 1.2.0. Also `:report_task:`, a changed `--test-case` filter, plain runs, and the debug executable’s directory. | 1.2.0 and later |
 | `layout` | Exact test build directories in a project with two test roots: each debug build’s executable, and a same-named file’s coverage counters kept through a whole-file rerun. | 1.2.0 and later. Coverage from 1.2.1, since 1.2.0’s `gcov:` tasks can’t name either file. |
-| `latency` | Measures a rediscovery during a full build kept running about 4 seconds by a slow test, for [Architecture.md](Architecture.md#possible-speedup-discovery-without-the-lock-on-121). It checks only that the build’s results are unchanged. Not in `all`. | All |
+| `latency` | Runs a rediscovery during a full build that a slow test keeps running about 4 seconds. From 1.2.1, the rediscovery’s `dumpconfig` must start before the build ends. Before 1.2.1, the rediscovery must end after the build, since it waits for the build’s locks, as [Architecture.md](Architecture.md#discovery-without-the-locks-from-121) explains. The build’s results must be unchanged. `--vendored` first copies the image’s own Ceedling into the project’s `vendor/ceedling`, without `:which_ceedling`. `ceedling version` must then report a launcher and an application, and the copy must gate as the installed Ceedling does. | All |
 
 A seed replays the same sequence of operations, though not their timing, so a failure may need several runs to recur.
 
@@ -190,8 +190,18 @@ A seed replays the same sequence of operations, though not their timing, so a fa
 The probes run Ceedling alone, without the engine, to show the Ceedling behavior the engine’s design rests on. They report what they find without judging it. Each heading in the output states what to expect. They target 1.2.0 and later, since discovery’s writes are traced through `dumpconfig --stdout`.
 
 - `probe:fixes` shows three things. Ceedling 1.2.1’s delta builds rerun a changed `--test-case` filter ([Ceedling#1360](https://github.com/ThrowTheSwitch/Ceedling/issues/1360)). A coverage run after a counter reset still needs `--force-test-rerun`. And discovery’s commands write under `build/` before 1.2.1 ([Ceedling#1361](https://github.com/ThrowTheSwitch/Ceedling/issues/1361)).
-- `probe:syscalls` traces every filesystem call `dumpconfig --stdout` and `files:test` make under a populated build root. It runs as root, which `strace` needs.
-- `probe:overlap` loops discovery’s commands against six clean builds in the same directory, and counts the builds that fail.
+- `probe:syscalls` traces every filesystem call `dumpconfig --stdout` and `files:test` make under a populated build root, and every write they make outside `/dev`, `/proc`, and `/tmp`. It runs as root, which `strace` needs.
+- `probe:overlap` loops discovery’s commands against six clean builds in the same directory, and counts the builds that fail. Then it loops them during a `clobber` of a build root padded to 20,000 files. It reports the files `clobber` leaves and how many the next build recompiles.
+
+### On a new Ceedling release
+
+Each new Ceedling release needs these checks before the extension supports it, since discovery skips the engine’s locks on every release from 1.2.1.
+1. Run `just validate <version>`, then `just validate <version> probe:syscalls` and `just validate <version> probe:overlap`.
+2. `probe:syscalls` must show no writes under `build/`, nor any outside `/dev`, `/proc`, and `/tmp`. `probe:overlap` must show `clobber` leaving no files outside `build/vendor/`, and the next build recompiling every file.
+3. To confirm that `stress --shared-build-root` can still catch the race, temporarily make `discovering()` in `ceedlingEngine.ts` always skip the locks. Then run that suite on 1.2.0 with several seeds, where it should fail.
+4. Record the release’s new features. Add each to `FIRST_RELEASES` in `ceedlingProjectConfig.ts` and to the table in [Architecture.md](Architecture.md#ceedling-versions). Update the supported range in the README, and capture `tests/fixtures/ceedling-<version>/` transcripts.
+
+From 1.2.2, the engine also trusts a launcher’s report of another installation’s release, which earlier launchers get wrong ([Ceedling#1365](https://github.com/ThrowTheSwitch/Ceedling/issues/1365)). Check this once on 1.2.2. Install 1.2.2 as the launcher and follow the reproduction in that issue. `ceedling version` with `WHICH_CEEDLING` must report the older application’s own version.
 
 ### Changing them
 
@@ -199,6 +209,7 @@ The probes run Ceedling alone, without the engine, to show the Ceedling behavior
 - [`harness.ts`](../tests/validation/harness.ts) holds what the suites share:
   - the engine and its stubs;
   - `stage()`, which copies a fixture into `/ws`;
+  - `capabilities()` and `requires()`, which gate a suite on the engine’s own version table, never on a version literal;
   - recording reporters;
   - `churn()` for random overlap;
   - the leftover check;
@@ -208,7 +219,7 @@ The probes run Ceedling alone, without the engine, to show the Ceedling behavior
 
 ## 6. Manual Testing Plan
 
-This checklist confirms the extension’s behavior in a real VS Code, where unit and integration tests can’t reach. Run it before a release, against the final code on the integration branch, on Ceedling 1.0.0, 1.1.10, 1.2.0, and 1.2.1. Run `just validate` on each of those versions first.
+This checklist confirms the extension’s behavior in a real VS Code, where unit and integration tests can’t reach. Run it before a release, against the final code on the integration branch, on Ceedling 1.0.0, 1.1.10, 1.2.0, and the newest 1.2 release. Run `just validate` on each of those versions first.
 
 Every step runs against [`tests/manual/`](../tests/manual/), opened as its own folder in the Development Host.
 
@@ -219,6 +230,8 @@ Every step runs against [`tests/manual/`](../tests/manual/), opened as its own f
 - [ ] **Cancel.** Cancel a run of `test_calculator.c` while it builds. Its tests show as skipped, not errored.
 - [ ] **Ceedling 1.2.0.** On 1.2.0, rename `project.yml` to `ceedling.yml` and refresh. Discovery and runs still work. Add `test/alpha/test_dup.c` and `test/beta/test_dup.c`, each with one test. Both run and debug correctly. Run one test alone, then its whole file with nothing changed. Every test in the file reports a result. Revert after.
 - [ ] **Rediscovery during a run.** Start a run of all tests, then save `project.yml` while it runs. The run completes with correct results.
+- [ ] **New test file during a run (1.2.1 and later).** On the newest release, add a test file while a run of all tests is under way. The Testing view shows it before the run finishes. Delete it after.
+- [ ] **Vendored Ceedling.** Run `ceedling new --local` in a scratch folder and open it. Discovery succeeds with no warning in the Ceedling Explorer log, and on 1.2.1 or later a test file added during a run appears before the run finishes.
 - [ ] **Clean.** The Testing view’s Clean button clears `build/`.
 - [ ] **Clobber.** The Clobber button does a harder reset. It also succeeds.
 - [ ] **Problem matching.** A deliberate syntax error in `test_calculator.c` surfaces in the Problems panel. It squiggles at the error line. The Testing view’s own message for the erroring test shows the same compiler message, not a bare `stdout:` label. Revert the edit after.
