@@ -4,6 +4,10 @@ This document lists the problems currently known, grouped by the Ceedling versio
 
 ---
 
+## Upgrading to Ceedling 1.2.2
+
+1. A project built by an earlier Ceedling keeps that build’s output until `ceedling clobber`, since Ceedling 1.2.2 builds each test elsewhere. Coverage reports still read the old counters, so with `ceedlingExplorer.coverageResetsCounters` off, coverage counts them too. After an upgrade from 1.2.0 or 1.2.1, the first build warns, and the extension offers to clobber the project. An upgrade from an earlier release brings no warning, nor does a build whose verbosity hides Ceedling’s warnings. Clobber once by hand, with the _Testing_ view’s Clobber button.
+
 ## Ceedling 1.2.0 and 1.2.1
 
 1. Ceedling can’t build a test file whose path within its test path ends another same-named test file’s path. Every run of that file, and of the whole project, stops with Ceedling’s `Ambiguous file reference` error, which leads each test’s error message. For example, with the test path `+:test/**`, `test/test_calc.c` can’t be built beside `test/unit/test_calc.c`, though `test/unit/test_calc.c` can. Renaming one of the files avoids it. Ceedling 1.2.2 fixes this ([Ceedling#1364](https://github.com/ThrowTheSwitch/Ceedling/issues/1364)).

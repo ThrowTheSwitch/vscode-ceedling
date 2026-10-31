@@ -1,8 +1,8 @@
-// Test function forms that differ only in whitespace or body layout from the conventional
-// `void test_name(void)` signature. Unity's runner generator names each test from its bare
-// identifier, so discovery must too. See the cppunit-report-whitespace.xml fixtures, captured by
-// running this file through real Ceedling. ceedling-1.2.2/files-test-stdout.txt and
-// files-test-handoff-stdout.txt list it.
+// Test function forms that differ only in whitespace or body layout from `void test_name(void)`.
+// Unity's runner generator names each test from its bare identifier, so discovery must too. Its
+// captures: the cppunit-report-whitespace.xml reports, ceedling-1.2.2's files-test-stdout.txt and
+// files-test-handoff-stdout.txt listings, and the test:all transcripts ceedling-1.2.1/test-stdout.txt
+// and ceedling-1.2.2/test-upgrade-stdout.txt, the latter the first build after 1.2.1.
 #include "unity.h"
 
 void setUp(void) {}

@@ -22,6 +22,7 @@ import { KeyedLock, Limiter, mapGrouped } from './concurrency';
 import {
     buildFileLabelRegex,
     buildTestLabelRegex,
+    detectLayoutUpgrade,
     extractCeedlingException,
     extractTestFunctionName,
     parseCeedlingVersions,
@@ -126,7 +127,13 @@ export type EngineDeps = {
     fileSystem?: EngineFileSystem,
     platform?: NodeJS.Platform,
     tmpdir?: string,
+    // Offers a clobber once Ceedling reports a project's build moved to a new layout.
+    onLayoutUpgrade?: (upgrade: LayoutUpgrade) => void,
 };
+
+// A project whose build Ceedling moved to a new layout, leaving the old layout's output behind,
+// and the notice that says what that means for it.
+export type LayoutUpgrade = { projectKey: string, message: string };
 
 // The Ceedling that runs a project, as `ceedling version` reports it. `release` counts a build as
 // its release, e.g. 1.2.0 for 1.2.0-13a540f. `exactRelease` is false when the report can't show
@@ -232,6 +239,10 @@ export class CeedlingEngine {
     private candidates: CeedlingProject[] = [];
     // One notification per project per session. A project.yml save rediscovers every time.
     private readonly warnedNonDefaultReportFilename = new Set<string>();
+    // One offer per project per session. Ceedling warns for each cache it sets aside, so a later
+    // coverage build warns again for the gcov cache.
+    private readonly offeredClobbers = new Set<string>();
+    private readonly onLayoutUpgrade: (upgrade: LayoutUpgrade) => void;
 
     constructor(
         public readonly workspaceFolder: vscode.WorkspaceFolder,
@@ -247,6 +258,7 @@ export class CeedlingEngine {
         this.platform = deps.platform ?? process.platform;
         this.paths = this.platform === 'win32' ? path.win32 : path.posix;
         this.tmpdir = deps.tmpdir ?? os.tmpdir();
+        this.onLayoutUpgrade = deps.onLayoutUpgrade ?? (() => { /* nobody to offer a clobber to */ });
     }
 
     dispose(): void {
@@ -475,6 +487,16 @@ export class CeedlingEngine {
         return this.runInEveryProject(['clobber'], token);
     }
 
+    // A rediscovery may have dropped the project since its clobber was offered.
+    async clobberProject(projectKey: string, token?: Cancellation): Promise<boolean> {
+        const project = this.candidates.filter((candidate) => candidate.key === projectKey);
+        if (project.length === 0) {
+            this.logger.warn(`clobberProject: Ceedling project '${projectKey}' is no longer configured`);
+            return false;
+        }
+        return this.runInEveryProject(['clobber'], token, project);
+    }
+
     cancel(): void {
         this.runner.cancelAll();
     }
@@ -675,6 +697,22 @@ export class CeedlingEngine {
         }
     }
 
+    // Offers one clobber per project, with a notice of what the old layout does to coverage. Reports
+    // read every counter on disk, so the old layout's count unless a reset clears them first.
+    private offerClobber(project: LoadedProject): void {
+        if (this.offeredClobbers.has(project.key)) {
+            return;
+        }
+        this.offeredClobbers.add(project.key);
+        const lead = `Ceedling changed where project '${project.key}' builds its tests. Clobber to remove the output left in the old layout.`;
+        const coverage = project.state.coverage === undefined ? undefined : this.resetsCounters()
+            ? 'Coverage stays exact meanwhile, since its counters reset before each coverage run.'
+            : 'Until then, coverage reports also count the old layout\'s counters, since ceedlingExplorer.coverageResetsCounters is off.';
+        const message = coverage === undefined ? lead : `${lead} ${coverage}`;
+        this.logger.warn(message);
+        this.onLayoutUpgrade({ projectKey: project.key, message });
+    }
+
     private warnIfNonDefaultReportFilename(projectKey: string, reportFilename: string): void {
         if (reportFilename === DEFAULT_CPPUNIT_REPORT_FILENAME || this.warnedNonDefaultReportFilename.has(projectKey)) {
             return;
@@ -807,6 +845,10 @@ export class CeedlingEngine {
         // deleted coverage counters, so a coverage run after a reset would report no coverage.
         const runArgs = project.capabilities.forceTestRerun ? [...args, '--force-test-rerun'] : args;
         const result = await this.ceedling(runArgs, { project, verbose: true, cancellation: token });
+        // Ceedling warns as a build starts, and a stopped build still rewrites its cache.
+        if (detectLayoutUpgrade(result.stdout) || detectLayoutUpgrade(result.stderr)) {
+            this.offerClobber(project);
+        }
         if (result.cancelled || token.isCancellationRequested) {
             return { cancelled: true };
         }
@@ -1079,8 +1121,8 @@ export class CeedlingEngine {
         }
     }
 
-    private async runInEveryProject(args: string[], token?: Cancellation): Promise<boolean> {
-        const results = await mapGrouped(this.candidates, (project) => this.directoryOf(project),
+    private async runInEveryProject(args: string[], token?: Cancellation, projects = this.candidates): Promise<boolean> {
+        const results = await mapGrouped(projects, (project) => this.directoryOf(project),
             (project) => this.exclusively(project, () => this.ceedling(args, { project, cancellation: token })));
         return results.every((result) => !result.error || result.cancelled);
     }

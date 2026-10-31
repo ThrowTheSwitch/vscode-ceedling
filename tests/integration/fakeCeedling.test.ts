@@ -1,5 +1,6 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import type { CeedlingExplorerApi } from '../../src/main';
 import type { CeedlingTestController, ReportedResult } from '../../src/testController';
@@ -167,6 +168,32 @@ suite('Extension against a fake Ceedling', function () {
         });
         assert.deepStrictEqual(outcome(results, 'test/test_slow.c::test_never_finishes'), ['skipped']);
         assert.ok(Date.now() - started < 30000, 'the run ended soon after cancellation');
+    });
+
+    // As after upgrading to Ceedling 1.2.2 from 1.2.1, whose cache the fake's next build sets aside.
+    // The notice shows during the run's first build. A clobber before its second would rebuild it all.
+    test("a build Ceedling moved to a new layout offers to clobber that project, once the run ends", async () => {
+        const cache = fileUri('build', 'cache', '.test.dep_cache.json').fsPath;
+        fs.mkdirSync(path.dirname(cache), { recursive: true });
+        fs.writeFileSync(cache, JSON.stringify({ schema_version: 1, entries: {} }));
+        const offers: Array<{ message: string, actions: string[] }> = [];
+        const window = vscode.window as { showWarningMessage: (message: string, ...actions: string[]) => Thenable<string | undefined> };
+        const original = window.showWarningMessage;
+        window.showWarningMessage = async (message, ...actions) => {
+            offers.push({ message, actions });
+            return actions.find((action) => action === 'Clobber');
+        };
+        try {
+            const before = invocations().length;
+            await run(['test/test_calc.c', 'test/test_unreported.c']);
+            await waitFor(() => invocations().slice(before).some((args) => args[0] === 'clobber'), 'the offered clobber', () => JSON.stringify(offers));
+            assert.deepStrictEqual(invocations().slice(before).map((args) => args[0]), ['test:test/test_calc.c', 'test:test/test_unreported.c', 'clobber']);
+            assert.deepStrictEqual(offers.map((offer) => offer.actions), [['Clobber']]);
+            assert.match(offers[0].message, /Clobber to remove the output left in the old layout/);
+            await waitFor(() => !fs.existsSync(cache), 'the clobber to remove the build root');
+        } finally {
+            window.showWarningMessage = original;
+        }
     });
 
     // A profile of its own kind, so a plain run never pays for instrumentation.

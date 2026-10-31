@@ -6,7 +6,7 @@ import * as child_process from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import type vscode from 'vscode';
-import { CeedlingEngine } from '../../src/ceedlingEngine';
+import { CeedlingEngine, type LayoutUpgrade } from '../../src/ceedlingEngine';
 import { parseCeedlingVersions } from '../../src/ceedlingOutputParsing';
 import { applicationRelease, capabilitiesOf, type CeedlingCapabilities, type CeedlingFeature } from '../../src/ceedlingProjectConfig';
 import { type Cancellation, ceedlingEnvironment } from '../../src/ceedlingProcess';
@@ -23,8 +23,10 @@ type LogCall = { level: string, message: string, at: number };
 
 // An engine for the workspace at /ws. `settings` stays live: a suite changes a setting by
 // assigning to it, as a user editing settings.json would.
-export function makeEngine(settings: Record<string, unknown>): { engine: CeedlingEngine, logs: LogCall[] } {
+// `upgrades` collects each clobber the engine offers after Ceedling moves a build's layout.
+export function makeEngine(settings: Record<string, unknown>): { engine: CeedlingEngine, logs: LogCall[], upgrades: LayoutUpgrade[] } {
     const logs: LogCall[] = [];
+    const upgrades: LayoutUpgrade[] = [];
     const record = (level: string) => (...args: unknown[]) => { logs.push({ level, message: args.map(String).join(' '), at: Date.now() }); };
     const logger = {
         trace: record('trace'), debug: record('debug'), info: record('info'), warn: record('warn'), error: record('error'),
@@ -39,9 +41,10 @@ export function makeEngine(settings: Record<string, unknown>): { engine: Ceedlin
             configProvider: () => ({ get: (key: string, fallback?: unknown) => (key in settings ? settings[key] : fallback) }) as unknown as vscode.WorkspaceConfiguration,
             problemMatcher: problems,
             bundledMixinPath: path.join(REPO, 'assets/mixins/report-tests-log-factory.yml'),
+            onLayoutUpgrade: (upgrade) => upgrades.push(upgrade),
         },
     );
-    return { engine, logs };
+    return { engine, logs, upgrades };
 }
 
 // Copies a fixture directory into /ws. `from` is relative to the repo.

@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type vscode from 'vscode';
-import { CeedlingEngine, coverageMode, type EngineFileSystem, nodeFileSystem } from '../../src/ceedlingEngine';
+import { CeedlingEngine, coverageMode, type EngineFileSystem, type LayoutUpgrade, nodeFileSystem } from '../../src/ceedlingEngine';
 import { type Cancellation, CeedlingRunner } from '../../src/ceedlingProcess';
 import { CeedlingLoadError } from '../../src/ceedlingProjectConfig';
 import type { Logger } from '../../src/logger';
@@ -185,7 +185,7 @@ function token(): Cancellation & { fire(): void } {
     return t;
 }
 
-function makeEngine(world: FakeCeedling, options: { settings?: Record<string, unknown>, logs?: LogCall[], problems?: FakeProblemMatcher, developmentMode?: boolean, folder?: string, platform?: NodeJS.Platform } = {}) {
+function makeEngine(world: FakeCeedling, options: { settings?: Record<string, unknown>, logs?: LogCall[], problems?: FakeProblemMatcher, developmentMode?: boolean, folder?: string, platform?: NodeJS.Platform, upgrades?: LayoutUpgrade[] } = {}) {
     const settings = options.settings ?? {};
     const folder = options.folder ?? WS;
     return new CeedlingEngine(
@@ -200,6 +200,7 @@ function makeEngine(world: FakeCeedling, options: { settings?: Record<string, un
             fileSystem: world.fileSystem,
             platform: options.platform ?? 'linux',
             tmpdir: '/tmp',
+            onLayoutUpgrade: (upgrade) => options.upgrades?.push(upgrade),
         },
     );
 }
@@ -1118,6 +1119,110 @@ suite('CeedlingEngine clean and clobber', () => {
         const { engine } = await discovered(world);
         world.handlers.push((command) => /^ceedling clobber/.test(command) ? { error: true } : undefined);
         assert.strictEqual(await engine.clobber(), false);
+    });
+});
+
+suite('CeedlingEngine after a build layout upgrade', () => {
+    // The first build after upgrading to Ceedling 1.2.2 from 1.2.0 or 1.2.1 logs this once per cache.
+    const upgraded = fs.readFileSync(path.resolve(fixturesRoot, 'ceedling-1.2.2', 'test-upgrade-stdout.txt'), 'utf8');
+    const passing = (world: FakeCeedling) => world.reportWrite(cppunit({ passed: ['test/test_calc.c::test_add'] }));
+
+    test('a build that reports the upgrade offers a clobber once per project', async () => {
+        const world = new FakeCeedling();
+        world.handlers.push((command) => /^ceedling test:/.test(command) ? { stdout: `${upgraded}\n${upgraded}`, writes: passing(world) } : undefined);
+        const upgrades: LayoutUpgrade[] = [];
+        const logs: LogCall[] = [];
+        const { engine, file } = await discovered(world, { upgrades, logs });
+        await engine.runFile('default', file, recordingReporter(), token());
+        await engine.runFile('default', file, recordingReporter(), token());
+        assert.deepStrictEqual(upgrades.map((u) => u.projectKey), ['default']);
+        assert.match(upgrades[0].message, /'default'.*clobber/i);
+        assert.ok(logs.some((l) => l.level === 'warn' && l.message === upgrades[0].message), 'the notice is logged too');
+    });
+
+    test('Ceedling\'s warning reaches the engine on either stream, and each project is offered its own', async () => {
+        const world = new FakeCeedling();
+        for (const dir of ['a', 'b']) {
+            world.directories.add(`${WS}/${dir}`);
+            world.write(`${WS}/${dir}/project.yml`, ':project: {}\n');
+            world.write(`${WS}/${dir}/test/test_calc.c`, 'void test_add(void) {}\n');
+        }
+        world.handlers.push((command, cwd) => /^ceedling test:/.test(command)
+            ? { [cwd.endsWith('/a') ? 'stdout' : 'stderr']: upgraded, writes: { [`${cwd}/build/artifacts/test/cppunit_tests_report.xml`]: cppunit({ passed: ['test/test_calc.c::test_add'] }) } }
+            : undefined);
+        const upgrades: LayoutUpgrade[] = [];
+        const { engine, projects } = await discovered(world, { upgrades, settings: { projects: ['a', 'b'].map((dir) => ({ path: dir, debugLaunchConfig: 'dbg' })) } });
+        for (const project of projects) {
+            // eslint-disable-next-line no-await-in-loop -- one project after the other, as a run plan does
+            await engine.runProjectAll(project.projectKey, project.files, recordingReporter(), token());
+        }
+        assert.deepStrictEqual(upgrades.map((u) => u.projectKey), projects.map((p) => p.projectKey));
+    });
+
+    // Ceedling warns as the build starts and rewrites its cache even when stopped, so a later build won't warn.
+    test('a cancelled build that warned still offers a clobber', async () => {
+        const world = new FakeCeedling();
+        const cancel = token();
+        world.handlers.push((command) => /^ceedling test:/.test(command)
+            ? new Promise<Reply>((resolve) => setImmediate(() => { cancel.fire(); resolve({ stdout: upgraded, error: true }); }))
+            : undefined);
+        const upgrades: LayoutUpgrade[] = [];
+        const { engine, file } = await discovered(world, { upgrades });
+        await engine.runFile('default', file, recordingReporter(), cancel);
+        assert.deepStrictEqual(upgrades.map((u) => u.projectKey), ['default']);
+    });
+
+    test('a build without the warning offers nothing', async () => {
+        const world = new FakeCeedling();
+        world.handlers.push((command) => /^ceedling test:/.test(command) ? { stdout: upgraded.replace(/^.*Dependency cache.*$/m, ''), writes: passing(world) } : undefined);
+        const upgrades: LayoutUpgrade[] = [];
+        const { engine, file } = await discovered(world, { upgrades });
+        await engine.runFile('default', file, recordingReporter(), token());
+        assert.deepStrictEqual(upgrades, []);
+    });
+
+    // Coverage reports read every counter on disk, the old layout's too, unless counters reset first.
+    test('the notice says what the old layout does to coverage', async () => {
+        const noticeFor = async (world: FakeCeedling, settings: Record<string, unknown> = {}) => {
+            world.handlers.unshift((command) => /^ceedling (test|gcov):/.test(command) ? { stdout: upgraded, writes: passing(world) } : undefined);
+            const upgrades: LayoutUpgrade[] = [];
+            const { engine, file } = await discovered(world, { upgrades, settings });
+            await engine.runFile('default', file, recordingReporter(), token());
+            return upgrades[0]?.message ?? 'no notice';
+        };
+        assert.doesNotMatch(await noticeFor(new FakeCeedling()), /coverage/i);
+        assert.match(await noticeFor(coverageWorld()), /coverage stays exact/i);
+        assert.match(await noticeFor(coverageWorld(), { coverageResetsCounters: false }), /coverage reports also count.*coverageResetsCounters/i);
+    });
+
+    // A rediscovery may drop the project while its notice shows.
+    test('a clobber of a project no longer configured fails, running nothing', async () => {
+        const world = new FakeCeedling();
+        const logs: LogCall[] = [];
+        const { engine } = await discovered(world, { logs });
+        assert.strictEqual(await engine.clobberProject('gone'), false);
+        assert.deepStrictEqual(world.commandsMatching(/^ceedling clobber/), []);
+        assert.ok(logs.some((l) => l.level === 'warn' && /'gone'/.test(l.message)), 'the log names the project');
+    });
+
+    test('a project clobber runs in that project alone, after its build', async () => {
+        const world = new FakeCeedling();
+        for (const dir of ['a', 'b']) {
+            world.directories.add(`${WS}/${dir}`);
+            world.write(`${WS}/${dir}/project.yml`, ':project: {}\n');
+            world.write(`${WS}/${dir}/test/test_calc.c`, 'void test_add(void) {}\n');
+        }
+        const { engine, projects } = await discovered(world, { settings: { projects: ['a', 'b'].map((dir) => ({ path: dir, debugLaunchConfig: 'dbg' })) } });
+        let release!: () => void;
+        world.handlers.push((command) => /^ceedling test:/.test(command) ? new Promise<Reply>((resolve) => { release = () => resolve({}); }) : undefined);
+        const run = engine.runFile(projects[1].projectKey, projects[1].files[0], recordingReporter(), token());
+        const clobber = engine.clobberProject(projects[1].projectKey);
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.deepStrictEqual(world.commandsMatching(/^ceedling clobber/), []);
+        release();
+        await run;
+        assert.strictEqual(await clobber, true);
+        assert.deepStrictEqual(world.commands.filter((c) => /^ceedling clobber/.test(c.command)).map((c) => c.cwd), [`${WS}/b`]);
     });
 });
 
