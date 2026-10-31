@@ -7,14 +7,14 @@
 #
 # usage: matrix.sh [seconds]
 #   [seconds]      each stress and coverage overlap phase, 60 by default
-# MATRIX names the versions, 1.0.0 1.1.10 1.2.0 1.2.1 by default. CEEDLING_GEM, the absolute path to
+# MATRIX names the versions, 1.0.0 1.1.10 1.2.0 1.2.1 1.2.2 by default. CEEDLING_GEM, the absolute path to
 # a .gem file, adds that gem as a version of its own, and its installation to every other version's
 # image.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd)
 seconds=${1:-60}
-read -r -a versions <<< "${MATRIX:-1.0.0 1.1.10 1.2.0 1.2.1}"
+read -r -a versions <<< "${MATRIX:-1.0.0 1.1.10 1.2.0 1.2.1 1.2.2}"
 if [ -n "${CEEDLING_GEM:-}" ]; then versions+=("$CEEDLING_GEM"); fi
 [ ${#versions[@]} -gt 0 ] || { echo "error: MATRIX names no versions" >&2; exit 1; }
 out="$repo/out-validate/$(date +%Y%m%d-%H%M%S)"
