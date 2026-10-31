@@ -80,6 +80,8 @@ Running a single test function runs only that function. Ceedling still compiles 
 
 The _Testing_ view’s toolbar also has Clean and Clobber buttons. They run `ceedling clean` and `ceedling clobber` in every Ceedling project in the workspace, after any test run in progress finishes.
 
+Ceedling 1.2.2 builds each test in a new place, and an earlier release’s build output stays until a clobber. After an upgrade from Ceedling 1.2.0 or 1.2.1, the first build offers to clobber the project, once the runs under way finish. After an upgrade from an earlier release, clobber once with the button. See [Known Issues](docs/KnownIssues.md).
+
 # Code coverage
 
 _Run with Coverage_ runs tests through Ceedling’s gcov plugin and shows what they executed in VS Code’s coverage views. The _Test Coverage_ panel lists each source file’s line, branch, and function coverage. In the editor, inline coverage marks each line’s hit count and each branch’s outcome.

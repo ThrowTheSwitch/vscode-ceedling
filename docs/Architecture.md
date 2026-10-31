@@ -114,7 +114,7 @@ The remaining APIs keep the tree current and report what happened.
 | `workspace.onDidChangeTextDocument`, `onDidCloseTextDocument` | Reparsing unsaved edits, and dropping them on close | `scheduleReparse()`, `reparse()` |
 | `languages.createDiagnosticCollection('Ceedling')` | Compiler problems in the Problems panel | `problemMatcher.ts` |
 | `window.createOutputChannel(…, { log: true })` | The “Ceedling Explorer” log, at VS Code’s log level | `logger.ts` |
-| `window.showWarningMessage`, `showErrorMessage`, `showInformationMessage` | Notifications, e.g. a coverage problem once a session, or a debug request naming several files | `logger.ts`, `testController.ts` |
+| `window.showWarningMessage`, `showErrorMessage`, `showInformationMessage` | Notifications, e.g. a coverage problem once a session, a debug request naming several files, or a Clobber offer after a layout upgrade | `logger.ts`, `testController.ts` |
 | `window.withProgress` | Cancellable Clean and Clobber | `runTask()` |
 | `commands.registerCommand` | `clean`, `clobber`, and the debug guard | `main.ts` |
 
@@ -185,7 +185,7 @@ sequenceDiagram
 ```
 
 - **Planning.** `buildRunPlan(projects, include, exclude)` returns `RunPlanEntry`s of three kinds. A `project` entry runs `test:all`. A `file` entry runs `test:<file>`. A `function` entry adds `--test-case=<name>`. Excluded items narrow the plan to function granularity at most. The reporter drops their results.
-- **Running.** `runTests()` marks every id started, then takes its project’s locks. `buildAndRun()` deletes stale reports in `artifacts/test` and `artifacts/gcov`, runs Ceedling, appends the transcript to the run’s output, updates diagnostics, and reads the newest report.
+- **Running.** `runTests()` marks every id started, then takes its project’s locks. `buildAndRun()` deletes stale reports in `artifacts/test` and `artifacts/gcov`, runs Ceedling, appends the transcript to the run’s output, notes a layout upgrade (see [Test build directories](#test-build-directories)), updates diagnostics, and reads the newest report.
 - **Reporting.** `testResults(report, leafIds)` yields `passed`, `skipped`, `failed`, and `unreported` results. An `unreported` id gets an error naming the likely cause: discovery and Ceedling disagree about its name. With no report at all, every id errors. The Testing view shows a message’s first line, so the most severe compiler diagnostic leads the message, then Ceedling’s `EXCEPTION` block from `extractCeedlingException()`, then the transcript. The controller’s reporter, from `createRunReporter()`, maps each id to its TestItem. It drops results for excluded items and, with a warning, for unknown ids, and turns a crash’s gdb log path into a link.
 - **Edge cases.** A `--test-case` run whose report also names another function, from Ceedling’s substring filter, reruns the whole file. A cancelled run kills only its own process tree, through `CeedlingRunner`, and marks its tests skipped.
 
@@ -206,6 +206,11 @@ Ceedling 1.2.0 and 1.2.1 can’t build some same-named layouts ([Ceedling#1364](
 - With `+:test/unit/**` and `+:extra/**`, `test/unit/test_calc.c` builds as `test_calc` and `extra/unit/test_calc.c` as `unit/test_calc`. Each name ends both paths, so neither file can be built.
 
 `test:all` fails in both. `testBuildName()` still names every directory correctly. Ceedling 1.2.2 fixes this by naming each build for its test’s whole path from the project root.
+
+A release that moves the layout leaves the earlier layout’s output in place until `clobber`. Ceedling 1.2.2’s first build after 1.2.0 or 1.2.1 sets their dependency cache aside, and warns on stdout once for each cache. Earlier releases keep no cache, so an upgrade from them goes unannounced.
+- **Recognizing it.** `buildAndRun()` checks each build’s output with `detectLayoutUpgrade()`, which wants the warning’s key words on one line, in any case. A cancelled build counts, since Ceedling warns as the build starts and rewrites its cache even when stopped. A reworded or decorated warning still counts. The `upgrade` validation suite fails if live Ceedling’s warning stops being recognized.
+- **Offering a clobber.** The engine calls `EngineDeps.onLayoutUpgrade` once per project a session, with a notice. The controller’s `offerClobber()` shows it with a Clobber action. The notice shows mid-run, so the action waits for every run and debug session under way, then runs `clobberProject()` for that project alone. A clobber between a run’s builds would rebuild the rest from scratch. One for a project a rediscovery dropped fails, running nothing.
+- **Coverage.** Reports read every counter on disk. `prepareCoverage()`’s reset clears the old layout’s with the rest, so they count only with `coverageResetsCounters` off. The notice says which applies.
 
 ### Debugging
 

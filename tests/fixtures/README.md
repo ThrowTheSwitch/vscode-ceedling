@@ -6,11 +6,12 @@ The unit tests check the extension against real Ceedling output, not hand-writte
 
 Fixtures are grouped by where they came from.
 
-- `ceedling-<version>/` holds output captured from that Ceedling release: `ceedling files:test` and `ceedling version` transcripts, compiler and linker failures, and CppUnit XML reports. The unit tests usually loop over the versions they cover. The `ceedling-1.2.1/` failures were captured with Ceedling’s decorators on, so their lines carry the emoji a terminal shows. `ceedling-1.2.1/` also holds two `version-vendored-*` transcripts of `ceedling version`, run in a project with another Ceedling copied into `vendor/ceedling`. `version-vendored-stdout.txt` vendors a copy of the 1.2.1 gem. `version-vendored-1.2.0-stdout.txt` vendors the 1.2.0 gem, copied out of the 1.2.0 image. Its `Ceedling App` line shows the misreport of [Ceedling#1365](https://github.com/ThrowTheSwitch/Ceedling/issues/1365), 1.2.1 with 1.2.0’s commit. `capture.sh` doesn’t make these. They were run by hand in the 1.2.1 image.
+- `ceedling-<version>/` holds output captured from that Ceedling release: `ceedling files:test`, `ceedling version`, and `test:all` transcripts, compiler and linker failures, and CppUnit XML reports. The unit tests usually loop over the versions they cover. The `ceedling-1.2.1/` failures were captured with Ceedling’s decorators on, so their lines carry the emoji a terminal shows. `ceedling-1.2.1/` also holds two `version-vendored-*` transcripts of `ceedling version`, run in a project with another Ceedling copied into `vendor/ceedling`. `version-vendored-stdout.txt` vendors a copy of the 1.2.1 gem. `version-vendored-1.2.0-stdout.txt` vendors the 1.2.0 gem, copied out of the 1.2.0 image. Its `Ceedling App` line shows the misreport of [Ceedling#1365](https://github.com/ThrowTheSwitch/Ceedling/issues/1365), 1.2.1 with 1.2.0’s commit. `capture.sh` doesn’t make these. They were run by hand in the 1.2.1 image. `test-stdout.txt`, from `capture.sh`, is a `test:all` of `source/test_whitespace.c`.
 - `ceedling-1.2.2/` came from the 1.2.2 development gem, until its image is published:
   - `cppunit-report-unity-parity.xml` from `source/test_unity_parity.c`;
   - `files-test-stdout.txt` from `source/test_whitespace.c` with `CAPTURE_TASK=files:test`, and `files-test-handoff-stdout.txt` with `CAPTURE_VENDOR=1` as well;
-  - `cppunit-report-crash.xml` from `source/test_crash.c`, with a mixin setting `:use_backtrace: :gdb`.
+  - `cppunit-report-crash.xml` from `source/test_crash.c`, with a mixin setting `:use_backtrace: :gdb`;
+  - `test-upgrade-stdout.txt` from `source/test_whitespace.c` with `CAPTURE_PRIOR=1`, the first build after 1.2.1, with Ceedling’s layout upgrade warning.
 - `source/` holds C test files. Some are read directly by discovery tests. Others are the inputs whose reports live under `ceedling-<version>/`. Each file's header comment names its reports.
 - `dumpconfig/` holds `ceedling dumpconfig` output. See [its own README](dumpconfig/README.md).
 - `gcovr-<version>/` and `reportgenerator-<version>/` hold Cobertura coverage reports from that tool, run by Ceedling's gcov plugin. The `cobertura-mixed-paths.xml` reports came from Ceedling 1.1.6. The `cobertura-probe.xml` reports came from `capture/capture-gcov.sh` (below).
@@ -31,10 +32,11 @@ The script copies each file into `test/` of a minimal project ([`capture/project
 
 The project enables `:unity` ↳ `:use_param_tests` and disables test preprocessing, so parametrized markers expand on every Ceedling version. A run under Ceedling 1.0.0 needs the latter.
 
-Three environment variables vary the run.
+Four environment variables vary the run.
 - `CAPTURE_TASK` replaces `test:all`, e.g. with `files:test`.
 - `CAPTURE_MIXIN` names a mixin file to apply too, e.g. one setting `:use_backtrace: :gdb`.
 - `CAPTURE_VENDOR=1` copies the running Ceedling into the project’s `vendor/ceedling`. Ceedling then hands off to that copy, as to any other installation. From 1.2.2 it says so on stdout.
+- `CAPTURE_PRIOR=1`, with a gem, first builds the project with 1.2.1, as a project upgraded from it.
 
 ### Coverage reports
 
