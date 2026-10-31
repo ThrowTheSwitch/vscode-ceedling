@@ -7,6 +7,7 @@ import {
     coverageProblem,
     coverageState,
     loadFailureMessage,
+    type ProjectSetting,
     projectsFromSettings,
     projectState,
 } from '../../src/ceedlingProjectConfig';
@@ -72,7 +73,7 @@ suite('projectsFromSettings', () => {
         const malformed: Array<[unknown, unknown, RegExp]> = [
             ['fw', [], /ceedlingExplorer\.projects must be a list/],
             [[{ path: 5, debugLaunchConfig: 'dbg' }], [], /ceedlingExplorer\.projects\[0\]\.path must be a string/],
-            [[{ path: 'fw' }], [], /ceedlingExplorer\.projects\[0\]\.debugLaunchConfig must be a string/],
+            [[{ path: 'fw', debugLaunchConfig: 3 }], [], /ceedlingExplorer\.projects\[0\]\.debugLaunchConfig must be a string/],
             [[{ path: 'fw', debugLaunchConfig: 'dbg', name: 7 }], [], /ceedlingExplorer\.projects\[0\]\.name must be a string/],
             [[{ path: 'fw', debugLaunchConfig: 'dbg', mixins: 'gcc' }], [], /ceedlingExplorer\.projects\[0\]\.mixins must be a list of strings/],
             [[], 'gcc', /ceedlingExplorer\.mixins must be a list of strings/],
@@ -83,6 +84,21 @@ suite('projectsFromSettings', () => {
             await assert.rejects(projectsFromSettings({ projects, mixins } as unknown as Parameters<typeof projectsFromSettings>[0], '/ws', 'linux', anyDirectory, noFiles),
                 (e: unknown) => e instanceof CeedlingLoadError && expected.test(e.message), `${JSON.stringify(projects)} ${JSON.stringify(mixins)}`);
         }
+    });
+
+    // Only debugging needs a launch configuration, and a project without mixins takes the global ones.
+    test('a project may leave out its launch configuration and its mixins', async () => {
+        const [project] = await projectsFromSettings({ projects: [{ path: 'fw', mixins: null }] as unknown as ProjectSetting[], mixins: ['gcc'] }, '/ws', 'linux', anyDirectory, noFiles);
+        assert.deepStrictEqual([project.key, project.mixins], ['fw', ['gcc']]);
+    });
+
+    // A case-insensitive filesystem reads Project.yml as project.yml, so it is the base, not a mixin over itself.
+    test('a default project file named in another case is the base where the filesystem folds case', async () => {
+        const settings = { projects: [{ path: 'fw/Project.yml', debugLaunchConfig: 'dbg' }], mixins: [] };
+        const [folded] = await projectsFromSettings(settings, '/ws', 'darwin', anyDirectory, noFiles);
+        assert.deepStrictEqual([folded.projectFileName, folded.ymlFileName, folded.key], ['Project.yml', 'Project.yml', 'fw/Project.yml']);
+        const [exact] = await projectsFromSettings(settings, '/ws', 'linux', anyDirectory, noFiles);
+        assert.deepStrictEqual([exact.projectFileName, exact.ymlFileName, exact.key], ['project.yml', 'Project.yml', 'Project']);
     });
 
     test('backslash separators in a yml path are understood', async () => {

@@ -2,7 +2,6 @@
 // configuration into the few values this extension reads from it. It has no `vscode` or
 // filesystem dependency. Callers supply the settings, the platform, and a directory check.
 
-import path from 'path';
 import { GCOV_ARTIFACTS } from './buildLayout';
 import type { ProjectCeedling } from './ceedlingVersions';
 import { field } from './parsedXml';
@@ -115,10 +114,10 @@ export async function projectsFromSettings(
     const root = platform === 'win32' ? withUppercaseDrive(workspacePath) : workspacePath;
     if (settings.projects.length === 0) {
         const absPath = paths.resolve(root);
-        return [{ key: 'default', absPath, ...(await projectFiles(absPath, undefined, paths, exists)), debugLaunchConfig: 'ceedling', mixins: [...settings.mixins] }];
+        return [{ key: 'default', absPath, ...(await projectFiles(absPath, undefined, platform, exists)), debugLaunchConfig: 'ceedling', mixins: [...settings.mixins] }];
     }
     const checked = await Promise.all(settings.projects.map(async (setting) => {
-        const project = await projectFromSetting(setting, settings.mixins, paths.resolve(root), paths, exists);
+        const project = await projectFromSetting(setting, settings.mixins, paths.resolve(root), platform, exists);
         return { project, directory: await isDirectory(project.absPath) };
     }));
     const projects = new Map<string, CeedlingProject>();
@@ -138,12 +137,14 @@ function checkSettings(settings: { projects: unknown, mixins: unknown }): void {
     const strings = (value: unknown) => Array.isArray(value) && value.every((item) => typeof item === 'string');
     if (!strings(settings.mixins)) fail('mixins', 'a list of strings');
     if (!Array.isArray(settings.projects)) fail('projects', 'a list');
+    // Only debugging needs a launch configuration, and an entry without mixins takes the global ones.
     (settings.projects as unknown[]).forEach((project, i) => {
-        const field = (name: string) => typeof project === 'object' && project !== null ? (project as Record<string, unknown>)[name] : undefined;
-        if (typeof field('path') !== 'string') fail(`projects[${i}].path`, 'a string');
-        if (typeof field('debugLaunchConfig') !== 'string') fail(`projects[${i}].debugLaunchConfig`, 'a string');
-        if (field('name') !== undefined && typeof field('name') !== 'string') fail(`projects[${i}].name`, 'a string');
-        if (field('mixins') !== undefined && !strings(field('mixins'))) fail(`projects[${i}].mixins`, 'a list of strings');
+        const given = (name: string) => field(project, name) ?? undefined;
+        if (typeof field(project, 'path') !== 'string') fail(`projects[${i}].path`, 'a string');
+        for (const name of ['debugLaunchConfig', 'name']) {
+            if (given(name) !== undefined && typeof given(name) !== 'string') fail(`projects[${i}].${name}`, 'a string');
+        }
+        if (given('mixins') !== undefined && !strings(given('mixins'))) fail(`projects[${i}].mixins`, 'a list of strings');
     });
 }
 
@@ -162,11 +163,20 @@ function withUppercaseDrive(windowsPath: string): string {
     return windowsPath.replace(/^[a-z](?=:)/, (drive) => drive.toUpperCase());
 }
 
+// Whether a file name is one of Ceedling's default project files, as the platform's filesystem
+// compares names. Windows and macOS fold case, so there Project.yml is project.yml.
+function isDefaultProjectFile(fileName: string | undefined, platform: NodeJS.Platform): boolean {
+    const folds = platform === 'win32' || platform === 'darwin';
+    const same = (a: string) => folds ? a.toLowerCase() === fileName?.toLowerCase() : a === fileName;
+    return same(DEFAULT_PROJECT_FILE) || same(ALTERNATE_DEFAULT_PROJECT_FILE);
+}
+
 // A YAML path names a project file. Any other path names a directory holding a default
 // project file. The key is the configured name, else an alternate file's base name, else the path.
 async function projectFromSetting(
-    setting: ProjectSetting, globalMixins: readonly string[], root: string, paths: typeof path.posix, exists: (absPath: string) => Promise<boolean>,
+    setting: ProjectSetting, globalMixins: readonly string[], root: string, platform: NodeJS.Platform, exists: (absPath: string) => Promise<boolean>,
 ): Promise<CeedlingProject> {
+    const paths = pathsFor(platform);
     let directory = setting.path;
     let configuredFile: string | undefined;
     let key = setting.path;
@@ -174,16 +184,16 @@ async function projectFromSetting(
         const segments = setting.path.split(/[\\/]/);
         configuredFile = segments.pop() ?? setting.path;
         directory = segments.join('/') || '.';
-        if (configuredFile !== DEFAULT_PROJECT_FILE && configuredFile !== ALTERNATE_DEFAULT_PROJECT_FILE) {
+        if (!isDefaultProjectFile(configuredFile, platform)) {
             key = configuredFile.replace(/\.ya?ml$/i, '');
         }
     }
     const resolved = paths.resolve(root, directory);
-    const absPath = paths === path.win32 ? withUppercaseDrive(resolved) : resolved;
+    const absPath = platform === 'win32' ? withUppercaseDrive(resolved) : resolved;
     return {
         key: setting.name ?? key,
         absPath,
-        ...(await projectFiles(absPath, configuredFile, paths, exists)),
+        ...(await projectFiles(absPath, configuredFile, platform, exists)),
         debugLaunchConfig: setting.debugLaunchConfig,
         mixins: [...(setting.mixins ?? globalMixins)],
     };
@@ -192,14 +202,14 @@ async function projectFromSetting(
 // The base project file is project.yml unless only ceedling.yml exists. A configured default
 // project file is itself the base. Any other configured file applies over the base as a mixin.
 async function projectFiles(
-    absPath: string, configuredFile: string | undefined, paths: typeof path.posix, exists: (absPath: string) => Promise<boolean>,
+    absPath: string, configuredFile: string | undefined, platform: NodeJS.Platform, exists: (absPath: string) => Promise<boolean>,
 ): Promise<Pick<CeedlingProject, 'projectFileName' | 'ymlFileName' | 'ambiguousProjectFile'>> {
+    const paths = pathsFor(platform);
     const [hasDefault, hasAlternate] = await Promise.all([
         exists(paths.join(absPath, DEFAULT_PROJECT_FILE)),
         exists(paths.join(absPath, ALTERNATE_DEFAULT_PROJECT_FILE)),
     ]);
-    const isDefaultName = configuredFile === DEFAULT_PROJECT_FILE || configuredFile === ALTERNATE_DEFAULT_PROJECT_FILE;
-    const projectFileName = isDefaultName ? configuredFile : (hasAlternate && !hasDefault ? ALTERNATE_DEFAULT_PROJECT_FILE : DEFAULT_PROJECT_FILE);
+    const projectFileName = configuredFile !== undefined && isDefaultProjectFile(configuredFile, platform) ? configuredFile : (hasAlternate && !hasDefault ? ALTERNATE_DEFAULT_PROJECT_FILE : DEFAULT_PROJECT_FILE);
     return {
         projectFileName,
         ymlFileName: configuredFile ?? projectFileName,
