@@ -10,6 +10,7 @@
 // Ceedling before 1.2.0 can't build same-named test files at all, so the suite skips.
 //
 // usage: node gated.js
+import { extractTestFunctionName } from '../../src/ceedlingOutputParsing';
 import { coverageMode } from '../../src/coverageRun';
 import type { CoverageOutcome } from '../../src/testModel';
 import { builtExecutable, capabilities, ceedlingVersion, describeOutcome, fileOf, hits, main, makeEngine, only, parseArgs, recordingReporter, removeExecutables, requires, stage, token, WS } from './harness';
@@ -52,7 +53,7 @@ main('gated', async (checks) => {
         const reporter = recordingReporter();
         await work(reporter);
         const { commands, warnings } = since();
-        console.log(`${label}\n    commands: ${commands.join(' ; ')}\n    results:  ${[...reporter.results].map(([id, r]) => `${id.split('::')[1]}=${r}`).join(', ')}` +
+        console.log(`${label}\n    commands: ${commands.join(' ; ')}\n    results:  ${[...reporter.results].map(([id, r]) => `${extractTestFunctionName(id)}=${r}`).join(', ')}` +
             (reporter.outcomes.length ? `\n    coverage: ${reporter.outcomes.map(describeOutcome).join(' | ')}` : '') +
             (warnings.length ? `\n    warnings: ${warnings.map((w) => w.slice(0, 200)).join(' | ')}` : ''));
         check({ results: reporter.results, commands, warnings, outcome: reporter.last() });
@@ -128,7 +129,7 @@ main('gated', async (checks) => {
         results('G8', s.results, { [ADD]: 'passed' });
     });
     for (const [label, id, want] of [['G9a', ALPHA, 'passed'], ['G9b', BETA, 'failed'], ['G9c', ALPHA, 'passed']] as const) {
-        const name = id.split('::')[1];
+        const name = extractTestFunctionName(id);
         // eslint-disable-next-line no-await-in-loop -- each run's filter must follow the one before
         await step(`${label} run ${name}`, (r) => engine.runFunction('project', file(FILTERS), fn(FILTERS, id), r, token()), (s) => {
             oneCommand(label, s.commands, `test:${FILTERS} --test-case=${name} --force-test-rerun`);

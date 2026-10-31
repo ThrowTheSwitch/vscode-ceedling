@@ -46,6 +46,16 @@ export class DiagnosticsStore<D extends { file: string }> {
         this.entries.clear();
     }
 
+    // What `id` holds, if anything.
+    get(id: string): readonly D[] | undefined {
+        return this.entries.get(id);
+    }
+
+    // Every id holding an entry, in the order each was first set.
+    ids(): string[] {
+        return [...this.entries.keys()];
+    }
+
     byFile(): Map<string, D[]> {
         const byFile = new Map<string, D[]>();
         for (const diagnostics of this.entries.values()) {

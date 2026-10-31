@@ -6,12 +6,13 @@ import * as path from 'path';
 import { CeedlingEngine, fileDiagnosticsId, type LayoutUpgrade } from '../../src/ceedlingEngine';
 import { coverageMode } from '../../src/coverageRun';
 import { type EngineFileSystem, nodeFileSystem } from '../../src/engineFileSystem';
-import { type Cancellation, CeedlingRunner } from '../../src/ceedlingProcess';
+import { CeedlingRunner } from '../../src/ceedlingProcess';
 import { CeedlingLoadError } from '../../src/ceedlingProjectConfig';
-import type { DiagnosticsSink } from '../../src/diagnosticsStore';
+import { DiagnosticsStore } from '../../src/diagnosticsStore';
 import type { Log } from '../../src/log';
-import type { MatchedProblem } from '../../src/problemMatching';
+import { type MatchedProblem, sameProblem } from '../../src/problemMatching';
 import { type CeedlingFileNode, type CeedlingProjectNode, leafIds, type RunReporter } from '../../src/testModel';
+import { cancellation as token, recordingLog, settingsFrom } from '../support/fakes';
 
 // Drives CeedlingEngine against a simulated Ceedling: an in-memory filesystem, and an exec double
 // that answers each Ceedling command the way the real one does. See FakeCeedling below. Tests
@@ -131,26 +132,14 @@ function cppunit(parts: { passed?: string[], failed?: Array<{ name: string, mess
 type LogCall = { level: string, message: string };
 
 function fakeLogger(calls: LogCall[] = []): Log {
-    const record = (level: string) => (...args: unknown[]) => { calls.push({ level, message: args.map(String).join(' ') }); };
-    return {
-        trace: record('trace'), debug: record('debug'), info: record('info'), warn: record('warn'), error: record('error'),
-        showWarning: record('showWarning'), showError: record('showError'),
-    };
+    return recordingLog((level, message) => { calls.push({ level, message }); });
 }
 
-// Keeps each run's problems by id, as ProblemMatcher does without the Problems panel. Every run
-// finds `matches` in its output.
-class FakeProblemMatcher implements DiagnosticsSink {
-    entries = new Map<string, MatchedProblem[]>();
+// Keeps each run's problems by id in the store ProblemMatcher publishes from. Every run finds
+// `matches` in its output.
+class FakeProblemMatcher extends DiagnosticsStore<MatchedProblem> {
     matches: MatchedProblem[] = [];
-    set(id: string, problems: MatchedProblem[]) { this.entries.set(id, problems); }
-    retain(id: string, keep: (problem: MatchedProblem) => boolean) {
-        const current = this.entries.get(id);
-        if (current) this.entries.set(id, current.filter(keep));
-    }
-    retainIds(keep: (id: string) => boolean) {
-        for (const id of [...this.entries.keys()]) if (!keep(id)) this.entries.delete(id);
-    }
+    constructor() { super(sameProblem); }
 }
 
 function diagnostic(file: string, line: number, severity: 'error' | 'warning', message: string): MatchedProblem {
@@ -174,19 +163,6 @@ function recordingReporter(): RunReporter & { calls: ReporterCall[], of(kind: st
     };
 }
 
-function token(): Cancellation & { fire(): void } {
-    const listeners = new Set<() => void>();
-    const t = {
-        isCancellationRequested: false,
-        onCancellationRequested(listener: () => void) {
-            listeners.add(listener);
-            return { dispose: () => listeners.delete(listener) };
-        },
-        fire() { t.isCancellationRequested = true; for (const l of [...listeners]) l(); },
-    };
-    return t;
-}
-
 function makeEngine(world: FakeCeedling, options: { settings?: Record<string, unknown>, logs?: LogCall[], problems?: FakeProblemMatcher, developmentMode?: boolean, folder?: string, platform?: NodeJS.Platform, upgrades?: LayoutUpgrade[] } = {}) {
     const settings = options.settings ?? {};
     const folder = options.folder ?? WS;
@@ -196,7 +172,7 @@ function makeEngine(world: FakeCeedling, options: { settings?: Record<string, un
         fakeLogger(options.logs),
         options.developmentMode ?? false,
         {
-            settings: () => ({ get: <T>(key: string, fallback: T): T => (key in settings ? settings[key] as T : fallback) }),
+            settings: () => settingsFrom(settings),
             diagnostics: problems,
             matchProblems: () => problems.matches,
             bundledMixinPath: BUNDLED_MIXIN,
@@ -213,6 +189,33 @@ async function discovered(world: FakeCeedling, options: Parameters<typeof makeEn
     const engine = makeEngine(world, options);
     const projects = await engine.discover();
     return { engine, projects, file: projects[0]?.files[0] };
+}
+
+function twoProjects(world: FakeCeedling, a: string, b: string) {
+    for (const dir of new Set([a, b].map((p) => p.replace(/\/[^/]*\.yml$/, '')))) {
+        world.directories.add(`${WS}/${dir}`);
+        world.write(`${WS}/${dir}/project.yml`, ':project: {}\n');
+    }
+    for (const file of [a, b].filter((p) => p.endsWith('.yml'))) world.write(`${WS}/${file}`, ':project: {}\n');
+    return { projects: [{ path: a, debugLaunchConfig: 'dbg' }, { path: b, debugLaunchConfig: 'dbg' }] };
+}
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+// Long enough for work the locks don't hold back to start Ceedling.
+const settled = () => settle().then(settle).then(settle).then(settle);
+// Whether a promise has settled, readable without awaiting it.
+function finished(promise: Promise<unknown>): { done: boolean } {
+    const state = { done: false };
+    void promise.finally(() => { state.done = true; });
+    return state;
+}
+// Holds each matching Ceedling command until released, then gives its reply.
+function held(world: FakeCeedling, command: RegExp, reply: Reply = {}) {
+    const releases: Array<() => void> = [];
+    world.handlers.push((line) => command.test(line) ? new Promise<Reply>((resolve) => { releases.push(() => resolve(reply)); }) : undefined);
+    return {
+        release: () => releases.splice(0).forEach((release) => release()),
+        releaseFirst: () => releases.shift()?.(),
+    };
 }
 
 const PROJECT_ARGS = `--project project.yml --mixin ${BUNDLED_MIXIN}`;
@@ -1020,7 +1023,7 @@ suite('CeedlingEngine runs', () => {
             : undefined);
         const first = engine.runFile('default', file, recordingReporter(), token());
         const second = engine.runFile('default', file, recordingReporter(), token());
-        await new Promise((resolve) => setImmediate(resolve));
+        await settle();
         assert.strictEqual(world.commandsMatching(/^ceedling test:/).length, 1);
         release();
         await Promise.all([first, second]);
@@ -1037,8 +1040,8 @@ suite('CeedlingEngine diagnostics', () => {
         await engine.runProjectAll('default', projects[0].files, recordingReporter(), token());
         problems.matches = [];
         await engine.runFile('default', file, recordingReporter(), token());
-        assert.deepStrictEqual(problems.entries.get('default')!.map((d) => d.message), ['other']);
-        assert.deepStrictEqual(problems.entries.get(fileDiagnosticsId('default', 'test/test_calc.c')), []);
+        assert.deepStrictEqual(problems.get('default')!.map((d) => d.message), ['other']);
+        assert.deepStrictEqual(problems.get(fileDiagnosticsId('default', 'test/test_calc.c')), []);
     });
 
     // Discovery uppercases the drive letter, while a compiler may write it either way.
@@ -1053,7 +1056,7 @@ suite('CeedlingEngine diagnostics', () => {
         await engine.runProjectAll('default', project.files, recordingReporter(), token());
         problems.matches = [];
         await engine.runFile('default', project.files[0], recordingReporter(), token());
-        assert.deepStrictEqual(problems.entries.get('default')!.map((d) => d.message), ['other']);
+        assert.deepStrictEqual(problems.get('default')!.map((d) => d.message), ['other']);
     });
 
     // Project names come from settings, so one may be another's followed by `::`.
@@ -1072,7 +1075,7 @@ suite('CeedlingEngine diagnostics', () => {
         await engine.runFile(sim.projectKey, sim.files[0], recordingReporter(), token());
         problems.matches = [];
         await engine.runProjectAll(fw.projectKey, fw.files, recordingReporter(), token());
-        assert.deepStrictEqual(problems.entries.get(fileDiagnosticsId('fw::sim', 'test/test_calc.c'))?.map((d) => d.message), ['sim']);
+        assert.deepStrictEqual(problems.get(fileDiagnosticsId('fw::sim', 'test/test_calc.c'))?.map((d) => d.message), ['sim']);
     });
 
     test("a project run replaces the project entry and supersedes its files' entries", async () => {
@@ -1083,17 +1086,17 @@ suite('CeedlingEngine diagnostics', () => {
         await engine.runFile('default', file, recordingReporter(), token());
         problems.matches = [];
         await engine.runProjectAll('default', projects[0].files, recordingReporter(), token());
-        assert.deepStrictEqual([...problems.entries.keys()], ['default']);
+        assert.deepStrictEqual(problems.ids(), ['default']);
     });
 
     test('discovery drops entries for files and projects that no longer exist', async () => {
         const world = new FakeCeedling();
         const problems = new FakeProblemMatcher();
-        problems.entries.set(fileDiagnosticsId('default', 'test/test_gone.c'), []);
-        problems.entries.set('old-project', []);
-        problems.entries.set(fileDiagnosticsId('default', 'test/test_calc.c'), []);
+        problems.set(fileDiagnosticsId('default', 'test/test_gone.c'), []);
+        problems.set('old-project', []);
+        problems.set(fileDiagnosticsId('default', 'test/test_calc.c'), []);
         await discovered(world, { problems });
-        assert.deepStrictEqual([...problems.entries.keys()], [fileDiagnosticsId('default', 'test/test_calc.c')]);
+        assert.deepStrictEqual(problems.ids(), [fileDiagnosticsId('default', 'test/test_calc.c')]);
     });
 });
 
@@ -1142,7 +1145,7 @@ suite('CeedlingEngine.compileForDebug', () => {
             : undefined);
         const run = engine.runFile('default', file, recordingReporter(), token());
         const debug = engine.compileForDebug('default', file, recordingReporter(), token());
-        await new Promise((resolve) => setImmediate(resolve));
+        await settle();
         assert.strictEqual(world.commandsMatching(/^ceedling test:/).length, 1);
         release();
         await Promise.all([run, debug]);
@@ -1154,13 +1157,12 @@ suite('CeedlingEngine clean and clobber', () => {
     test('clean waits for a run in progress, then runs in each project', async () => {
         const world = new FakeCeedling();
         const { engine, file } = await discovered(world);
-        let release!: () => void;
-        world.handlers.push((command) => /^ceedling test:/.test(command) ? new Promise<Reply>((resolve) => { release = () => resolve({}); }) : undefined);
+        const build = held(world, /^ceedling test:/);
         const run = engine.runFile('default', file, recordingReporter(), token());
         const clean = engine.clean();
-        await new Promise((resolve) => setImmediate(resolve));
+        await settle();
         assert.deepStrictEqual(world.commandsMatching(/^ceedling clean/), []);
-        release();
+        build.release();
         await run;
         assert.strictEqual(await clean, true);
         assert.deepStrictEqual(world.commandsMatching(/^ceedling clean/), [`ceedling clean ${PROJECT_ARGS}`]);
@@ -1277,13 +1279,12 @@ suite('CeedlingEngine after a build layout upgrade', () => {
             world.write(`${WS}/${dir}/test/test_calc.c`, 'void test_add(void) {}\n');
         }
         const { engine, projects } = await discovered(world, { settings: { projects: ['a', 'b'].map((dir) => ({ path: dir, debugLaunchConfig: 'dbg' })) } });
-        let release!: () => void;
-        world.handlers.push((command) => /^ceedling test:/.test(command) ? new Promise<Reply>((resolve) => { release = () => resolve({}); }) : undefined);
+        const build = held(world, /^ceedling test:/);
         const run = engine.runFile(projects[1].projectKey, projects[1].files[0], recordingReporter(), token());
         const clobber = engine.clobberProject(projects[1].projectKey);
-        await new Promise((resolve) => setImmediate(resolve));
+        await settle();
         assert.deepStrictEqual(world.commandsMatching(/^ceedling clobber/), []);
-        release();
+        build.release();
         await run;
         assert.strictEqual(await clobber, true);
         assert.deepStrictEqual(world.commands.filter((c) => /^ceedling clobber/.test(c.command)).map((c) => c.cwd), [`${WS}/b`]);
@@ -1423,13 +1424,12 @@ suite('CeedlingEngine lookups and lifecycle', () => {
     test('cancel stops every running Ceedling process', async () => {
         const world = new FakeCeedling();
         const { engine, file } = await discovered(world);
-        let release!: () => void;
-        world.handlers.push((command) => /^ceedling test:/.test(command) ? new Promise<Reply>((resolve) => { release = () => resolve({}); }) : undefined);
+        const build = held(world, /^ceedling test:/);
         const run = engine.runFile('default', file, recordingReporter(), token());
-        await new Promise((resolve) => setImmediate(resolve));
+        await settle();
         engine.cancel();
         assert.strictEqual(world.killed.length, 1);
-        release();
+        build.release();
         await run;
     });
 
@@ -1437,13 +1437,12 @@ suite('CeedlingEngine lookups and lifecycle', () => {
     test('dispose stops running processes', async () => {
         const world = new FakeCeedling();
         const { engine, file } = await discovered(world);
-        let release!: () => void;
-        world.handlers.push((command) => /^ceedling test:/.test(command) ? new Promise<Reply>((resolve) => { release = () => resolve({}); }) : undefined);
+        const build = held(world, /^ceedling test:/);
         const run = engine.runFile('default', file, recordingReporter(), token());
-        await new Promise((resolve) => setImmediate(resolve));
+        await settle();
         engine.dispose();
         assert.strictEqual(world.killed.length, 1);
-        release();
+        build.release();
         await run;
     });
 
@@ -1452,7 +1451,7 @@ suite('CeedlingEngine lookups and lifecycle', () => {
         const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'ceedling-engine-'));
         try {
             const engine = new CeedlingEngine(folder, fakeLogger(), false, {
-                settings: () => ({ get: <T>(_key: string, fallback: T): T => fallback }),
+                settings: () => settingsFrom({}),
                 diagnostics: new FakeProblemMatcher(),
                 bundledMixinPath: BUNDLED_MIXIN,
             });
@@ -1503,32 +1502,6 @@ suite('nodeFileSystem', () => {
 // Each Ceedling start costs a Ruby startup, so discovery overlaps work it can. Two Ceedling
 // processes in one project directory could collide on its build files, so that never overlaps.
 suite('CeedlingEngine concurrent discovery', () => {
-    function twoProjects(world: FakeCeedling, a: string, b: string) {
-        for (const dir of new Set([a, b].map((p) => p.replace(/\/[^/]*\.yml$/, '')))) {
-            world.directories.add(`${WS}/${dir}`);
-            world.write(`${WS}/${dir}/project.yml`, ':project: {}\n');
-        }
-        for (const file of [a, b].filter((p) => p.endsWith('.yml'))) world.write(`${WS}/${file}`, ':project: {}\n');
-        return { projects: [{ path: a, debugLaunchConfig: 'dbg' }, { path: b, debugLaunchConfig: 'dbg' }] };
-    }
-    const settle = () => new Promise((resolve) => setImmediate(resolve));
-    // Long enough for work the locks don't hold back to start Ceedling.
-    const settled = () => settle().then(settle).then(settle).then(settle);
-    // Whether a promise has settled, readable without awaiting it.
-    function finished(promise: Promise<unknown>): { done: boolean } {
-        const state = { done: false };
-        void promise.finally(() => { state.done = true; });
-        return state;
-    }
-    // Holds each matching Ceedling command until released, then gives its reply.
-    function held(world: FakeCeedling, command: RegExp, reply: Reply = {}) {
-        const releases: Array<() => void> = [];
-        world.handlers.push((line) => command.test(line) ? new Promise<Reply>((resolve) => { releases.push(() => resolve(reply)); }) : undefined);
-        return {
-            release: () => releases.splice(0).forEach((release) => release()),
-            releaseFirst: () => releases.shift()?.(),
-        };
-    }
     // Discovery's commands so far in a project directory, the folder itself by default.
     const discoveryCommands = (world: FakeCeedling, directory = '', kind = /dumpconfig|files:test/) =>
         world.commands.filter((c) => kind.test(c.command) && c.cwd === `${WS}${directory && `/${directory}`}`).length;
@@ -1913,7 +1886,7 @@ suite('CeedlingEngine concurrent discovery', () => {
         assert.ok(rediscovered.done, 'the rediscovery finishes while the build runs');
         build.release();
         await run;
-        assert.deepStrictEqual([...problems.entries.keys()].filter((id) => id.includes('test_calc')), []);
+        assert.deepStrictEqual(problems.ids().filter((id) => id.includes('test_calc')), []);
     });
 
     test("on Ceedling 1.2.1, a function run's whole-file fallback runs though a rediscovery dropped its project", async () => {

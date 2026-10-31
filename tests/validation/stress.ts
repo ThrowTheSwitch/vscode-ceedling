@@ -10,6 +10,7 @@
 // usage: node stress.js [seconds=60] [maxInFlight=6] [seed=1] [--shared-build-root]
 import * as fs from 'fs';
 import * as path from 'path';
+import { extractTestFunctionName } from '../../src/ceedlingOutputParsing';
 import { leafIds, type CeedlingFileNode, type RunReporter } from '../../src/testModel';
 import { churn, type Checks, leftovers, logSummary, main, makeEngine, parseArgs, seeded, stage, token, WS } from './harness';
 
@@ -23,7 +24,7 @@ const EXPECTED: Record<string, string> = {
     test_add_ParameterizedCases: 'passed',
     test_add_MatrixCases: 'passed',
 };
-const expectedOf = (id: string) => EXPECTED[id.split('::')[1].replace(/\(.*$/, '')];
+const expectedOf = (id: string) => EXPECTED[extractTestFunctionName(id)];
 
 // Checks one run's reporting. Only `reportable` tests may report, by default the run's own, each
 // once and none after the run returns. A run not cancelled must give each of its own the expected
@@ -104,8 +105,7 @@ main('stress', async (checks) => {
                 const fn = pick(file.functions);
                 // Ceedling's --test-case filter matches substrings, so a function whose name is part
                 // of another's, e.g. test_add_should_ReturnSum, falls back to a whole-file run.
-                const name = (id: string) => id.split('::')[1];
-                const collides = file.functions.some((other) => other !== fn && name(other.id).includes(name(fn.id)));
+                const collides = file.functions.some((other) => other !== fn && extractTestFunctionName(other.id).includes(extractTestFunctionName(fn.id)));
                 const run = checkedReporter(checks, `${label}::${fn.id}`, leafIds([fn]), collides ? leavesOf([file]) : leafIds([fn]));
                 await engine.runFunction(project.projectKey, file, fn, run.reporter, t);
                 run.check(t.isCancellationRequested);
