@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { KeyedLock, Limiter, mapGrouped } from '../../src/concurrency';
+import { ActivityTracker, KeyedLock, Limiter, mapGrouped } from '../../src/concurrency';
 
 // Work items that finish when the test says, recording how many ran at once.
 function gate() {
@@ -153,5 +153,33 @@ suite('Limiter', () => {
         await failing;
         await g.finish('n1');
         assert.strictEqual(await next, 'N1');
+    });
+});
+
+suite('ActivityTracker', () => {
+    const later = () => { let settle!: (ok: boolean) => void; const promise = new Promise<void>((resolve, reject) => { settle = (ok) => { if (ok) resolve(); else reject(new Error('failed')); }; }); return { promise, settle }; };
+
+    test('settles once all work tracked so far has, whether it succeeded or failed', async () => {
+        const tracker = new ActivityTracker();
+        const [a, b] = [later(), later()];
+        void tracker.track(a.promise);
+        tracker.track(b.promise).catch(() => { /* seen below */ });
+        let settled = false;
+        const all = tracker.settled().then(() => { settled = true; });
+        a.settle(true);
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.strictEqual(settled, false);
+        b.settle(false);
+        await all;
+        assert.strictEqual(settled, true);
+    });
+
+    test('hands back the work itself, and forgets it once it ends', async () => {
+        const tracker = new ActivityTracker();
+        const work = Promise.resolve();
+        assert.strictEqual(tracker.track(work), work);
+        await work;
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.strictEqual(tracker.size, 0);
     });
 });

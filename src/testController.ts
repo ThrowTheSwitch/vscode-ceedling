@@ -10,6 +10,7 @@ import { type CoverageReport, mergeCoverage } from './coberturaReport';
 import { type Logger } from './logger';
 import { ProblemMatcher } from './problemMatcher';
 import { buildRunPlan, type PlanTarget, type RunPlanEntry } from './runPlan';
+import { ActivityTracker } from './concurrency';
 import { SingleFlight } from './singleFlight';
 import { type CeedlingFileNode, type CeedlingProjectNode, type CeedlingTestFunction, type CoverageOutcome, type RunReporter } from './testModel';
 import { createRunReporter, type ReportMessage } from './testReporting';
@@ -67,7 +68,7 @@ export class CeedlingTestController {
     // A discovery in flight at disposal must not build a TestController or watchers afterwards.
     private disposed = false;
     // Runs and debug sessions under way, for an offered clobber to wait out.
-    private readonly active = new Set<Promise<void>>();
+    private readonly active = new ActivityTracker();
 
     constructor(
         public readonly workspaceFolder: vscode.WorkspaceFolder,
@@ -118,7 +119,7 @@ export class CeedlingTestController {
     // without a TestController has nothing to run.
     async run(request: vscode.TestRunRequest, token: vscode.CancellationToken, coverage = false): Promise<void> {
         if (this.controller) {
-            await this.tracked(this.handleRun(request, token, coverage));
+            await this.active.track(this.handleRun(request, token, coverage));
         }
     }
 
@@ -146,17 +147,11 @@ export class CeedlingTestController {
         if (await vscode.window.showWarningMessage(upgrade.message, CLOBBER_ACTION) !== CLOBBER_ACTION) {
             return;
         }
-        await Promise.allSettled([...this.active]);
+        await this.active.settled();
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- dispose() may run during the awaits
         if (!this.disposed) {
             await this.runTask('Clobber', (token) => this.engine.clobberProject(upgrade.projectKey, token));
         }
-    }
-
-    private tracked(work: Promise<void>): Promise<void> {
-        this.active.add(work);
-        work.finally(() => this.active.delete(work)).catch(() => { /* the caller sees the rejection */ });
-        return work;
     }
 
     dispose(): void {
@@ -186,8 +181,8 @@ export class CeedlingTestController {
         controller.refreshHandler = () => this.refresh();
         this.controllerDisposables = [
             controller,
-            controller.createRunProfile('Run', vscode.TestRunProfileKind.Run, (request, token) => this.tracked(this.handleRun(request, token)), true),
-            controller.createRunProfile('Debug', vscode.TestRunProfileKind.Debug, (request, token) => this.tracked(this.handleDebug(request, token)), true),
+            controller.createRunProfile('Run', vscode.TestRunProfileKind.Run, (request, token) => this.active.track(this.handleRun(request, token)), true),
+            controller.createRunProfile('Debug', vscode.TestRunProfileKind.Debug, (request, token) => this.active.track(this.handleDebug(request, token)), true),
         ];
         this.controller = controller;
         return controller;
@@ -272,7 +267,7 @@ export class CeedlingTestController {
         const controller = this.controller;
         const wanted = controller !== undefined && this.engine.coverageEnabled();
         if (wanted && !this.coverageProfile) {
-            const profile = controller.createRunProfile('Coverage', vscode.TestRunProfileKind.Coverage, (request, token) => this.tracked(this.handleRun(request, token, true)), false);
+            const profile = controller.createRunProfile('Coverage', vscode.TestRunProfileKind.Coverage, (request, token) => this.active.track(this.handleRun(request, token, true)), false);
             profile.loadDetailedCoverage = (_run, fileCoverage) => Promise.resolve(this.coverageDetails.get(fileCoverage) ?? []);
             this.coverageProfile = profile;
         } else if (!wanted && this.coverageProfile) {
