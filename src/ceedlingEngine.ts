@@ -205,9 +205,15 @@ type BuildOutcome =
 
 type CompletedBuild = Extract<BuildOutcome, { cancelled: false }>;
 
-// Diagnostics are kept per project for project runs, and per file for file and function runs.
-function fileDiagnosticsId(projectKey: string, fileId: string): string {
-    return `${projectKey}::${fileId}`;
+// Diagnostics are kept per project for project runs, and per file for file and function runs. A
+// file's id joins its project's key with a character no setting or path holds, so no project's
+// ids begin with another's, e.g. `fw` and `fw::sim`.
+export function fileDiagnosticsId(projectKey: string, fileId: string): string {
+    return `${projectKey}\0${fileId}`;
+}
+
+function isFileDiagnosticsIdIn(projectKey: string, id: string): boolean {
+    return id.startsWith(`${projectKey}\0`);
 }
 
 export class CeedlingEngine {
@@ -881,12 +887,12 @@ export class CeedlingEngine {
             return diagnostics;
         }
         if (scope.kind === 'project') {
-            this.problemMatcher.retainIds((id) => !id.startsWith(`${project.key}::`));
+            this.problemMatcher.retainIds((id) => !isFileDiagnosticsIdIn(project.key, id));
             this.problemMatcher.set(project.key, diagnostics);
         } else {
-            const testFile = this.paths.resolve(scope.file.absPath);
+            const testFile = this.keyOfPath(this.paths.resolve(scope.file.absPath));
             this.problemMatcher.set(fileDiagnosticsId(project.key, scope.file.id), diagnostics);
-            this.problemMatcher.retain(project.key, (d) => this.paths.resolve(d.file) !== testFile);
+            this.problemMatcher.retain(project.key, (d) => this.keyOfPath(this.paths.resolve(d.file)) !== testFile);
         }
         return diagnostics;
     }

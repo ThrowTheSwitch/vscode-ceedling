@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type vscode from 'vscode';
-import { CeedlingEngine, coverageMode, type EngineFileSystem, type LayoutUpgrade, nodeFileSystem } from '../../src/ceedlingEngine';
+import { CeedlingEngine, coverageMode, type EngineFileSystem, fileDiagnosticsId, type LayoutUpgrade, nodeFileSystem } from '../../src/ceedlingEngine';
 import { type Cancellation, CeedlingRunner } from '../../src/ceedlingProcess';
 import { CeedlingLoadError } from '../../src/ceedlingProjectConfig';
 import type { Logger } from '../../src/logger';
@@ -1022,7 +1022,41 @@ suite('CeedlingEngine diagnostics', () => {
         problems.matches = [];
         await engine.runFile('default', file, recordingReporter(), token());
         assert.deepStrictEqual(problems.entries.get('default')!.map((d) => d.diagnostic.message), ['other']);
-        assert.deepStrictEqual(problems.entries.get('default::test/test_calc.c'), []);
+        assert.deepStrictEqual(problems.entries.get(fileDiagnosticsId('default', 'test/test_calc.c')), []);
+    });
+
+    // Discovery uppercases the drive letter, while a compiler may write it either way.
+    test("on Windows, a file run drops the project entry's diagnostics in that file whatever their path's case", async () => {
+        const world = new FakeCeedling();
+        world.write('C:\\ws\\project.yml', ':project: {}\n');
+        world.write('C:\\ws\\test\\test_calc.c', 'void test_add(void) {}\n');
+        const problems = new FakeProblemMatcher();
+        const engine = makeEngine(world, { folder: 'c:\\ws', platform: 'win32', problems });
+        const [project] = await engine.discover();
+        problems.matches = [diagnostic('c:\\WS\\test\\Test_Calc.c', 3, 0, 'old'), diagnostic('C:\\ws\\src\\other.c', 1, 0, 'other')];
+        await engine.runProjectAll('default', project.files, recordingReporter(), token());
+        problems.matches = [];
+        await engine.runFile('default', project.files[0], recordingReporter(), token());
+        assert.deepStrictEqual(problems.entries.get('default')!.map((d) => d.diagnostic.message), ['other']);
+    });
+
+    // Project names come from settings, so one may be another's followed by `::`.
+    test("a project run supersedes its own files' entries, never another project's", async () => {
+        const world = new FakeCeedling();
+        for (const dir of ['a', 'b']) {
+            world.directories.add(`${WS}/${dir}`);
+            world.write(`${WS}/${dir}/project.yml`, ':project: {}\n');
+            world.write(`${WS}/${dir}/test/test_calc.c`, 'void test_add(void) {}\n');
+        }
+        const problems = new FakeProblemMatcher();
+        const settings = { projects: [{ path: 'a', name: 'fw', debugLaunchConfig: 'dbg' }, { path: 'b', name: 'fw::sim', debugLaunchConfig: 'dbg' }] };
+        const { engine, projects } = await discovered(world, { problems, settings });
+        const [fw, sim] = projects;
+        problems.matches = [diagnostic('/ws/b/src/calc.c', 1, 0, 'sim')];
+        await engine.runFile(sim.projectKey, sim.files[0], recordingReporter(), token());
+        problems.matches = [];
+        await engine.runProjectAll(fw.projectKey, fw.files, recordingReporter(), token());
+        assert.deepStrictEqual(problems.entries.get(fileDiagnosticsId('fw::sim', 'test/test_calc.c'))?.map((d) => d.diagnostic.message), ['sim']);
     });
 
     test("a project run replaces the project entry and supersedes its files' entries", async () => {
@@ -1039,11 +1073,11 @@ suite('CeedlingEngine diagnostics', () => {
     test('discovery drops entries for files and projects that no longer exist', async () => {
         const world = new FakeCeedling();
         const problems = new FakeProblemMatcher();
-        problems.entries.set('default::test/test_gone.c', []);
+        problems.entries.set(fileDiagnosticsId('default', 'test/test_gone.c'), []);
         problems.entries.set('old-project', []);
-        problems.entries.set('default::test/test_calc.c', []);
+        problems.entries.set(fileDiagnosticsId('default', 'test/test_calc.c'), []);
         await discovered(world, { problems });
-        assert.deepStrictEqual([...problems.entries.keys()], ['default::test/test_calc.c']);
+        assert.deepStrictEqual([...problems.entries.keys()], [fileDiagnosticsId('default', 'test/test_calc.c')]);
     });
 });
 
