@@ -268,8 +268,8 @@ suite('matchProblems', () => {
     const output = { stdout: '', stderr: 'test/test_calc.c:3:5: error: expected ‘;’\nsrc/calc.h:1:1: warning: unused\n' };
 
     test('"disabled" finds nothing, and "gcc" its preset\'s problems under the project', () => {
-        assert.deepStrictEqual(matchProblems(output, '/ws', 'disabled', [], log), []);
-        const found = matchProblems(output, '/ws', 'gcc', [], log);
+        assert.deepStrictEqual(matchProblems(output, '/ws', 'disabled', [], log, path.posix), []);
+        const found = matchProblems(output, '/ws', 'gcc', [], log, path.posix);
         assert.deepStrictEqual(found.map((p) => [p.severity, p.file, p.startLine, p.message]).sort(),
             [['error', '/ws/test/test_calc.c', 2, 'expected ‘;’'], ['warning', '/ws/src/calc.h', 0, 'unused']]);
     });
@@ -277,7 +277,7 @@ suite('matchProblems', () => {
     test("the user's patterns: a malformed one is dropped and a broken regexp skipped, sparing the rest", () => {
         calls.length = 0;
         const patterns = [{ regexp: '(' , file: 1, message: 2 }, { file: 1 }, { regexp: '^(.*):(\\d+):(\\d+): error: (.*)$', file: 1, line: 2, column: 3, message: 4, scanStderr: true }];
-        const found = matchProblems(output, '/ws', 'patterns', patterns, log);
+        const found = matchProblems(output, '/ws', 'patterns', patterns, log, path.posix);
         assert.deepStrictEqual(found.map((p) => p.message), ['expected ‘;’']);
         assert.ok(calls.some(([level, message]) => level === 'debug' && /dropping malformed pattern/.test(message)));
         assert.ok(calls.some(([level, message]) => level === 'warn' && /invalid regexp \(\(\)/.test(message)));
