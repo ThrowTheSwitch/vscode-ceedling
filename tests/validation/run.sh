@@ -4,9 +4,9 @@
 # tests in the sidecar first; `just validate` does both. See docs/Development.md.
 #
 # usage: run.sh <ceedling-version | ceedling.gem> <suite> [args...]
-#   <ceedling-version>  a throwtheswitch/madsciencelab-plugins image tag, e.g. 1.2.1
+#   <ceedling-version>  a throwtheswitch/madsciencelab-plugins image tag, e.g. 1.2.2
 #   <ceedling.gem>      the absolute path to a Ceedling .gem file, which then replaces the Ceedling of
-#                       CEEDLING_BASE (1.2.1)
+#                       CEEDLING_BASE (1.2.2)
 #   <suite>             stress, coverage, gated, layout, latency, mixed, upgrade, all, or a probe:
 #                       probe:fixes, probe:overlap, probe:syscalls. `list` prints what `all` runs.
 #   [args...]           passed to the suite (stress and coverage take seconds, maxInFlight, seed);
@@ -51,7 +51,7 @@ if [[ -n $gem && $gem != *.gem ]]; then
 fi
 if [[ $version == *.gem ]]; then
     [ -z "$gem" ] || { echo "error: give a gem either as the version or as CEEDLING_GEM, not both" >&2; exit 1; }
-    gem=$version base=${CEEDLING_BASE:-1.2.1} mode=install
+    gem=$version base=${CEEDLING_BASE:-1.2.2} mode=install
 fi
 directory=$(mktemp -d)
 trap 'rm -rf "$directory"' EXIT

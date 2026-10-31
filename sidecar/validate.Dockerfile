@@ -6,13 +6,14 @@
 # select another Ceedling than the image's own, as a project vendoring one does. A local gem, given
 # as the build context `gem` holding one .gem file, joins them there. GEM_MODE=install also makes
 # it the image's own Ceedling in place of CEEDLING's.
-ARG CEEDLING=1.2.1
+ARG CEEDLING=1.2.2
 ARG SIDECAR=vscode-ceedling-sidecar
 FROM ${SIDECAR} AS sidecar
 FROM throwtheswitch/madsciencelab-plugins:1.0.0 AS ceedling-1.0.0
 FROM throwtheswitch/madsciencelab-plugins:1.1.10 AS ceedling-1.1.10
 FROM throwtheswitch/madsciencelab-plugins:1.2.0 AS ceedling-1.2.0
 FROM throwtheswitch/madsciencelab-plugins:1.2.1 AS ceedling-1.2.1
+FROM throwtheswitch/madsciencelab-plugins:1.2.2 AS ceedling-1.2.2
 # No gem unless the build passes the context. run.sh always passes one; see there.
 FROM scratch AS gem
 
@@ -28,6 +29,7 @@ COPY --from=ceedling-1.0.0 /var/lib/gems/3.1.0/gems/ceedling-1.0.0 /opt/ceedling
 COPY --from=ceedling-1.1.10 /var/lib/gems/3.3.0/gems/ceedling-1.1.10 /opt/ceedling/1.1.10
 COPY --from=ceedling-1.2.0 /var/lib/gems/3.3.0/gems/ceedling-1.2.0 /opt/ceedling/1.2.0
 COPY --from=ceedling-1.2.1 /var/lib/gems/3.3.0/gems/ceedling-1.2.1 /opt/ceedling/1.2.1
+COPY --from=ceedling-1.2.2 /var/lib/gems/3.3.0/gems/ceedling-1.2.2 /opt/ceedling/1.2.2
 COPY --from=gem / /tmp/gem/
 # A gem unpacks to the files it installs, replacing a published release of its version. Installing
 # it uninstalls the base release, so `ceedling` and Gem::Specification find only the gem.
