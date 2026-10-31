@@ -47,6 +47,9 @@ import {
     type ProjectState,
     projectState,
     projectsFromSettings,
+    TEST_BUILD_LAYOUTS,
+    type TestBuildLayout,
+    testBuildLayout,
     testBuildName,
     versionSeesSelection,
 } from './ceedlingProjectConfig';
@@ -124,6 +127,9 @@ export type EngineDeps = {
 // its release, e.g. 1.2.0 for 1.2.0-13a540f. `exactRelease` is false when the report can't show
 // the release, and the launcher's stands in. See applicationRelease().
 type ProjectCeedling = { release: string, exactRelease: boolean, capabilities: CeedlingCapabilities };
+
+// Where a test's build may sit, its release's own place first.
+type Candidates = readonly [string, ...string[]];
 
 // `configuration` fingerprints the files and settings `state` was resolved from.
 type LoadedProject = CeedlingProject & ProjectCeedling & { state: ProjectState, configuration: string, files: CeedlingFileNode[] };
@@ -411,6 +417,8 @@ export class CeedlingEngine {
             reporter.started(id);
         }
         return this.exclusively(project, async () => {
+            const candidates = this.executableCandidates(project, file);
+            const before = await this.executableTimes(project, candidates);
             const outcome = await this.buildAndRun(project, { kind: 'file', file }, TEST_MODE, this.commandArgs(project, file.id, TEST_MODE), reporter, token);
             if (outcome.cancelled) {
                 leaves.forEach((id) => reporter.skipped(id));
@@ -421,7 +429,7 @@ export class CeedlingEngine {
                 return undefined;
             }
             this.reportResults(outcome.report, leaves, outcome.transcript, reporter);
-            return await this.executableSubpath(project, file);
+            return await this.executableSubpath(project, file, candidates, before);
         });
     }
 
@@ -817,22 +825,60 @@ export class CeedlingEngine {
         return diagnostics.slice().sort((a, b) => a.diagnostic.severity - b.diagnostic.severity)[0];
     }
 
-    // The executable's path under Ceedling's test output directory, `<build name>/<name><ext>`, e.g.
-    // `unit/test_foo/test_foo.out` for `test/unit/test_foo.c` from 1.2.0. A missing executable is
-    // logged, and its path returned all the same, for the launch to report.
-    private async executableSubpath(project: LoadedProject, file: CeedlingFileNode): Promise<string> {
-        const buildName = this.testBuildName(project, file);
-        const executable = `${buildName}/${buildName.replace(/^.*\//, '')}${project.state.executableExtension}`;
-        const outputDirectory = this.buildPath(project, 'test', 'out');
-        if (await this.fs.mtimeMs(this.paths.resolve(outputDirectory, executable)) === undefined) {
-            this.logger.warn(`executableSubpath: no built executable for '${file.id}' at '${executable}' under ${outputDirectory}`);
-        }
-        return executable;
+    // Where the file's executable may sit under Ceedling's test output directory, its release's
+    // layout first. A release known exactly says where. Otherwise it may be any release, so each
+    // layout's place counts, unless it is another test file's own. See releaseKnown().
+    private executableCandidates(project: LoadedProject, file: CeedlingFileNode): Candidates {
+        const executable = (f: CeedlingFileNode, layout?: TestBuildLayout) => {
+            const buildName = this.testBuildName(project, f, layout);
+            return `${buildName}/${buildName.replace(/^.*\//, '')}${project.state.executableExtension}`;
+        };
+        return this.ownOrUnclaimed(project, file, executable);
     }
 
-    // Where Ceedling builds the test file, beneath each build output directory.
-    private testBuildName(project: LoadedProject, file: CeedlingFileNode): string {
-        return testBuildName(file.id, project.state.testPaths, project.capabilities.nestedTestBuilds);
+    // `place(file)` in the release's own layout, then, unless the release is known, in each other
+    // layout where no other test file of the project builds.
+    private ownOrUnclaimed(project: LoadedProject, file: CeedlingFileNode, place: (f: CeedlingFileNode, layout?: TestBuildLayout) => string): Candidates {
+        const own = place(file);
+        if (this.releaseKnown(project)) {
+            return [own];
+        }
+        const claimed = new Set(project.files.filter((f) => f.id !== file.id).flatMap((f) => TEST_BUILD_LAYOUTS.map((layout) => place(f, layout))));
+        return [own, ...new Set(TEST_BUILD_LAYOUTS.map((layout) => place(file, layout)).filter((p) => p !== own && !claimed.has(p)))];
+    }
+
+    // Whether the project runs the release its version check reported. A launcher before 1.2.2
+    // reports its own release for another build (Ceedling#1365), and never reads a :which_ceedling:
+    // selecting an installation it wouldn't find unaided.
+    private releaseKnown(project: LoadedProject): boolean {
+        return project.exactRelease && versionSeesSelection(project.state.whichCeedling, project.absPath, this.platform);
+    }
+
+    private executableTimes(project: LoadedProject, candidates: readonly string[]): Promise<Array<number | undefined>> {
+        const outputDirectory = this.buildPath(project, 'test', 'out');
+        return Promise.all(candidates.map((candidate) => this.fs.mtimeMs(this.paths.resolve(outputDirectory, candidate))));
+    }
+
+    // The executable's path under Ceedling's test output directory: the candidate this build wrote,
+    // else the newest that exists, else the release's own. A delta build may write nothing, leaving
+    // an up-to-date executable as it was, and an older layout's copy predates it.
+    private async executableSubpath(project: LoadedProject, file: CeedlingFileNode, candidates: Candidates, before: ReadonlyArray<number | undefined>): Promise<string> {
+        const after = await this.executableTimes(project, candidates);
+        const written = after.findIndex((time, i) => time !== undefined && time !== before[i]);
+        const newest = after.reduce<number>((best, time, i) => time !== undefined && (best < 0 || time > (after[best] ?? 0)) ? i : best, -1);
+        const chosen = written >= 0 ? written : Math.max(newest, 0);
+        if (newest < 0) {
+            this.logger.warn(`executableSubpath: no built executable for '${file.id}' at '${candidates[0]}' under ${this.buildPath(project, 'test', 'out')}`);
+        } else if (chosen > 0) {
+            this.logger.warn(`executableSubpath: '${file.id}' built at '${candidates[chosen]}', not at '${candidates[0]}', where Ceedling ${project.release} would build it`);
+        }
+        return candidates[chosen] ?? candidates[0];
+    }
+
+    // Where Ceedling builds the test file, beneath each build output directory, in its release's
+    // layout unless another is given.
+    private testBuildName(project: LoadedProject, file: CeedlingFileNode, layout = testBuildLayout(project.capabilities)): string {
+        return testBuildName(file.id, layout, { testPaths: project.state.testPaths, projectDir: project.absPath, platform: this.platform });
     }
 
     // A test run writes its report under artifacts/test, a gcov run under artifacts/gcov.
@@ -869,19 +915,19 @@ export class CeedlingEngine {
     }
 
     // Clears one test file's counters before a whole-file run repeats the tests its filtered run
-    // just counted. They sit beneath the file's build directory in gcov/out, e.g.
-    // gcov/out/unit/test_foo/ for test/unit/test_foo.c, so same-named test files elsewhere keep
-    // theirs. Windows folds case, and keeps whatever case Ceedling created a directory with.
+    // just counted. They sit beneath the file's build directory in gcov/out, as its release lays it
+    // out, e.g. gcov/out/test/unit/test_foo/ for test/unit/test_foo.c from 1.2.2. Same-named test
+    // files elsewhere keep theirs. An unknown release's counters may sit in any layout's place.
+    // Windows folds case, and keeps whatever case Ceedling created a directory with.
     private async clearTestCounters(project: LoadedProject, file: CeedlingFileNode): Promise<void> {
         if (!this.resetsCounters()) {
             return;
         }
         const key = (segment: string) => pathKey(segment, this.platform);
-        const own = this.testBuildName(project, file).split('/').map(key);
+        const places = this.ownOrUnclaimed(project, file, (f, layout) => this.testBuildName(project, f, layout)).map((place) => place.split('/').map(key));
         const counters = await this.counters(project);
-        await this.deleteStale(counters
-            .filter((counter) => own.every((segment, i) => counter.segments[i] !== undefined && key(counter.segments[i]) === segment))
-            .map((counter) => counter.file));
+        const within = (segments: readonly string[], place: readonly string[]) => place.every((segment, i) => segments[i] !== undefined && key(segments[i]) === segment);
+        await this.deleteStale(counters.filter((counter) => places.some((place) => within(counter.segments, place))).map((counter) => counter.file));
     }
 
     private resetsCounters(): boolean {

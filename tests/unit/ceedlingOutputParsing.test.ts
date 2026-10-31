@@ -49,6 +49,13 @@ suite('parseFileListBullets', () => {
         assert.ok(!files.some((f) => f.includes('EXAMPLE PROJECT')));
         assert.ok(!files.some((f) => f.startsWith('File count')));
     });
+
+    // From 1.2.2, a project running another installation hands off to it, which both say first.
+    for (const fixture of ['files-test-stdout.txt', 'files-test-handoff-stdout.txt']) {
+        test(`parses Ceedling 1.2.2's ${fixture}`, () => {
+            assert.deepStrictEqual(parseFileListBullets(readFixture('ceedling-1.2.2', fixture)), ['test/test_whitespace.c']);
+        });
+    }
 });
 
 suite('parseCeedlingVersions', () => {
@@ -175,6 +182,14 @@ suite('extractGdbLogReference', () => {
 
         const { text, logPath } = extractGdbLogReference(message);
         assert.strictEqual(logPath, 'build/logs/test/test_calculator/test_should_crash.gdb.log');
+        assert.strictEqual(text, 'Test case crashed >> [SIGSEGV] Segmentation fault\n`*p = 42;`');
+    });
+
+    // From 1.2.2 each test has its own log directory, under its path from the project root.
+    test('splits a real Ceedling 1.2.2 crash message, its log under the test\'s own path', async () => {
+        const [crash] = (await parseCppUnitReport(readFixture('ceedling-1.2.2', 'cppunit-report-crash.xml'))).failed;
+        const { text, logPath } = extractGdbLogReference(crash.message);
+        assert.strictEqual(logPath, 'build/logs/test/test/test_crash/test_should_crash.gdb.log');
         assert.strictEqual(text, 'Test case crashed >> [SIGSEGV] Segmentation fault\n`*p = 42;`');
     });
 

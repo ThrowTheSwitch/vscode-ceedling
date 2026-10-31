@@ -1,0 +1,19 @@
+Loaded project configuration from working directory.
+ > Using: /project/project.yml
+ > Working directory: /project
+NOTICE: Ceedling launcher 1.2.2.dev at /var/lib/gems/3.3.0/gems/ceedling-1.2.2.dev/ is handing off to Ceedling 1.2.2.dev at /project/vendor/ceedling/, which runs in its own process.
+Loaded project configuration from working directory.
+ > Using: /project/project.yml
+ > Working directory: /project
+NOTICE: Ceedling 1.2.2.dev at /project/vendor/ceedling/ is now running, launched from Ceedling 1.2.2.dev at /var/lib/gems/3.3.0/gems/ceedling-1.2.2.dev/.
+
+-------
+CAPTURE
+-------
+
+Test files:
+ * test/test_whitespace.c
+File count: 1
+
+This list sourced only from your project file, not from any build directive macros in test files.
+
