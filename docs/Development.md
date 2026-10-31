@@ -214,7 +214,7 @@ Each new Ceedling release needs these checks before the extension supports it, s
 4. Record the release’s new features. Add each to `APPLICATION_FEATURES` or `LAUNCHER_FEATURES` in `ceedlingProjectConfig.ts`, and to the table in [Architecture.md](Architecture.md#ceedling-versions), which `tests/unit/docs.test.ts` checks against them. Update the supported range in the README, and capture `tests/fixtures/ceedling-<version>/` transcripts.
 5. Once its image is published, add it to `sidecar/validate.Dockerfile`. That takes a `FROM` stage for its image and a `COPY` from that image’s Ruby gem directory. Add its version to `MATRIX`’s default in `matrix.sh` and to the versions this section names. Consider making it the `CEEDLING_BASE` default in `run.sh`.
 
-From 1.2.2, the engine also trusts a launcher’s report of another installation’s release, which earlier launchers get wrong ([Ceedling#1365](https://github.com/ThrowTheSwitch/Ceedling/issues/1365)). Check this once on 1.2.2. Install 1.2.2 as the launcher and follow the reproduction in that issue. `ceedling version` with `WHICH_CEEDLING` must report the older application’s own version.
+Two launcher features rest on Ceedling 1.2.2’s `ceedling version`. A 1.2.2 launcher reports another installation’s own release, which earlier launchers get wrong ([Ceedling#1365](https://github.com/ThrowTheSwitch/Ceedling/issues/1365)). It also reads the project’s configuration, through `--project` and `--mixin`. `mixed` exercises both on every launcher, selecting each installation every way Ceedling allows. A wrong report shows as wrong results or a wrong debug executable.
 
 ### Changing them
 
