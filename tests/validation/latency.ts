@@ -12,7 +12,7 @@
 import * as child_process from 'child_process';
 import * as fs from 'fs';
 import { parseCeedlingVersions } from '../../src/ceedlingOutputParsing';
-import { applicationRelease } from '../../src/ceedlingProjectConfig';
+import { applicationRelease } from '../../src/ceedlingVersions';
 import { capabilities, ceedlingVersion, main, makeEngine, only, parseArgs, recordingReporter, rediscoverDuringBuild, stage, tally, token, WS } from './harness';
 
 main('latency', async (checks) => {

@@ -97,3 +97,13 @@ const LAYOUT_UPGRADE_WORDS = [/dependency cache/i, /\bearlier\b/i, /build layout
 export function detectLayoutUpgrade(output: string): boolean {
     return output.split(/\r\n?|\n/).some((line) => LAYOUT_UPGRADE_WORDS.every((word) => word.test(line)));
 }
+
+// Ceedling's own exception, from whichever stream carried it.
+export function exceptionOf(output: { stdout: string, stderr: string }): string | undefined {
+    return extractCeedlingException(output.stderr) ?? extractCeedlingException(output.stdout);
+}
+
+// A message with Ceedling's exception, if it gave one, on a line of its own after the message's advice.
+export function withException(message: string, exception: string | undefined): string {
+    return exception === undefined ? message : `${message}\n${exception}`;
+}

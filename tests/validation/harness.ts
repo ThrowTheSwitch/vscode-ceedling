@@ -7,7 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { CeedlingEngine, type LayoutUpgrade } from '../../src/ceedlingEngine';
 import { parseCeedlingVersions } from '../../src/ceedlingOutputParsing';
-import { applicationRelease, capabilitiesOf, type CeedlingCapabilities, type CeedlingFeature } from '../../src/ceedlingProjectConfig';
+import { applicationRelease, capabilitiesOf, type CeedlingCapabilities, type CeedlingFeature } from '../../src/ceedlingVersions';
 import { type Cancellation, ceedlingEnvironment } from '../../src/ceedlingProcess';
 import type { Log } from '../../src/log';
 import type { CeedlingFileNode, CeedlingProjectNode, CoverageOutcome, RunReporter } from '../../src/testModel';

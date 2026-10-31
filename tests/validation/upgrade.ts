@@ -17,7 +17,7 @@
 import * as fs from 'fs';
 import semver from 'semver';
 import { coverageMode } from '../../src/ceedlingEngine';
-import { capabilitiesOf, ceedlingRelease } from '../../src/ceedlingProjectConfig';
+import { capabilitiesOf, ceedlingRelease } from '../../src/ceedlingVersions';
 import type { CoverageOutcome } from '../../src/testModel';
 import {
     builtExecutable, ceedlingAlone, ceedlingVersion, describeOutcome, executables, fileOf, INSTALLATIONS, leftovers, main, makeEngine, only, parseArgs,

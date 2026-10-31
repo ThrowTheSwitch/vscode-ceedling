@@ -3,8 +3,7 @@
 // filesystem dependency. Callers supply the settings, the platform, and a directory check.
 
 import path from 'path';
-import semver from 'semver';
-import type { ReportedCeedling } from './ceedlingOutputParsing';
+import { pathsFor } from './platformPaths';
 
 // Discovery cannot proceed: an unusable Ceedling, configuration, or project path. A workspace
 // folder with no Ceedling project in it is not an error.
@@ -86,107 +85,6 @@ export const DEFAULT_CPPUNIT_REPORT_FILENAME = 'cppunit_tests_report.xml';
 export const DEFAULT_PROJECT_FILE = 'project.yml';
 export const ALTERNATE_DEFAULT_PROJECT_FILE = 'ceedling.yml';
 
-// The oldest Ceedling this extension runs.
-export const MINIMUM_CEEDLING_VERSION = '1.0.0';
-
-// The first Ceedling release with each feature this extension uses only where it exists. Every
-// feature gate reads one of two tables. These are the application's, the installation that runs
-// the project, read through capabilitiesOf(). LAUNCHER_FEATURES are the `ceedling` command's.
-const APPLICATION_FEATURES = {
-    // `dumpconfig --stdout` writes the resolved configuration to stdout instead of a file.
-    dumpconfigStdout: '1.2.0',
-    // Delta builds reuse cached results unless `--force-test-rerun` is given. Before 1.2.1 their
-    // cache ignores --test-case. In every version it ignores deleted coverage counters.
-    forceTestRerun: '1.2.0',
-    // A `test:` task accepts a project-relative path, which tells same-named test files apart.
-    pathQualifiedTestTasks: '1.2.0',
-    // A `gcov:` task does too. Ceedling 1.2.0's gcov plugin still took a bare name.
-    pathQualifiedCoverageTasks: '1.2.1',
-    // ceedling.yml is a default project file, like project.yml.
-    ceedlingYml: '1.2.0',
-    // Same-named test files build apart, each in directories of its own. See testBuildLayout().
-    nestedTestBuilds: '1.2.0',
-    // A test's build files sit under its path from the project root instead, e.g.
-    // `test/out/test/unit/test_foo/`. See testBuildName().
-    projectPathTestNames: '1.2.2',
-    // `dumpconfig` and `files:test` write no files. Earlier versions rewrite the build root's
-    // vendored Unity and CMock sources in place (Ceedling#1361). Both still create the build root's
-    // missing directories, as every command does.
-    readOnlyDiscovery: '1.2.1',
-} as const;
-
-// The features of the `ceedling` command itself, which may hand a project off to another
-// installation, read through launcherCapabilitiesOf().
-const LAUNCHER_FEATURES = {
-    // Handing off to another installation, `ceedling version` reports that installation's own
-    // version. Earlier launchers report their own release, with the other one's commit (Ceedling#1365).
-    reportsApplicationVersion: '1.2.2',
-    // `ceedling version` reads the project file and takes --project and --mixin, so it reports the
-    // installation `:project` ↳ `:which_ceedling` selects in the project file or a mixin. Earlier
-    // launchers reject both options.
-    versionReadsProject: '1.2.2',
-} as const;
-
-export type CeedlingFeature = keyof typeof APPLICATION_FEATURES;
-export type LauncherFeature = keyof typeof LAUNCHER_FEATURES;
-
-export type CeedlingCapabilities = Readonly<Record<CeedlingFeature, boolean>>;
-export type LauncherCapabilities = Readonly<Record<LauncherFeature, boolean>>;
-
-// The release a reported version counts as, e.g. `1.2.0` for a build's `1.2.0-13a540f`, which
-// semver would rank below 1.2.0. undefined when the text names no version.
-export function ceedlingRelease(reported: string): string | undefined {
-    return semver.coerce(reported)?.version;
-}
-
-export function isSupportedRelease(release: string): boolean {
-    return semver.gte(release, MINIMUM_CEEDLING_VERSION);
-}
-
-export function firstRelease(feature: CeedlingFeature | LauncherFeature): string {
-    return { ...APPLICATION_FEATURES, ...LAUNCHER_FEATURES }[feature];
-}
-
-// The release of the Ceedling that runs a project, and whether `ceedling version` shows it exactly.
-// A launcher before 1.2.2 reports its own release as the application's, with the application's
-// commit. Only a commit matching the launcher's shows the application's release. Otherwise the
-// launcher's release stands in for it. undefined when either version names no release.
-export function applicationRelease(reported: ReportedCeedling): { release: string, exactRelease: boolean } | undefined {
-    const release = ceedlingRelease(reported.application);
-    const launcher = reported.launcher ?? reported.application;
-    if (release === undefined || ceedlingRelease(launcher) === undefined) {
-        return undefined;
-    }
-    // A `-<commit>` suffix comes only from an installation with a GIT_COMMIT_SHA file.
-    const sameBuild = launcher === reported.application && /-[0-9a-f]+$/i.test(launcher);
-    return { release, exactRelease: reported.launcher === undefined || sameBuild || launcherCapabilitiesOf(launcher).reportsApplicationVersion };
-}
-
-// Each feature of a table, and whether a reported version has it as of its release.
-function featuresOf<Feature extends string>(table: Readonly<Record<Feature, string>>, version: string): Readonly<Record<Feature, boolean>> {
-    const release = ceedlingRelease(version);
-    return Object.fromEntries(Object.entries<string>(table).map(([feature, first]) => [feature, release !== undefined && semver.gte(release, first)])) as Record<Feature, boolean>;
-}
-
-// The features of the application a project runs, as of its reported release.
-export function capabilitiesOf(version: string): CeedlingCapabilities {
-    return featuresOf(APPLICATION_FEATURES, version);
-}
-
-// The features of the launcher, the `ceedling` command, as of its reported release.
-export function launcherCapabilitiesOf(version: string): LauncherCapabilities {
-    return featuresOf(LAUNCHER_FEATURES, version);
-}
-
-// Where a release builds each test: under its base name, under its directory within its test
-// path from 1.2.0, or under its path from the project root from 1.2.2. Newest first.
-export const TEST_BUILD_LAYOUTS = ['projectPath', 'testRoot', 'flat'] as const;
-export type TestBuildLayout = typeof TEST_BUILD_LAYOUTS[number];
-
-export function testBuildLayout(capabilities: CeedlingCapabilities): TestBuildLayout {
-    return capabilities.projectPathTestNames ? 'projectPath' : capabilities.nestedTestBuilds ? 'testRoot' : 'flat';
-}
-
 // Projects in settings order. With none configured, one default project sits at the workspace
 // root. A later entry with a duplicate key replaces an earlier one. `exists` decides which
 // default project file a directory uses. Every project's filesystem checks run concurrently, and
@@ -201,7 +99,7 @@ export async function projectsFromSettings(
     checkSettings(settings);
     // Path rules follow the given platform rather than the host's, so Windows paths resolve as
     // Windows paths wherever this runs.
-    const paths = platform === 'win32' ? path.win32 : path.posix;
+    const paths = pathsFor(platform);
     const root = platform === 'win32' ? withUppercaseDrive(workspacePath) : workspacePath;
     if (settings.projects.length === 0) {
         const absPath = paths.resolve(root);
@@ -247,12 +145,6 @@ function withUppercaseDrive(windowsPath: string): string {
     return windowsPath.replace(/^[a-z](?=:)/, (drive) => drive.toUpperCase());
 }
 
-// One key per file or directory, for comparing paths and for grouping and locking work by
-// project directory. Windows paths are case-insensitive, so every spelling of one shares a key.
-export function pathKey(absPath: string, platform: NodeJS.Platform): string {
-    return platform === 'win32' ? absPath.toLowerCase() : absPath;
-}
-
 // A YAML path names a project file. Any other path names a directory holding a default
 // project file. The key is the configured name, else an alternate file's base name, else the path.
 async function projectFromSetting(
@@ -296,19 +188,6 @@ async function projectFiles(
         ymlFileName: configuredFile ?? projectFileName,
         ambiguousProjectFile: configuredFile === undefined && hasDefault && hasAlternate,
     };
-}
-
-// Whether `ceedling version`, run in the project directory, reports the Ceedling that `:project` ↳
-// `:which_ceedling` selects without reading it, as every version before 1.2.2 does. It picks the
-// installed gem, or a `vendor/ceedling` it finds there, as `ceedling new --local` vendors and names.
-// WHICH_CEEDLING outranks both alike. Ceedling reads `gem` in any case, around any spaces.
-export function versionSeesSelection(whichCeedling: string, projectDir: string, platform: NodeJS.Platform): boolean {
-    const which = whichCeedling.trim();
-    if (which.toLowerCase() === 'gem') {
-        return true;
-    }
-    const paths = platform === 'win32' ? path.win32 : path.posix;
-    return pathKey(paths.resolve(projectDir, which), platform) === pathKey(paths.resolve(projectDir, 'vendor', 'ceedling'), platform);
 }
 
 export function projectState(resolved: unknown, platform: NodeJS.Platform): ProjectState {
@@ -374,66 +253,4 @@ function stringList(value: unknown): string[] {
 function stringSetting(config: unknown, fallback: string, ...keys: string[]): string {
     const value = setting(config, ...keys);
     return typeof value === 'string' ? value : fallback;
-}
-
-// The name Ceedling gives a test's build directories, e.g. under test/out and gcov/out.
-// - flat, before 1.2.0: the test file's base name.
-// - testRoot, 1.2.0 and 1.2.1: the file's directory within the longest test path holding it comes first,
-//   as Ceedling's PathMirror.relative_subdir places it. `unit/test_foo` for `test/unit/test_foo.c`
-//   under `+:test/**`. Ceedling compares paths as written, with `/`.
-// - projectPath, from 1.2.2: the file's path from the project root, as projectPathBuildName() spells it.
-export function testBuildName(testId: string, layout: TestBuildLayout, project: { testPaths: readonly string[], projectDir: string, platform: NodeJS.Platform }): string {
-    if (layout === 'projectPath') {
-        return projectPathBuildName(testId, project.projectDir, project.platform);
-    }
-    const id = testId.replace(/\\/g, '/');
-    const name = id.replace(/^.*\//, '').replace(/\.[^.]*$/, '');
-    const directory = id.includes('/') ? id.slice(0, id.lastIndexOf('/')) : '.';
-    const roots = project.testPaths.map((testPath) => testPathRoot(testPath.replace(/\\/g, '/'))).filter((root) => root !== '');
-    const [root] = roots.filter((r) => directory === r || directory.startsWith(`${r}/`)).sort((a, b) => b.length - a.length);
-    return layout === 'testRoot' && root !== undefined && directory !== root ? `${directory.slice(root.length + 1)}/${name}` : name;
-}
-
-// The file name of a test's executable, in its build directory: the test file's base name with
-// `extension` in place of its own, as Ceedling's form_test_executable_filepath gives it. Ruby's
-// File.extname leaves a dotfile's name whole. A marker-named file keeps its name, which only its
-// build directory escapes.
-export function testExecutableName(testId: string, extension: string): string {
-    return `${testId.replace(/\\/g, '/').replace(/^.*\//, '').replace(/(?<=.)\.[^.]*$/, '')}${extension}`;
-}
-
-// A segment Ceedling would read as one of its markers, in any case, perhaps already escaped.
-const MARKER_NAMED = /^_+(?:up|abs|unc|ceedling)_$/i;
-
-// A test's path from the project root, without its extension, as Ceedling 1.2.2's
-// BuildSubpath.encode spells it. The path is normalized, and each `..` becomes `_up_`. A path on
-// another Windows drive goes under `_abs_/<DRIVE>`, and one on a share under `_unc_`. A segment
-// named like a marker gains a leading `_`, so no real folder reads as one.
-function projectPathBuildName(testId: string, projectDir: string, platform: NodeJS.Platform): string {
-    const paths = platform === 'win32' ? path.win32 : path.posix;
-    // Ruby's File.extname leaves a dotfile's name whole.
-    const withoutExtension = testId.replace(/\\/g, '/').replace(/(?<=[^/])\.[^./]*$/, '');
-    const relative = paths.relative(projectDir, paths.resolve(projectDir, withoutExtension));
-    const segments = (text: string) => text.split(/[\\/]/).filter((segment) => segment !== '' && segment !== '.');
-    const escape = (segment: string) => MARKER_NAMED.test(segment) ? `_${segment}` : segment;
-    if (relative.startsWith('\\\\')) {
-        return ['_unc_', ...segments(relative).map(escape)].join('/');
-    }
-    if (paths.isAbsolute(relative)) {
-        const [drive, ...rest] = segments(relative);
-        return ['_abs_', (drive ?? '').replace(/:$/, '').toUpperCase(), ...rest.map(escape)].join('/');
-    }
-    return segments(relative).map((segment) => segment === '..' ? '_up_' : escape(segment)).join('/');
-}
-
-// A test path without its `+:` or `-:` decorator, cut back to the directory before its first glob,
-// as Ceedling's FilePathUtils.no_decorators does. Empty when a glob leads it.
-function testPathRoot(testPath: string): string {
-    const bare = testPath.trim().replace(/^[+-]:/, '').trim();
-    const glob = bare.search(/[*?{}]/);
-    if (glob < 0) {
-        return bare.replace(/\/$/, '');
-    }
-    const separator = bare.lastIndexOf('/', glob - 1);
-    return separator < 0 ? '' : separator === 0 ? '/' : bare.slice(0, separator);
 }
