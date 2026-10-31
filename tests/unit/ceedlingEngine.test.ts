@@ -689,6 +689,20 @@ suite('CeedlingEngine with Ceedling 1.2.0', () => {
         assert.strictEqual(await debugBuild(world, [OWN_122]), OWN_122);
     });
 
+    // Ceedling escapes a marker-named segment in the build directory alone. The executable takes
+    // the test file's own name, as its form_test_executable_filepath gives it.
+    test("from Ceedling 1.2.2, a marker-named test file's executable keeps the file's own name", async () => {
+        const world = new FakeCeedling();
+        world.version = '1.2.2';
+        world.testFiles = ['test/_up_.c'];
+        world.write(`${WS}/test/_up_.c`, 'void test_add(void) {}\n');
+        const { engine, file } = await discovered(world);
+        world.handlers.push((command) => /^ceedling test:/.test(command)
+            ? { writes: { ...world.reportWrite(cppunit({ passed: ['test/_up_.c::test_add'] })), [`${WS}/build/test/out/test/__up_/_up_.out`]: 'ELF' } }
+            : undefined);
+        assert.strictEqual(await engine.compileForDebug('default', file, recordingReporter(), token()), 'test/__up_/_up_.out');
+    });
+
     // A release known exactly says where its build goes, and another layout's path may be another test's.
     test('a release known exactly finds its executable in its own layout alone', async () => {
         const world = new FakeCeedling();

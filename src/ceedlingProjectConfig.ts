@@ -358,6 +358,14 @@ export function testBuildName(testId: string, layout: TestBuildLayout, project: 
     return layout === 'testRoot' && root !== undefined && directory !== root ? `${directory.slice(root.length + 1)}/${name}` : name;
 }
 
+// The file name of a test's executable, in its build directory: the test file's base name with
+// `extension` in place of its own, as Ceedling's form_test_executable_filepath gives it. Ruby's
+// File.extname leaves a dotfile's name whole. A marker-named file keeps its name, which only its
+// build directory escapes.
+export function testExecutableName(testId: string, extension: string): string {
+    return `${testId.replace(/\\/g, '/').replace(/^.*\//, '').replace(/(?<=.)\.[^.]*$/, '')}${extension}`;
+}
+
 // A segment Ceedling would read as one of its markers, in any case, perhaps already escaped.
 const MARKER_NAMED = /^_+(?:up|abs|unc|ceedling)_$/i;
 

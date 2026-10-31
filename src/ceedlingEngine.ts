@@ -55,6 +55,7 @@ import {
     type TestBuildLayout,
     testBuildLayout,
     testBuildName,
+    testExecutableName,
     versionSeesSelection,
 } from './ceedlingProjectConfig';
 import { parseCoberturaReport, reportedFiles } from './coberturaReport';
@@ -927,10 +928,8 @@ export class CeedlingEngine {
     // layout first. A release known exactly says where. Otherwise it may be any release, so each
     // layout's place counts, unless it is another test file's own. See releaseKnown().
     private executableCandidates(project: LoadedProject, file: CeedlingFileNode): Candidates {
-        const executable = (f: CeedlingFileNode, layout?: TestBuildLayout) => {
-            const buildName = this.testBuildName(project, f, layout);
-            return `${buildName}/${buildName.replace(/^.*\//, '')}${project.state.executableExtension}`;
-        };
+        const executable = (f: CeedlingFileNode, layout?: TestBuildLayout) =>
+            `${this.testBuildName(project, f, layout)}/${testExecutableName(f.id, project.state.executableExtension)}`;
         return this.ownOrUnclaimed(project, file, executable);
     }
 

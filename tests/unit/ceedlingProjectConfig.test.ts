@@ -4,7 +4,7 @@ import yaml from 'js-yaml';
 import * as path from 'path';
 import {
     applicationRelease, capabilitiesOf, type CeedlingFeature, ceedlingRelease, CeedlingLoadError, firstRelease, isSupportedRelease, launcherCapabilitiesOf,
-    type LauncherFeature, MINIMUM_CEEDLING_VERSION, coverageProblem, coverageState, pathKey, projectState, projectsFromSettings, testBuildLayout, testBuildName,
+    type LauncherFeature, MINIMUM_CEEDLING_VERSION, coverageProblem, coverageState, pathKey, projectState, projectsFromSettings, testBuildLayout, testBuildName, testExecutableName,
     versionSeesSelection,
 } from '../../src/ceedlingProjectConfig';
 
@@ -442,6 +442,20 @@ suite('testBuildName', () => {
         assert.strictEqual(windows('C:\\other\\test_x.c'), '_up_/other/test_x');
         assert.strictEqual(testBuildName('C:\\WS\\test\\test_x.c', 'projectPath', { testPaths: [], projectDir: 'c:\\ws', platform: 'win32' }), 'test/test_x');
         assert.strictEqual(windows('\\\\_up_\\share\\test_x.c'), '_unc_/__up_/share/test_x');
+    });
+});
+
+suite('testExecutableName', () => {
+    test("is the test file's base name with the executable's extension, as Ceedling forms it", () => {
+        assert.strictEqual(testExecutableName('test/unit/test_calc.c', '.out'), 'test_calc.out');
+        assert.strictEqual(testExecutableName('test\\unit\\test_calc.c', '.exe'), 'test_calc.exe');
+        assert.strictEqual(testExecutableName('test/test.calc.c', '.out'), 'test.calc.out');
+    });
+
+    // Only the build directory escapes a marker. Ruby's File.extname leaves a dotfile whole.
+    test('keeps a marker-named file\'s name, and a dotfile\'s', () => {
+        assert.strictEqual(testExecutableName('test/_up_.c', '.out'), '_up_.out');
+        assert.strictEqual(testExecutableName('test/.c', '.out'), '.c.out');
     });
 });
 
