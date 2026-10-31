@@ -16,7 +16,7 @@
 // usage: node upgrade.js
 import * as fs from 'fs';
 import semver from 'semver';
-import { coverageMode } from '../../src/ceedlingEngine';
+import { coverageMode } from '../../src/coverageRun';
 import { capabilitiesOf, ceedlingRelease } from '../../src/ceedlingVersions';
 import type { CoverageOutcome } from '../../src/testModel';
 import {

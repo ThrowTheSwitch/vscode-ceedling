@@ -10,7 +10,7 @@
 // Ceedling before 1.2.0 can't build same-named test files at all, so the suite skips.
 //
 // usage: node gated.js
-import { coverageMode } from '../../src/ceedlingEngine';
+import { coverageMode } from '../../src/coverageRun';
 import type { CoverageOutcome } from '../../src/testModel';
 import { builtExecutable, capabilities, ceedlingVersion, describeOutcome, fileOf, hits, main, makeEngine, only, parseArgs, recordingReporter, removeExecutables, requires, stage, token, WS } from './harness';
 

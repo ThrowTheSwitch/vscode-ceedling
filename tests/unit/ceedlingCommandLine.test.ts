@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { buildProjectArgs } from '../../src/ceedlingMixinArgs';
+import { buildProjectArgs } from '../../src/ceedlingCommandLine';
 
 // A later --mixin flag outranks an earlier one in Ceedling, so flag order is the whole design.
 // These tests pin buildProjectArgs's priority order: alternate project file, user mixins, then

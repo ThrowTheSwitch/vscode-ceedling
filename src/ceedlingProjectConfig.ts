@@ -3,7 +3,10 @@
 // filesystem dependency. Callers supply the settings, the platform, and a directory check.
 
 import path from 'path';
+import { GCOV_ARTIFACTS } from './buildLayout';
+import type { ProjectCeedling } from './ceedlingVersions';
 import { pathsFor } from './platformPaths';
+import type { CeedlingFileNode } from './testModel';
 
 // Discovery cannot proceed: an unusable Ceedling, configuration, or project path. A workspace
 // folder with no Ceedling project in it is not an error.
@@ -67,6 +70,14 @@ export type ProjectState = {
     // Before 1.2.2 `ceedling version` never reads it. See versionSeesSelection().
     whichCeedling: string,
 };
+
+// A project discovery loaded: the Ceedling it runs, its resolved configuration, and its test files.
+// `configuration` fingerprints the files and settings `state` was resolved from.
+export type LoadedProject = CeedlingProject & ProjectCeedling & { state: ProjectState, configuration: string, files: CeedlingFileNode[] };
+
+export function isLoaded(project: CeedlingProject): project is LoadedProject {
+    return 'state' in project;
+}
 
 // What a coverage run leaves to read. Ceedling's gcov plugin writes a Cobertura report through
 // gcovr, ReportGenerator, or both, into fixed directories under the build root.
@@ -138,6 +149,11 @@ function checkSettings(settings: { projects: unknown, mixins: unknown }): void {
 // A path Ceedling reads as a YAML file, as a project file or a mixin.
 export function isYamlFile(filePath: string): boolean {
     return /\.ya?ml$/i.test(filePath);
+}
+
+// A mixin naming a file, rather than one Ceedling finds by name through its load paths.
+export function isMixinFile(mixin: string): boolean {
+    return /[\\/]/.test(mixin) || isYamlFile(mixin);
 }
 
 // Gcov's XML report generation fails on Windows unless the drive letter is uppercase.
@@ -219,8 +235,8 @@ export function coverageState(resolved: unknown): CoverageState | undefined {
     const utilities = listed.length > 0 ? listed : ['gcovr'];
     const cobertura = names(setting(resolved, ':gcov', ':reports')).includes('cobertura');
     const coberturaReports = !cobertura ? [] : [
-        ...utilities.includes('gcovr') ? [`artifacts/gcov/gcovr/${stringSetting(resolved, 'GcovCoverageCobertura.xml', ':gcov', ':gcovr', ':cobertura_artifact_filename')}`] : [],
-        ...utilities.includes('reportgenerator') ? ['artifacts/gcov/ReportGenerator/Cobertura.xml', 'artifacts/gcov/ReportGenerator/Cobertura/Cobertura.xml'] : [],
+        ...utilities.includes('gcovr') ? [`${GCOV_ARTIFACTS}/gcovr/${stringSetting(resolved, 'GcovCoverageCobertura.xml', ':gcov', ':gcovr', ':cobertura_artifact_filename')}`] : [],
+        ...utilities.includes('reportgenerator') ? [`${GCOV_ARTIFACTS}/ReportGenerator/Cobertura.xml`, `${GCOV_ARTIFACTS}/ReportGenerator/Cobertura/Cobertura.xml`] : [],
     ];
     return { reportTask: setting(resolved, ':gcov', ':report_task') === true, coberturaReports };
 }
