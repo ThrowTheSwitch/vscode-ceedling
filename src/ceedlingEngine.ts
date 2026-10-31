@@ -48,7 +48,6 @@ import {
     isYamlFile,
     MINIMUM_CEEDLING_VERSION,
     pathKey,
-    type ProjectSetting,
     type ProjectState,
     projectState,
     projectsFromSettings,
@@ -61,6 +60,7 @@ import {
 } from './ceedlingProjectConfig';
 import { parseCoberturaReport, reportedFiles } from './coberturaReport';
 import type { Logger } from './logger';
+import { setting, SETTING_DEFAULTS, type SettingKey, type Settings } from './settings';
 import type { FileDiagnostic, ProblemMatcher } from './problemMatcher';
 import { allIds, type CeedlingFileNode, type CeedlingProjectNode, type CeedlingTestFunction, type CoverageOutcome, leafIds, type RunReporter } from './testModel';
 import { type CppUnitReport, parseCppUnitReport, reportedNames, testResults } from './testResults';
@@ -278,6 +278,11 @@ export class CeedlingEngine {
 
     getConfiguration(): vscode.WorkspaceConfiguration {
         return this.configProvider(this.workspaceFolder.uri);
+    }
+
+    // Read when used, so a change applies from the next read.
+    setting<K extends SettingKey>(key: K): Settings[K] {
+        return setting(this.getConfiguration(), key);
     }
 
     getDebugLaunchConfig(projectKey: string): string {
@@ -509,16 +514,14 @@ export class CeedlingEngine {
     }
 
     private projectSettings(): Promise<CeedlingProject[]> {
-        const config = this.getConfiguration();
         return projectsFromSettings(
-            { projects: config.get<ProjectSetting[]>('projects', []), mixins: config.get<string[]>('mixins', []) },
+            { projects: this.setting('projects'), mixins: this.setting('mixins') },
             this.workspaceFolder.uri.fsPath, this.platform, (p) => this.fs.isDirectory(p), (p) => this.fs.exists(p),
         );
     }
 
     private prettyLabels(): { tests: boolean, files: boolean } {
-        const config = this.getConfiguration();
-        return { tests: config.get<boolean>('prettyTestLabel', true), files: config.get<boolean>('prettyTestFileLabel', true) };
+        return { tests: this.setting('prettyTestLabel'), files: this.setting('prettyTestFileLabel') };
     }
 
     private project(projectKey: string): LoadedProject {
@@ -878,12 +881,8 @@ export class CeedlingEngine {
     // that outlived a rediscovery dropping its project or file publishes nothing. A rediscovery never
     // takes a dropped project's locks, and from Ceedling 1.2.1 often none of its own.
     private updateDiagnostics(project: LoadedProject, scope: RunScope, result: CeedlingResult): FileDiagnostic[] {
-        const config = this.getConfiguration();
         const diagnostics = this.problemMatcher.match(
-            result.stdout, result.stderr, project.absPath,
-            config.get<string>('problemMatching.mode', 'disabled'),
-            // Untyped user JSON. ProblemMatcher validates each pattern.
-            config.get<unknown[]>('problemMatching.patterns', []),
+            result.stdout, result.stderr, project.absPath, this.setting('problemMatching.mode'), this.setting('problemMatching.patterns'),
         );
         const current = this.projects.get(project.key);
         if (current === undefined || (scope.kind === 'file' && !current.files.some((f) => f.id === scope.file.id))) {
@@ -1041,7 +1040,7 @@ export class CeedlingEngine {
     }
 
     private resetsCounters(): boolean {
-        return this.getConfiguration().get<boolean>('coverageResetsCounters', true);
+        return this.setting('coverageResetsCounters');
     }
 
     private countersDirectory(project: LoadedProject): string {
@@ -1157,9 +1156,7 @@ export class CeedlingEngine {
                     `Ceedling ${firstRelease('pathQualifiedCoverageTasks')} and later take its path.`);
             }
         }
-        const args = this.getConfiguration()
-            .get<string[]>(coverage ? 'coverageCommandArgs' : 'testCommandArgs', [coverage ? 'gcov:${TEST_ID}' : 'test:${TEST_ID}'])
-            .map((arg) => arg.replaceAll('${TEST_ID}', testFile));
+        const args = this.setting(coverage ? 'coverageCommandArgs' : 'testCommandArgs').map((arg) => arg.replaceAll('${TEST_ID}', testFile));
         if (coverage?.reportTask && !args.includes('report:gcov')) {
             args.push('report:gcov');
         }
@@ -1172,7 +1169,6 @@ export class CeedlingEngine {
         args: string[],
         options: { project?: CeedlingProject, cwd?: string, verbose?: boolean, cancellation?: Cancellation },
     ): Promise<CeedlingResult> {
-        const config = this.getConfiguration();
         const fullArgs = [...args];
         if (options.project) {
             fullArgs.push(...buildProjectArgs(options.project.projectFileName, options.project.ymlFileName, options.project.mixins, this.bundledMixinPath));
@@ -1182,8 +1178,8 @@ export class CeedlingEngine {
             fullArgs.push(...DEBUG_VERBOSITY);
         }
         const cwd = options.cwd ?? options.project?.absPath ?? this.workspaceFolder.uri.fsPath;
-        const command = config.get<string>('ceedlingCommand', 'ceedling').trim() || 'ceedling';
-        const shellSetting = config.get<string | null>('shellPath', null);
+        const command = this.setting('ceedlingCommand').trim() || SETTING_DEFAULTS.ceedlingCommand;
+        const shellSetting = this.setting('shellPath');
         const shell = shellSetting && shellSetting !== 'null' ? shellSetting : undefined;
         this.logger.debug(`ceedling: ${buildCommandLine(command, fullArgs)} (cwd=${cwd}, shell=${shell ?? 'default'})`);
         const result = await this.runner.run({
@@ -1191,7 +1187,7 @@ export class CeedlingEngine {
             args: fullArgs,
             cwd,
             shell,
-            stripAnsi: config.get<boolean>('ansiEscapeSequencesRemoved', true),
+            stripAnsi: this.setting('ansiEscapeSequencesRemoved'),
             cancellation: options.cancellation,
         });
         if (verbose) {

@@ -201,7 +201,7 @@ export class CeedlingTestController {
     private onConfigurationChanged(event: vscode.ConfigurationChangeEvent): void {
         const { clearDiagnostics, rediscoverFor } = settingsChangeEffects(
             (setting) => event.affectsConfiguration(`ceedlingExplorer.${setting}`, this.workspaceFolder.uri),
-            () => this.engine.getConfiguration().get<string>('problemMatching.mode', 'disabled'),
+            () => this.engine.setting('problemMatching.mode'),
         );
         if (clearDiagnostics) {
             this.logger.debug(`onConfigurationChanged: problem matching disabled, clearing diagnostics`);

@@ -1,9 +1,6 @@
 // What a settings change, a watched file's event, or an edit makes the controller do. It has no
 // `vscode` dependency. The controller owns the watchers and listeners themselves.
-
-// Settings whose change changes what discovery finds, including how it reads Ceedling's output.
-// The rest apply on the next run.
-const DISCOVERY_SETTINGS = ['projects', 'mixins', 'shellPath', 'ceedlingCommand', 'prettyTestLabel', 'prettyTestFileLabel', 'ansiEscapeSequencesRemoved'];
+import { DISCOVERY_SETTINGS } from './settings';
 
 // `affects` says whether a ceedlingExplorer setting changed. Turning problem matching off clears
 // its diagnostics at once rather than at the next run. `problemMatchingMode` is read only then.
