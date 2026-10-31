@@ -2,7 +2,8 @@ import crypto from 'crypto';
 import path from 'path';
 import util from 'util';
 import vscode from 'vscode';
-import { CeedlingEngine, CeedlingLoadError, coverageMode, type LayoutUpgrade } from './ceedlingEngine';
+import { CeedlingEngine, coverageMode, type LayoutUpgrade } from './ceedlingEngine';
+import { loadFailureMessage } from './ceedlingProjectConfig';
 import { debugTarget, resolveLaunchConfig } from './debugLaunch';
 import { type CoverageReport, mergeCoverage } from './coberturaReport';
 import { type Logger } from './logger';
@@ -251,9 +252,9 @@ export class CeedlingTestController {
             if (this.disposed) {
                 return;
             }
-            const message = e instanceof CeedlingLoadError ? e.message : `Failed to load Ceedling project: ${util.format(e)}`;
-            this.logger.error(message);
-            vscode.window.showErrorMessage(message);
+            const { notice, log } = loadFailureMessage(e);
+            this.logger.error(log);
+            void vscode.window.showErrorMessage(notice);
             this.projects = [];
         }
         this.rebuildTree();

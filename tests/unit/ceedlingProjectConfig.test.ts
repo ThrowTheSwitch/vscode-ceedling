@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import yaml from 'js-yaml';
 import * as path from 'path';
 import {
-    applicationRelease, capabilitiesOf, type CeedlingFeature, ceedlingRelease, CeedlingLoadError, firstRelease, isSupportedRelease, launcherCapabilitiesOf,
+    applicationRelease, capabilitiesOf, type CeedlingFeature, ceedlingRelease, CeedlingLoadError, firstRelease, loadFailureMessage, isSupportedRelease, launcherCapabilitiesOf,
     type LauncherFeature, MINIMUM_CEEDLING_VERSION, coverageProblem, coverageState, pathKey, projectState, projectsFromSettings, testBuildLayout, testBuildName, testExecutableName,
     versionSeesSelection,
 } from '../../src/ceedlingProjectConfig';
@@ -76,6 +76,7 @@ suite('projectsFromSettings', () => {
             [[], ['gcc', 3], /ceedlingExplorer\.mixins must be a list of strings/],
         ];
         for (const [projects, mixins, expected] of malformed) {
+            // eslint-disable-next-line no-await-in-loop -- one case at a time, for its message
             await assert.rejects(projectsFromSettings({ projects, mixins } as unknown as Parameters<typeof projectsFromSettings>[0], '/ws', 'linux', anyDirectory, noFiles),
                 (e: unknown) => e instanceof CeedlingLoadError && expected.test(e.message), `${JSON.stringify(projects)} ${JSON.stringify(mixins)}`);
         }
@@ -550,5 +551,21 @@ suite('coverageProblem', () => {
 
     test('a project writing one has no problem', () => {
         assert.strictEqual(coverageProblem('fw', { reportTask: false, coberturaReports: ['artifacts/gcov/gcovr/GcovCoverageCobertura.xml'] }), undefined);
+    });
+});
+
+suite('loadFailureMessage', () => {
+    test("a load error is shown and logged as its own message", () => {
+        assert.deepStrictEqual(loadFailureMessage(new CeedlingLoadError('Ceedling 0.31.1 is not supported.')),
+            { notice: 'Ceedling 0.31.1 is not supported.', log: 'Ceedling 0.31.1 is not supported.' });
+    });
+
+    // A notification is no place for a stack trace, while the log keeps it for a bug report.
+    test('another failure shows its message, and logs its stack', () => {
+        const error = new TypeError('boom');
+        const { notice, log } = loadFailureMessage(error);
+        assert.strictEqual(notice, 'Failed to load Ceedling project: boom');
+        assert.ok(log.startsWith('Failed to load Ceedling project: TypeError: boom\n'), log);
+        assert.strictEqual(loadFailureMessage('odd').notice, 'Failed to load Ceedling project: odd');
     });
 });

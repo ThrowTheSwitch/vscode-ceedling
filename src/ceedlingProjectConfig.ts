@@ -8,7 +8,21 @@ import type { ReportedCeedling } from './ceedlingOutputParsing';
 
 // Discovery cannot proceed: an unusable Ceedling, configuration, or project path. A workspace
 // folder with no Ceedling project in it is not an error.
-export class CeedlingLoadError extends Error { }
+export class CeedlingLoadError extends Error {
+    override name = 'CeedlingLoadError';
+}
+
+// What a failed discovery notifies and logs. A load error's message says it all. Anything else is
+// unexpected, so its notice gives the message and the log keeps the stack for a bug report.
+export function loadFailureMessage(error: unknown): { notice: string, log: string } {
+    if (error instanceof CeedlingLoadError) {
+        return { notice: error.message, log: error.message };
+    }
+    const lead = 'Failed to load Ceedling project:';
+    return error instanceof Error
+        ? { notice: `${lead} ${error.message}`, log: `${lead} ${error.stack ?? error.message}` }
+        : { notice: `${lead} ${String(error)}`, log: `${lead} ${String(error)}` };
+}
 
 // One `ceedlingExplorer.projects` entry, as the user wrote it.
 export type ProjectSetting = {
