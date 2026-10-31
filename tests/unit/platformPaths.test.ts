@@ -16,6 +16,6 @@ suite('samePath', () => {
     test('resolves both paths against the base, then compares them as the platform does', () => {
         assert.ok(samePath('vendor/ceedling', './vendor//ceedling/', 'linux', '/ws'));
         assert.ok(samePath('C:\\WS\\Vendor', 'vendor', 'win32', 'c:\\ws'));
-        assert.ok(!samePath('/ws/Vendor', '/ws/vendor', 'linux'));
+        assert.ok(!samePath('/ws/Vendor', '/ws/vendor', 'linux', '/'));
     });
 });

@@ -16,7 +16,7 @@ export type Settings = {
     coverageCommandArgs: readonly string[],
     coverageResetsCounters: boolean,
     'problemMatching.mode': string,
-    // Untyped user JSON. ProblemMatcher validates each pattern.
+    // Untyped user JSON. matchProblems() validates each pattern.
     'problemMatching.patterns': readonly unknown[],
     ansiEscapeSequencesRemoved: boolean,
 };

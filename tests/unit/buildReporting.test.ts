@@ -48,7 +48,7 @@ suite('reportOf', () => {
 
     test('a build with a report returns it, reporting nothing yet', () => {
         const reporter = recorder();
-        const report = { failed: [], successful: [], ignored: [] } as unknown as NonNullable<Completed['report']>;
+        const report = { passed: [], failed: [], ignored: [] } as unknown as NonNullable<Completed['report']>;
         assert.strictEqual(reportOf(built(report), ['f'], [], reporter)?.report, report);
         assert.deepStrictEqual(reporter.calls, []);
     });

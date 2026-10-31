@@ -15,7 +15,7 @@ export function pathKey(absPath: string, platform: NodeJS.Platform): string {
 }
 
 // Whether two paths, each resolved against `base`, name one file as `platform` compares them.
-export function samePath(a: string, b: string, platform: NodeJS.Platform, base = ''): boolean {
+export function samePath(a: string, b: string, platform: NodeJS.Platform, base: string): boolean {
     const paths = pathsFor(platform);
     return pathKey(paths.resolve(base, a), platform) === pathKey(paths.resolve(base, b), platform);
 }

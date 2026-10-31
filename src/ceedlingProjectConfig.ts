@@ -1,6 +1,7 @@
 // Turns VS Code settings into the Ceedling projects to load, and a project's resolved Ceedling
-// configuration into the few values this extension reads from it. It has no `vscode` or
-// filesystem dependency. Callers supply the settings, the platform, and a directory check.
+// configuration into the few values this extension reads from it, with the errors that stop a
+// load. It has no `vscode` or filesystem dependency. Callers supply the settings, the platform,
+// and a directory check.
 
 import { GCOV_ARTIFACTS } from './buildLayout';
 import type { ProjectCeedling } from './ceedlingVersions';

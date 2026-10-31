@@ -3,12 +3,15 @@ import {
     applicationRelease,
     capabilitiesOf,
     type CeedlingFeature,
+    checkVersion,
     ceedlingRelease,
     firstRelease,
     isSupportedRelease,
     launcherCapabilitiesOf,
     type LauncherFeature,
+    launcherCapabilitiesOf as launcherOf,
     MINIMUM_CEEDLING_VERSION,
+    releaseKnown,
     versionSeesSelection,
 } from '../../src/ceedlingVersions';
 
@@ -125,4 +128,73 @@ suite('versionSeesSelection', () => {
     for (const which of ['vendor\\ceedling', 'Vendor\\Ceedling\\', 'c:\\ws\\vendor\\ceedling', 'C:/WS/vendor/ceedling']) {
         test(`on Windows, '${which}' is seen`, () => assert.strictEqual(versionSeesSelection(which, 'C:\\ws', 'win32'), true));
     }
+});
+
+suite('checkVersion', () => {
+    const log = { debug: () => { /* unread */ } };
+    const result = (stdout: string, stderr = '') => ({ error: null, stdout, stderr, cancelled: false });
+    const single = (version: string) => result(`Welcome to Ceedling!\n  Ceedling => ${version}\n`);
+    const launching = (launcher: string, application: string) => result(`  Ceedling Launcher => ${launcher}\n  Ceedling App => ${application}\n`);
+    const runs = (...results: ReturnType<typeof result>[]) => {
+        const asked: boolean[] = [];
+        return { asked, run: async (withProject: boolean) => { asked.push(withProject); return results.shift() ?? result(''); } };
+    };
+
+    test("a launcher before 1.2.2 is asked once, bare, and its own release is exact", async () => {
+        const { asked, run } = runs(single('1.2.1'));
+        const check = await checkVersion('p', run, log);
+        assert.deepStrictEqual(asked, [false]);
+        assert.ok(check.kind === 'checked' && check.ceedling.release === '1.2.1' && check.ceedling.exactRelease && check.warning === undefined);
+    });
+
+    // From 1.2.2 the second check, with the project's own arguments, sees a selection in its configuration.
+    test('a 1.2.2 launcher is asked again with the project, whose report stands', async () => {
+        const { asked, run } = runs(single('1.2.2'), launching('1.2.2', '1.1.10'));
+        const check = await checkVersion('p', run, log);
+        assert.deepStrictEqual(asked, [false, true]);
+        assert.ok(check.kind === 'checked' && check.ceedling.release === '1.1.10' && check.ceedling.launcher.versionReadsProject);
+    });
+
+    test("another build behind an older launcher is a guess, with a warning", async () => {
+        const check = await checkVersion('p', runs(launching('1.2.1-47d2c5e', '1.2.1-13a540f')).run, log);
+        assert.ok(check.kind === 'checked' && !check.ceedling.exactRelease);
+        assert.match(check.warning ?? '', /can't tell its release.*Ceedling#1365/);
+    });
+
+    test("an exception is the project's configuration problem, quoting it, from either check", async () => {
+        const stopped = result('', 'EXCEPTION: Mixin bad.yml not found\n');
+        for (const results of [[stopped], [single('1.2.2'), stopped]]) {
+            // eslint-disable-next-line no-await-in-loop -- one case at a time
+            const check = await checkVersion('p', runs(...results).run, log);
+            assert.ok(check.kind === 'configuration' && /project 'p'[\s\S]*EXCEPTION: Mixin bad\.yml not found/.test(check.message), JSON.stringify(check));
+        }
+    });
+
+    test('no version at all, or one too old, is an unusable Ceedling', async () => {
+        const silent = await checkVersion('p', runs(result('')).run, log);
+        assert.ok(silent.kind === 'unusable' && /Could not run 'ceedling version'/.test(silent.message));
+        const old = await checkVersion('p', runs(single('0.31.1')).run, log);
+        assert.ok(old.kind === 'unusable' && /0\.31\.1 is not supported/.test(old.message));
+    });
+
+    test("the runner's own failure reaches the caller", async () => {
+        await assert.rejects(checkVersion('p', () => Promise.reject(new Error('spawn failed')), log), /spawn failed/);
+    });
+});
+
+suite('releaseKnown', () => {
+    const ceedling = (exactRelease: boolean, launcher: string) => ({ exactRelease, launcher: launcherOf(launcher) });
+
+    test('a 1.2.2 launcher\'s exact report stands, whatever the configuration selects', () => {
+        assert.ok(releaseKnown(ceedling(true, '1.2.2'), '/ws', undefined, 'linux'));
+        assert.ok(!releaseKnown(ceedling(false, '1.2.2'), '/ws', 'gem', 'linux'));
+    });
+
+    // An older launcher never reads the project, so it stands only for what it would find unaided.
+    test("an older launcher's stands only for a known selection it sees unaided", () => {
+        assert.ok(releaseKnown(ceedling(true, '1.2.1'), '/ws', 'gem', 'linux'));
+        assert.ok(releaseKnown(ceedling(true, '1.2.1'), '/ws', 'vendor/ceedling', 'linux'));
+        assert.ok(!releaseKnown(ceedling(true, '1.2.1'), '/ws', '/opt/ceedling/1.0.0', 'linux'));
+        assert.ok(!releaseKnown(ceedling(true, '1.2.1'), '/ws', undefined, 'linux'));
+    });
 });

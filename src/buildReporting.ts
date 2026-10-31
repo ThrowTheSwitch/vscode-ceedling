@@ -38,7 +38,7 @@ export function reportOf(outcome: BuildOutcome, ids: readonly string[], leaves: 
 }
 
 // Each leaf's result from the report. A failure's message carries the run's transcript.
-export function reportResults(report: CppUnitReport, leaves: string[], transcript: string, reporter: RunReporter, log: Pick<Log, 'warn'>): void {
+export function reportResults(report: CppUnitReport, leaves: readonly string[], transcript: string, reporter: RunReporter, log: Pick<Log, 'warn'>): void {
     const { results, unmapped } = testResults(report, leaves);
     if (unmapped.length > 0) {
         log.warn(`Ceedling reported results matching no discovered test: ${unmapped.join(', ')}`);

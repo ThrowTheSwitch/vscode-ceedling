@@ -291,6 +291,16 @@ suite('CeedlingEngine.discover', () => {
             (e: unknown) => e instanceof CeedlingLoadError && /default/.test(e.message) && /shellPath/.test(e.message) && /mixins/.test(e.message));
     });
 
+    // The controller patches its own tree, and the engine its own, so neither sees the other's edits.
+    test("discovery hands out copies of its trees", async () => {
+        const world = new FakeCeedling();
+        const { engine, projects } = await discovered(world);
+        projects[0].files.length = 0;
+        world.write(`${WS}/test/test_calc.c`, 'void test_saved(void) {}\n');
+        assert.ok(await engine.rediscoverFile('default', 'test/test_calc.c'), 'the engine still has the file');
+        assert.deepStrictEqual(projects[0].files, []);
+    });
+
     test('a resolved config without the report plugin is a load error', async () => {
         const world = new FakeCeedling();
         world.resolvedConfig = ':plugins:\n  :enabled: []\n';
@@ -2098,8 +2108,6 @@ suite('CeedlingEngine coverage', () => {
         assert.ok(world.files.has(otherTest));
     });
 
-    // From Ceedling 1.2.0, gcov/out nests each test's counters under the test file's directory
-    // within its test path, e.g. gcov/out/unit/test_calc/ for test/unit/test_calc.c.
     // A coverage build of the file between the clear and the rerun would add counts the rerun reports.
     test("a function run's whole-file fallback reruns under the lock it clears its counters under", async () => {
         const world = coverageWorld();
@@ -2118,6 +2126,8 @@ suite('CeedlingEngine coverage', () => {
         await other;
     });
 
+    // From Ceedling 1.2.0, gcov/out nests each test's counters under the test file's directory
+    // within its test path, e.g. gcov/out/unit/test_calc/ for test/unit/test_calc.c.
     test("a function run's whole-file fallback keeps the counters of same-named test files elsewhere", async () => {
         const world = coverageWorld();
         world.version = '1.2.1';

@@ -1,11 +1,16 @@
 // Orchestrates Ceedling for one workspace folder: discovering its projects and tests, running
 // them, building a test for the debugger, and cleaning. Each concern lives in its own module. This
-// class sequences them and owns the per-folder state.
+// class sequences them and owns the per-folder state: the projects, the locks, and the read limit.
 //
 // - ceedlingProjectConfig: settings → projects, and resolved configuration → ProjectState
+// - ceedlingVersions: the version check and each release's features
+// - ceedlingCommandLine: the flags and tasks each command takes
 // - ceedlingProcess: running Ceedling, with per-run cancellation
-// - unityTestDiscovery: test functions and cases in source, named as Ceedling names them
-// - testResults: the CppUnit report mapped onto discovered ids
+// - testFileNodes: the test tree, from each file's source
+// - buildLayout: where each release builds a test, and which executable a debug build wrote
+// - coverageRun: a coverage request's counters and Cobertura report
+// - buildReporting: a build's results, from its CppUnit report
+// - engineFileSystem: the filesystem, read through one limit
 //
 // It has no `vscode` dependency, not even for types. Settings, the diagnostics sink, the runner,
 // and the filesystem come in through `deps`, so the unit tests drive it with fakes.
@@ -51,8 +56,6 @@ import { setting, SETTING_DEFAULTS, type SettingKey, type Settings, type Setting
 import { allIds, type CeedlingFileNode, type CeedlingProjectNode, type CeedlingTestFunction, functionIds, leafIds, type RunReporter } from './testModel';
 import { type CppUnitReport, parseCppUnitReport, reportedNames } from './testResults';
 import { testFileNodes } from './testFileNodes';
-
-export { CeedlingLoadError } from './ceedlingProjectConfig';
 
 // A vendored Ceedling's own version, relative to the project directory.
 const VENDORED_VERSION = `${VENDORED_CEEDLING}/lib/version.rb`;

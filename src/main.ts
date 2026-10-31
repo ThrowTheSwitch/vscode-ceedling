@@ -1,3 +1,4 @@
+import util from 'util';
 import vscode from 'vscode';
 import { Logger } from './logger';
 import { CeedlingTestController } from './testController';
@@ -76,7 +77,16 @@ export function activate(context: vscode.ExtensionContext): CeedlingExplorerApi 
             controller.setLabel(labelFor(controller.workspaceFolder));
         }
     }));
-    context.subscriptions.push({ dispose: () => { for (const controller of controllers.values()) controller.dispose(); } });
+    // One folder's failure leaves the rest to stop their Ceedling processes.
+    context.subscriptions.push({ dispose: () => {
+        for (const controller of controllers.values()) {
+            try {
+                controller.dispose();
+            } catch (e) {
+                logger.error(`deactivate: disposing the controller for ${controller.workspaceFolder.uri.toString()} failed: ${util.format(e)}`);
+            }
+        }
+    } });
     // Last, since VS Code disposes subscriptions in order, and controllers log as they go.
     context.subscriptions.push(logger);
     return context.extensionMode === vscode.ExtensionMode.Test ? { controllerFor: (folder) => controllers.get(folder.toString()) } : undefined;

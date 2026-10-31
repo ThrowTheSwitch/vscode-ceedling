@@ -15,7 +15,6 @@ function deferredExec(calls: ExecCall[], pid = 4242): typeof child_process.exec 
     }) as unknown as typeof child_process.exec;
 }
 
-// A manually fired cancellation, shaped like vscode.CancellationToken.
 function invocation(overrides: Partial<CeedlingInvocation> = {}): CeedlingInvocation {
     return { command: 'ceedling', args: ['test:all'], cwd: '/ws/proj', shell: undefined, stripAnsi: true, ...overrides };
 }
