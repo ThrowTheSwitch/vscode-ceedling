@@ -143,10 +143,18 @@ type Candidates = readonly [string, ...string[]];
 // `configuration` fingerprints the files and settings `state` was resolved from.
 type LoadedProject = CeedlingProject & ProjectCeedling & { state: ProjectState, configuration: string, files: CeedlingFileNode[] };
 
+// Ceedling's own exception, from whichever stream carried it.
+function exceptionOf(result: CeedlingResult): string | undefined {
+    return extractCeedlingException(result.stderr) ?? extractCeedlingException(result.stdout);
+}
+
 // A failed command, with Ceedling's own exception if it gave one.
 function failure(result: CeedlingResult): { failed: string | undefined } {
-    return { failed: extractCeedlingException(`${result.stdout}\n${result.stderr}`) };
+    return { failed: exceptionOf(result) };
 }
+
+// A version check that one project's configuration stopped, which leaves other projects loading.
+class ConfigurationProblem extends Error { }
 
 // Ceedling's exception, on a line of its own after a load error's advice.
 function quoted(exception: string | undefined): string {
@@ -527,7 +535,7 @@ export class CeedlingEngine {
             const { release, exactRelease, launcher } = await this.checkCeedlingVersion(project);
             ceedling = { release, exactRelease, capabilities: capabilitiesOf(release), launcher };
         } catch (error) {
-            return { kind: 'unusable', error };
+            return error instanceof ConfigurationProblem ? { kind: 'error', message: error.message } : { kind: 'unusable', error };
         }
         const { capabilities } = ceedling;
         if (project.ambiguousProjectFile && capabilities.ceedlingYml) {
@@ -579,13 +587,14 @@ export class CeedlingEngine {
     // Returns the release of the Ceedling the project runs, whether the report shows it exactly, and
     // the launcher's features. Running in the project directory finds a Ceedling vendored in
     // `vendor/ceedling`. WHICH_CEEDLING applies anywhere. From 1.2.2 `ceedling version` also reads the
-    // project file and takes mixins. A project with mixins or an alternate project file then checks
-    // again with them, since either may select another installation. Older launchers reject them.
+    // project's configuration, so the project checks again with its own arguments, as its other
+    // commands run. A bare check reads whichever default project file Ceedling prefers, or
+    // CEEDLING_PROJECT_FILE. Older launchers reject the arguments.
     private async checkCeedlingVersion(project: CeedlingProject): Promise<{ release: string, exactRelease: boolean, launcher: LauncherCapabilities }> {
-        let { reported, release } = await this.versionReport(project, { cwd: project.absPath });
+        let { reported, release } = await this.versionReport(project, false);
         const launcher = launcherCapabilitiesOf(reported.launcher ?? reported.application);
-        if (launcher.versionReadsProject && (project.mixins.length > 0 || project.ymlFileName !== project.projectFileName || project.ambiguousProjectFile)) {
-            ({ reported, release } = await this.versionReport(project, { project }));
+        if (launcher.versionReadsProject) {
+            ({ reported, release } = await this.versionReport(project, true));
         }
         if (!isSupportedRelease(release.release)) {
             throw new CeedlingLoadError(
@@ -602,13 +611,23 @@ export class CeedlingEngine {
         return { ...release, launcher };
     }
 
-    // One `ceedling version`, with the project's arguments when `options` names the project.
-    private async versionReport(project: CeedlingProject, options: { project?: CeedlingProject, cwd?: string }):
+    // One `ceedling version` in the project directory, with the project's arguments if `withProject`.
+    // A version check Ceedling stopped with an exception is the project's configuration problem,
+    // e.g. a missing mixin or a :which_ceedling: path that doesn't exist. One with no output at all
+    // is Ceedling's.
+    private async versionReport(project: CeedlingProject, withProject: boolean):
         Promise<{ reported: ReportedCeedling, release: { release: string, exactRelease: boolean } }> {
-        const result = await this.ceedling(['version'], options);
+        const result = await this.ceedling(['version'], withProject ? { project } : { cwd: project.absPath });
         const reported = parseCeedlingVersions(result.stdout);
         const release = reported === undefined ? undefined : applicationRelease(reported);
-        this.logger.debug(`checkCeedlingVersion(${project.key}): ${reported === undefined ? 'none' : util.format(reported)}`);
+        this.logger.debug(`versionReport(${project.key}${withProject ? ', with its arguments' : ''}): ${reported === undefined ? 'none' : util.format(reported)}`);
+        const exception = exceptionOf(result);
+        if (exception !== undefined) {
+            throw new ConfigurationProblem(
+                `Ceedling stopped reporting its version for project '${project.key}'. Check its project file, the mixins in ` +
+                `ceedlingExplorer.mixins and projects[].mixins, and any :project: ↳ :which_ceedling: they set.${quoted(exception)}`
+            );
+        }
         if (reported === undefined || release === undefined) {
             throw new CeedlingLoadError(
                 `Could not run 'ceedling version' for project '${project.key}'. Check that Ceedling is installed and runs ` +
@@ -645,10 +664,12 @@ export class CeedlingEngine {
                 this.logger.error(`resolveConfig(${project.key}): 'ceedling dumpconfig' failed: ${util.format(result)}`);
                 return failure(result);
             }
-            return { found: yaml.safeLoad(await this.reads.run(() => this.fs.readFile(outputPath))) };
-        } catch (e) {
-            this.logger.error(`resolveConfig(${project.key}): could not read dumpconfig output '${outputPath}': ${util.format(e)}`);
-            return { failed: undefined };
+            try {
+                return { found: yaml.safeLoad(await this.reads.run(() => this.fs.readFile(outputPath))) };
+            } catch (e) {
+                this.logger.error(`resolveConfig(${project.key}): could not read dumpconfig output '${outputPath}': ${util.format(e)}`);
+                return { failed: undefined };
+            }
         } finally {
             this.fs.unlink(outputPath).catch(() => { /* a leftover temporary file is harmless */ });
         }
@@ -885,7 +906,9 @@ export class CeedlingEngine {
     // Whether the project runs the release its version check reported. A launcher before 1.2.2
     // reports its own release for another build (Ceedling#1365). It never reads the project file,
     // so its check stands only when `state`, the configuration as last known, selects what it sees
-    // unaided. From 1.2.2 the check reads the configuration itself.
+    // unaided. With no known state, it never stands. From 1.2.2 the check reads the configuration
+    // the project's commands run with. An edit landing between the check and dumpconfig goes unseen
+    // until the rediscovery it triggers, as before 1.2.2 between the fingerprint and dumpconfig.
     private releaseKnown(project: CeedlingProject, ceedling: ProjectCeedling, state: ProjectState | undefined): boolean {
         return ceedling.exactRelease && (ceedling.launcher.versionReadsProject ||
             (state !== undefined && versionSeesSelection(state.whichCeedling, project.absPath, this.platform)));

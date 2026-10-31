@@ -370,11 +370,38 @@ suite('CeedlingEngine.discover', () => {
         assert.deepStrictEqual(world.commandsMatching(/^ceedling version/), ['ceedling version']);
     });
 
-    test("from Ceedling 1.2.2, a project with only its default project file checks its version once", async () => {
+    // A bare check reads whichever default project file Ceedling prefers, or CEEDLING_PROJECT_FILE.
+    test("from Ceedling 1.2.2, every project checks its version again with its own project file", async () => {
         const world = new FakeCeedling();
         world.version = '1.2.2';
         await discovered(world);
+        assert.deepStrictEqual(world.commandsMatching(/^ceedling version/), ['ceedling version', `ceedling version ${PROJECT_ARGS}`]);
+    });
+
+    // The launcher, not the application it hands off to, decides which options `version` takes.
+    test('a launcher before 1.2.2 running a newer application is never given project arguments', async () => {
+        const world = new FakeCeedling();
+        runsAnotherCeedling(world, launching('1.2.1-47d2c5e', '1.2.2-0a1b2c3'));
+        await discovered(world, { settings: { projects: [{ path: '.', debugLaunchConfig: 'dbg', mixins: ['mixins/which.yml'] }] } });
         assert.deepStrictEqual(world.commandsMatching(/^ceedling version/), ['ceedling version']);
+    });
+
+    // From 1.2.2 `ceedling version` loads the configuration, so a missing mixin or a bad
+    // :which_ceedling: path stops it. That is the project's problem, not a missing Ceedling.
+    test("from Ceedling 1.2.2, a version check stopped by a project's configuration is that project's load error alone", async () => {
+        const world = new FakeCeedling();
+        world.version = '1.2.2';
+        world.handlers.push((command, cwd) => /^ceedling version --project/.test(command) && cwd.endsWith('/a')
+            ? { error: true, stderr: 'EXCEPTION: Configured Ceedling launch path /opt/nowhere/ does not exist\n' } : undefined);
+        const settings = { projects: [{ path: 'a', debugLaunchConfig: 'dbg' }, { path: 'b', debugLaunchConfig: 'dbg' }] };
+        for (const dir of ['a', 'b']) {
+            world.directories.add(`${WS}/${dir}`);
+            world.write(`${WS}/${dir}/project.yml`, ':project: {}\n');
+        }
+        world.handlers.push((command, cwd) => /^ceedling dumpconfig/.test(command) && cwd.endsWith('/b') ? { error: true, stderr: 'EXCEPTION: bad b\n' } : undefined);
+        await assert.rejects(makeEngine(world, { settings }).discover(), (e: unknown) => e instanceof CeedlingLoadError &&
+            /project 'a'/.test(e.message) && e.message.includes('EXCEPTION: Configured Ceedling launch path /opt/nowhere/ does not exist') &&
+            !/installed/.test(e.message) && e.message.includes('EXCEPTION: bad b'));
     });
 
     // Before 1.2.2 a launcher reports another installation as its own release, with that
@@ -1597,7 +1624,8 @@ suite('CeedlingEngine concurrent discovery', () => {
     });
 
     // The last discovery's configuration stands for a rediscovery's dumpconfig only while the files it
-    // came from are unchanged. An edit may have just selected another Ceedling, which `version` can't see.
+    // came from are unchanged. An edit may have just selected another Ceedling, which `version` can't
+    // see before 1.2.2.
     type Settings = { projects: Array<{ path: string, debugLaunchConfig: string, mixins: string[] }> };
     const changes: Array<[string, (world: FakeCeedling, settings: Settings) => void]> = [
         ['its project file', (world) => world.write(`${WS}/project.yml`, ':project:\n  :which_ceedling: tools/ceedling\n')],

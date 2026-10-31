@@ -108,7 +108,8 @@ const LAUNCHER_FEATURES = {
     // version. Earlier launchers report their own release, with the other one's commit (Ceedling#1365).
     reportsApplicationVersion: '1.2.2',
     // `ceedling version` reads the project file and takes --project and --mixin, so it reports the
-    // installation `:project` ↳ `:which_ceedling` selects. Earlier launchers reject both options.
+    // installation `:project` ↳ `:which_ceedling` selects in the project file or a mixin. Earlier
+    // launchers reject both options.
     versionReadsProject: '1.2.2',
 } as const;
 
