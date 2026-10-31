@@ -31,10 +31,12 @@ This document is the terse, itemized record of what changed in each release. Its
 * Support for Ceedling 1.2.2:
   * Debugging and coverage find each test’s build in Ceedling 1.2.2’s layout, which places it under the test’s path from the project root.
   * Debugging finds the executable wherever the build wrote it, even when an installed Ceedling before 1.2.2 misreports the version of the Ceedling a project runs.
-  * With Ceedling 1.2.2 installed, a project running its own Ceedling of a different version, vendored in `vendor/ceedling` or selected by `WHICH_CEEDLING`, uses that version’s features ([Ceedling#1365](https://github.com/ThrowTheSwitch/Ceedling/issues/1365)).
+  * With Ceedling 1.2.2 installed, a project running its own Ceedling of a different version uses that version’s features ([Ceedling#1365](https://github.com/ThrowTheSwitch/Ceedling/issues/1365)). That Ceedling may be vendored in `vendor/ceedling`, or selected by `WHICH_CEEDLING` or by `:project` ↳ `:which_ceedling` in `project.yml` or a mixin.
+  * With Ceedling 1.2.2 installed, the _Testing_ view updates during a long run even right after an edit to `project.yml` or a mixin file, for a project running Ceedling 1.2.1 or later.
+* A project that fails to load shows Ceedling’s own `EXCEPTION` message, e.g. why the installed Ceedling can’t run the project’s own.
 * The `report_tests_log_factory` plugin’s `cppunit` report, which this extension reads results from, is now enabled automatically by a bundled [mixin](README.md#mixins). Enabling it in `project.yml` is no longer required.
 * New `ceedlingExplorer.mixins` and `ceedlingExplorer.projects[].mixins` settings apply Ceedling mixins, for toolchain targets, CI overrides, or other configuration, without editing `project.yml`. See [Mixins](README.md#mixins).
-* The _Testing_ view updates as you edit a test file, before you save. Adding or removing a test file, or editing `project.yml` or a mixin file, rediscovers the project without a manual refresh.
+* The _Testing_ view updates as you edit a test file, before you save. Adding or removing a test file, editing `project.yml` or a mixin file, or changing the Ceedling in a project’s `vendor/ceedling` rediscovers the project without a manual refresh.
 * Unity’s `TEST_MATRIX()` parametrized tests and exclusive `TEST_RANGE(<start, end, step>)` ranges now appear in the _Testing_ view as individual test cases.
 * New `ceedlingExplorer.ceedlingCommand` setting for running Ceedling through another command, e.g. `bundle exec ceedling`.
 * A one-time warning when `project.yml` or a configured mixin sets a non-default CppUnit report filename, naming the project and the filename.

@@ -352,6 +352,58 @@ suite('CeedlingEngine.discover', () => {
         assert.deepStrictEqual(logs.filter((l) => l.level === 'warn'), []);
     });
 
+    // From 1.2.2 `ceedling version` reads the project file and takes mixins, so a selection made in
+    // an alternate project file or a mixin shows. Older launchers reject both options.
+    test("from Ceedling 1.2.2, the version check is given a project's mixins, and reports what they select", async () => {
+        const world = new FakeCeedling();
+        world.version = '1.2.2';
+        world.handlers.push((command) => /^ceedling version --project/.test(command) ? { stdout: launching('1.2.2', '1.1.10-85ec551') } : undefined);
+        await discovered(world, { settings: { projects: [{ path: '.', debugLaunchConfig: 'dbg', mixins: ['mixins/which.yml'] }] } });
+        assert.deepStrictEqual(world.commandsMatching(/^ceedling version/), ['ceedling version', `ceedling version --project project.yml --mixin mixins/which.yml --mixin ${BUNDLED_MIXIN}`]);
+        assert.strictEqual(world.commandsMatching(/^ceedling dumpconfig \S+\.yml/).length, 1, "1.1.10's dumpconfig writes a file");
+    });
+
+    test('before Ceedling 1.2.2, the version check is never given project arguments', async () => {
+        const world = new FakeCeedling();
+        world.version = '1.2.1';
+        await discovered(world, { settings: { projects: [{ path: '.', debugLaunchConfig: 'dbg', mixins: ['mixins/which.yml'] }] } });
+        assert.deepStrictEqual(world.commandsMatching(/^ceedling version/), ['ceedling version']);
+    });
+
+    // A bare check reads whichever default project file Ceedling prefers, or CEEDLING_PROJECT_FILE.
+    test("from Ceedling 1.2.2, every project checks its version again with its own project file", async () => {
+        const world = new FakeCeedling();
+        world.version = '1.2.2';
+        await discovered(world);
+        assert.deepStrictEqual(world.commandsMatching(/^ceedling version/), ['ceedling version', `ceedling version ${PROJECT_ARGS}`]);
+    });
+
+    // The launcher, not the application it hands off to, decides which options `version` takes.
+    test('a launcher before 1.2.2 running a newer application is never given project arguments', async () => {
+        const world = new FakeCeedling();
+        runsAnotherCeedling(world, launching('1.2.1-47d2c5e', '1.2.2-0a1b2c3'));
+        await discovered(world, { settings: { projects: [{ path: '.', debugLaunchConfig: 'dbg', mixins: ['mixins/which.yml'] }] } });
+        assert.deepStrictEqual(world.commandsMatching(/^ceedling version/), ['ceedling version']);
+    });
+
+    // From 1.2.2 `ceedling version` loads the configuration, so a missing mixin or a bad
+    // :which_ceedling: path stops it. That is the project's problem, not a missing Ceedling.
+    test("from Ceedling 1.2.2, a version check stopped by a project's configuration is that project's load error alone", async () => {
+        const world = new FakeCeedling();
+        world.version = '1.2.2';
+        world.handlers.push((command, cwd) => /^ceedling version --project/.test(command) && cwd.endsWith('/a')
+            ? { error: true, stderr: 'EXCEPTION: Configured Ceedling launch path /opt/nowhere/ does not exist\n' } : undefined);
+        const settings = { projects: [{ path: 'a', debugLaunchConfig: 'dbg' }, { path: 'b', debugLaunchConfig: 'dbg' }] };
+        for (const dir of ['a', 'b']) {
+            world.directories.add(`${WS}/${dir}`);
+            world.write(`${WS}/${dir}/project.yml`, ':project: {}\n');
+        }
+        world.handlers.push((command, cwd) => /^ceedling dumpconfig/.test(command) && cwd.endsWith('/b') ? { error: true, stderr: 'EXCEPTION: bad b\n' } : undefined);
+        await assert.rejects(makeEngine(world, { settings }).discover(), (e: unknown) => e instanceof CeedlingLoadError &&
+            /project 'a'/.test(e.message) && e.message.includes('EXCEPTION: Configured Ceedling launch path /opt/nowhere/ does not exist') &&
+            !/installed/.test(e.message) && e.message.includes('EXCEPTION: bad b'));
+    });
+
     // Before 1.2.2 a launcher reports another installation as its own release, with that
     // installation's commit (Ceedling#1365), so the application's release is unknown.
     test("before Ceedling 1.2.2, a project with another build in vendor/ceedling runs at the launcher's release, with a warning", async () => {
@@ -454,6 +506,33 @@ suite('CeedlingEngine with Ceedling before 1.2.0', () => {
         assert.ok(![...world.files.keys()].some((f) => f.startsWith('/tmp/')));
     });
 
+    // Ceedling's own exception says what went wrong, e.g. that it can't run a selected installation.
+    test("a failed dumpconfig's load error quotes Ceedling's exception", async () => {
+        const world = new FakeCeedling();
+        world.handlers.push((command) => /^ceedling dumpconfig/.test(command)
+            ? { error: true, stderr: "🧨 EXCEPTION: undefined method `cp_r_with_retry' for an instance of FileWrapper\n" } : undefined);
+        await assert.rejects(makeEngine(world).discover(),
+            (e: unknown) => e instanceof CeedlingLoadError && e.message.includes("EXCEPTION: undefined method `cp_r_with_retry' for an instance of FileWrapper"));
+    });
+
+    test("a failed test listing's load error quotes Ceedling's exception", async () => {
+        const world = new FakeCeedling();
+        world.handlers.push((command) => /^ceedling files:test/.test(command) ? { error: true, stdout: "EXCEPTION: Failed to construct 'rake_wrapper'\n" } : undefined);
+        await assert.rejects(makeEngine(world).discover(),
+            (e: unknown) => e instanceof CeedlingLoadError && e.message.includes("EXCEPTION: Failed to construct 'rake_wrapper'"));
+    });
+
+    test("a failed dumpconfig leaves no temporary file, even one Ceedling wrote", async () => {
+        const world = new FakeCeedling();
+        world.version = '1.1.10';
+        world.handlers.push((command) => {
+            const dump = /^ceedling dumpconfig (\S+)/.exec(command);
+            return dump ? { error: true, writes: { [dump[1]]: 'partial' } } : undefined;
+        });
+        await assert.rejects(makeEngine(world).discover(), CeedlingLoadError);
+        assert.deepStrictEqual([...world.files.keys()].filter((f) => f.includes('ceedling-dumpconfig')), []);
+    });
+
     test('a failed dumpconfig is a load error, logged', async () => {
         const world = new FakeCeedling();
         world.version = '1.1.10';
@@ -533,7 +612,7 @@ suite('CeedlingEngine with Ceedling 1.2.0', () => {
         world.write(`${WS}/fw/project.yml`, ':project: {}\n');
         world.write(`${WS}/fw/ci.yml`, ':project: {}\n');
         const engine = makeEngine(world, { settings: { projects: [{ path: 'fw/ci.yml', debugLaunchConfig: 'dbg' }] } });
-        assert.deepStrictEqual((await engine.configurationFiles()).sort(), [`${WS}/fw/ceedling.yml`, `${WS}/fw/ci.yml`, `${WS}/fw/project.yml`]);
+        assert.deepStrictEqual((await engine.configurationFiles()).sort(), [`${WS}/fw/ceedling.yml`, `${WS}/fw/ci.yml`, `${WS}/fw/project.yml`, `${WS}/fw/vendor/ceedling/lib/version.rb`]);
     });
 
     // 1.2.0 nests each executable under its test file's directory, relative to the test path.
@@ -633,6 +712,13 @@ suite('CeedlingEngine with Ceedling 1.2.0', () => {
         const world = new FakeCeedling();
         world.version = '1.2.1';
         assert.strictEqual(await debugBuild(world, [OWN_122], { selects: 'tools/ceedling' }), OWN_122);
+    });
+
+    // From 1.2.2 the version check reads :which_ceedling:, so it reports the installation selected.
+    test('from Ceedling 1.2.2, a release the version check reported for a selected installation is known', async () => {
+        const world = new FakeCeedling();
+        runsAnotherCeedling(world, launching('1.2.2', '1.2.1-47d2c5e'));
+        assert.strictEqual(await debugBuild(world, [OWN_122], { selects: 'tools/ceedling' }), OWN_121);
     });
 
     test('with a misreported release, an executable the build rewrote in its own layout is found there, with no note', async () => {
@@ -1060,7 +1146,8 @@ suite('CeedlingEngine for watchers and editing', () => {
         const world = new FakeCeedling();
         world.directories.add(`${WS}/fw`);
         const engine = makeEngine(world, { settings: { projects: [{ path: 'fw', debugLaunchConfig: 'dbg', mixins: ['gcc', 'mixins/cov.yml'] }] } });
-        assert.deepStrictEqual((await engine.configurationFiles()).sort(), [`${WS}/fw/ceedling.yml`, `${WS}/fw/mixins/cov.yml`, `${WS}/fw/project.yml`]);
+        assert.deepStrictEqual((await engine.configurationFiles()).sort(),
+            [`${WS}/fw/ceedling.yml`, `${WS}/fw/mixins/cov.yml`, `${WS}/fw/project.yml`, `${WS}/fw/vendor/ceedling/lib/version.rb`]);
     });
 
     test('configuration files are empty, not an error, when settings name a missing directory', async () => {
@@ -1522,8 +1609,23 @@ suite('CeedlingEngine concurrent discovery', () => {
         });
     }
 
+    // From 1.2.2 the version check reads the configuration this discovery's dumpconfig runs with.
+    test("from Ceedling 1.2.2, a project whose configuration selects another 1.2.1 doesn't wait for a build", async () => {
+        const world = new FakeCeedling();
+        runsAnotherCeedling(world, launching('1.2.2', '1.2.1-47d2c5e'));
+        world.resolvedConfig = `:project:\n  :which_ceedling: tools/ceedling\n${world.resolvedConfig}`;
+        assert.deepStrictEqual(await discoveryDuringBuild(world), BOTH);
+    });
+
+    test("from Ceedling 1.2.2, a rediscovery after a change to its project file doesn't wait for a build", async () => {
+        const world = new FakeCeedling();
+        world.version = '1.2.2';
+        assert.deepStrictEqual(await discoveryDuringBuild(world, { change: () => world.write(`${WS}/project.yml`, ':project:\n  :build_root: build\n') }), BOTH);
+    });
+
     // The last discovery's configuration stands for a rediscovery's dumpconfig only while the files it
-    // came from are unchanged. An edit may have just selected another Ceedling, which `version` can't see.
+    // came from are unchanged. An edit may have just selected another Ceedling, which `version` can't
+    // see before 1.2.2.
     type Settings = { projects: Array<{ path: string, debugLaunchConfig: string, mixins: string[] }> };
     const changes: Array<[string, (world: FakeCeedling, settings: Settings) => void]> = [
         ['its project file', (world) => world.write(`${WS}/project.yml`, ':project:\n  :which_ceedling: tools/ceedling\n')],
@@ -1591,6 +1693,24 @@ suite('CeedlingEngine concurrent discovery', () => {
         build.release();
         await Promise.all([run, rediscovery]);
         assert.strictEqual(othersDumpconfig(), 1);
+    });
+
+    test("from Ceedling 1.2.2, a project's first dumpconfig doesn't wait for a build in its directory", async () => {
+        const world = new FakeCeedling();
+        world.version = '1.2.2';
+        const [ci, other] = twoProjects(world, 'fw/ci.yml', 'fw/other.yml').projects;
+        world.write(`${WS}/fw/test/test_calc.c`, 'void test_add(void) {}\n');
+        const settings = { projects: [ci] };
+        const { engine, projects } = await discovered(world, { settings });
+        const build = held(world, /^ceedling test:/);
+        const run = engine.runFile(projects[0].projectKey, projects[0].files[0], recordingReporter(), token());
+        await settle();
+        settings.projects = [ci, other];
+        const rediscovery = engine.discover();
+        await settled();
+        assert.strictEqual(world.commandsMatching(/^ceedling dumpconfig.*other\.yml/).length, 1, "the new project's dumpconfig runs during the build");
+        build.release();
+        await Promise.all([run, rediscovery]);
     });
 
     // dumpconfig and files:test each take the locks before 1.2.1. A build queued while dumpconfig

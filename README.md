@@ -66,7 +66,7 @@ Most projects need no configuration at all.
 
 The extension reads your project’s configuration with [`ceedling dumpconfig`][dumpconfig-docs]. It always applies its own [mixin](#mixins), which enables the `report_tests_log_factory` plugin’s `cppunit` report. That XML report is where the extension reads results, so no manual plugin setup is required.
 
-The _Testing_ view keeps itself current. Editing a test file updates its tests as you type, even before you save. Adding or removing a test file, or changing `project.yml` or a mixin file, rediscovers the project.
+The _Testing_ view keeps itself current. Editing a test file updates its tests as you type, even before you save. Adding or removing a test file, changing `project.yml` or a mixin file, or changing the Ceedling in `vendor/ceedling` rediscovers the project.
 
 [dumpconfig-docs]: https://throwtheswitch.github.io/Ceedling/1.1.0/getting-started/command-line/#ceedling-dumpconfig-filepath-sections
 
