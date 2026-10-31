@@ -20,7 +20,7 @@ if [ -n "${CEEDLING_GEM:-}" ]; then versions+=("$CEEDLING_GEM"); fi
 out="$repo/out-validate/$(date +%Y%m%d-%H%M%S)"
 
 runs=()
-while IFS= read -r run; do runs+=("$run"); done < <("$here/run.sh" "${versions[0]}" list)
+while IFS= read -r run; do runs+=("$run"); done < <(CEEDLING_GEM= "$here/run.sh" "${versions[0]}" list)
 runs+=("stress seed 2" "stress seed 3" "probe:fixes" "probe:overlap" "probe:syscalls")
 
 # A gem counts as 1.2.0 or later. Older macOS sort has no -V, so this compares the numbers itself.
@@ -34,6 +34,9 @@ from_1_2_0() {
 summary=()
 for version in "${versions[@]}"; do
     name=$(basename "$version" .gem)
+    # The gem's own image is that gem's, with no other gem to add.
+    gem=${CEEDLING_GEM:-}
+    if [[ $version == *.gem ]]; then gem=""; fi
     mkdir -p "$out/$name"
     failed=()
     for run in "${runs[@]}"; do
@@ -47,7 +50,7 @@ for version in "${versions[@]}"; do
         esac
         log="$out/$name/${run// /_}.log"
         echo "=== $name: $run"
-        if "$here/run.sh" "$version" "${args[@]}" > "$log" 2>&1; then
+        if CEEDLING_GEM=$gem "$here/run.sh" "$version" "${args[@]}" > "$log" 2>&1; then
             grep -E 'violations|skipped' "$log" | sed 's/^/    /' || true
         else
             failed+=("$run")
