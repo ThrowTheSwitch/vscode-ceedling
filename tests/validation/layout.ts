@@ -1,18 +1,19 @@
 // Test build directories in a project with two test roots, +:test/** and +:extra/**, each holding
-// a test_calc.c. From 1.2.0, Ceedling names each test's build directory by its path below its own
-// root, here unit/test_calc and integration/test_calc, and the engine must find each one exactly:
-// - a debug build returns the executable it just built;
-// - from 1.2.1, a coverage request whose --test-case filter also matches another test in the file
-//   reruns the whole file, clearing only that file's counters, so the other test_calc.c keeps its
-//   hits. Ceedling 1.2.0's gcov: tasks take only the bare filename, which it can't resolve here.
+// a test_calc.c. From 1.2.0 each test builds in a directory of its own, and the engine must find
+// each one exactly, whatever the version names it:
+// - A debug build returns the executable Ceedling just built.
+// - From 1.2.1, a coverage request whose --test-case filter also matches another test in the file
+//   reruns the whole file, clearing only that file's counters. Its hits must equal those of a
+//   request that ran the whole file at once. The other test_calc.c then keeps its own hits, and
+//   the file's aren't counted twice. Ceedling 1.2.0's gcov: tasks take only the bare filename,
+//   which it can't resolve here.
 // Ceedling before 1.2.0 builds both files in one directory, so the suite skips.
 //
 // usage: node layout.js
-import * as fs from 'fs';
 import { coverageMode } from '../../src/ceedlingEngine';
-import { capabilities, ceedlingVersion, fileOf, main, makeEngine, only, parseArgs, recordingReporter, requires, stage, token, WS } from './harness';
-
-const BUILD_NAMES: Record<string, string> = { 'test/unit/test_calc.c': 'unit/test_calc', 'extra/integration/test_calc.c': 'integration/test_calc' };
+import {
+    builtExecutable, capabilities, ceedlingVersion, describeOutcome, fileOf, hits, main, makeEngine, only, parseArgs, recordingReporter, removeExecutables, requires, stage, token, WS,
+} from './harness';
 
 main('layout', async (checks) => {
     parseArgs([]);
@@ -22,14 +23,14 @@ main('layout', async (checks) => {
     const project = only(await engine.discover());
     const file = (id: string) => fileOf(project, id);
 
-    for (const [id, buildName] of Object.entries(BUILD_NAMES)) {
-        const started = Date.now() - 1000;
-        // eslint-disable-next-line no-await-in-loop -- one build at a time, so each executable is this build's own
+    for (const id of ['test/unit/test_calc.c', 'extra/integration/test_calc.c']) {
+        // Each test_calc.out goes, so the one left is this build's own.
+        removeExecutables(`${WS}/project/build`, 'test_calc.out');
+        // eslint-disable-next-line no-await-in-loop -- one build at a time
         const executable = await engine.compileForDebug('project', file(id), recordingReporter(), token());
-        const built = `${WS}/project/build/test/out/${executable}`;
-        const fresh = fs.existsSync(built) && fs.statSync(built).mtimeMs >= started;
-        console.log(`debug ${id}: ${executable} ${fresh ? '(just built)' : '(missing or stale)'}`);
-        checks.expect(executable === `${buildName}/test_calc.out` && fresh, `debug ${id}: expected a fresh ${buildName}/test_calc.out, got ${executable}`);
+        const built = builtExecutable(`${WS}/project/build`, 'test_calc.out');
+        console.log(`debug ${id}: ${executable}; built ${built ?? 'nothing'}`);
+        checks.expect(executable === built, `debug ${id}: the engine returned ${executable}, but Ceedling built ${built ?? 'nothing'}`);
     }
 
     if (!capabilities().pathQualifiedCoverageTasks) {
@@ -39,21 +40,30 @@ main('layout', async (checks) => {
     }
     const pairs = [['extra/integration/test_calc.c', 'test/unit/test_calc.c', 'test_add'], ['test/unit/test_calc.c', 'extra/integration/test_calc.c', 'test_clamp']] as const;
     for (const [first, second, name] of pairs) {
-        const mode = coverageMode();
-        const reporter = recordingReporter();
-        // eslint-disable-next-line no-await-in-loop -- the two runs share one coverage request, in order
-        await engine.runFile('project', file(first), reporter, token(), mode);
         const target = file(second);
+        // The reference: one request covering the first file, then the whole second file.
+        const reference = recordingReporter();
+        const referenceMode = coverageMode();
+        // eslint-disable-next-line no-await-in-loop -- each request's runs go in order
+        await engine.runFile('project', file(first), reference, token(), referenceMode);
+        // eslint-disable-next-line no-await-in-loop -- as above
+        await engine.runFile('project', target, reference, token(), referenceMode);
+
+        const reporter = recordingReporter();
+        const mode = coverageMode();
+        // eslint-disable-next-line no-await-in-loop -- as above
+        await engine.runFile('project', file(first), reporter, token(), mode);
         const mark = logs.length;
         // eslint-disable-next-line no-await-in-loop -- as above
         await engine.runFunction('project', target, target.functions.find((f) => f.id === `${second}::${name}`)!, reporter, token(), mode);
         const fellBack = logs.slice(mark).some((l) => l.level === 'warn' && l.message.includes('also matched an unrelated test'));
         checks.expect(fellBack, `cover ${second} --test-case=${name}: expected the filter to collide and the whole file to rerun`);
-        const last = reporter.last();
-        const linesHit = (source: string) => last?.kind === 'report' ? last.files.find((f) => f.path.endsWith(source))?.lines.filter((l) => l.hits > 0).length ?? 0 : 0;
+        const counted = (line: number) => [hits(reference.last(), 'src/Calculator.c', line), hits(reference.last(), 'src/Clamp.c', line)];
+        checks.expect(counted(5).every((n) => n !== undefined && n > 0), `cover ${first}, then all of ${second}: the reference covered nothing, ${reference.last()?.kind ?? 'no report'}`);
+        const [got, want] = [reporter.last(), reference.last()].map((outcome) => outcome ? describeOutcome(outcome) : 'no coverage');
+        console.log(`cover ${first}, then ${second} --test-case=${name}: ${got}`);
+        checks.expect(got === want, `cover ${first}, then ${second} --test-case=${name}: hits ${got}, expected those of the whole file, ${want}`);
         const failures = [...reporter.results].filter(([, result]) => result !== 'passed');
-        console.log(`cover ${first}, then ${second} --test-case=${name}: Calculator.c lines hit ${linesHit('Calculator.c')}, Clamp.c lines hit ${linesHit('Clamp.c')}`);
-        checks.expect(linesHit('Calculator.c') > 0 && linesHit('Clamp.c') > 0, `cover ${first}, then ${second}: the other test_calc.c lost its counters`);
         checks.expect(failures.length === 0, `cover ${first}, then ${second}: ${failures.map(([id, result]) => `${id} ${result}`).join(', ')}`);
     }
     engine.dispose();

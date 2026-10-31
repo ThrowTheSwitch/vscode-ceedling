@@ -1,7 +1,8 @@
 node_modules/
 out/
 out-test/
-coverage/
+/coverage/
+out-validate/
 .vscode-test/
 **/*.vsix
 tests/manual/build/

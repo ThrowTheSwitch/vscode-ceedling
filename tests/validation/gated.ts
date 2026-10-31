@@ -6,14 +6,13 @@
 // - On 1.2.0, coverage tasks can name only the bare filename, so the engine warns that Ceedling
 //   can't tell the two files apart, and Ceedling stops with an ambiguous file reference error.
 //   Only the commands and the warning are checked.
-// Plain runs name the file by path, and debug builds land in the test's own build directory,
-// on both. Ceedling before 1.2.0 can't build same-named test files at all, so the suite skips.
+// Plain runs name the file by path on both, and a debug build returns what Ceedling built.
+// Ceedling before 1.2.0 can't build same-named test files at all, so the suite skips.
 //
 // usage: node gated.js
-import * as fs from 'fs';
 import { coverageMode } from '../../src/ceedlingEngine';
 import type { CoverageOutcome } from '../../src/testModel';
-import { capabilities, ceedlingVersion, describeOutcome, fileOf, hits, main, makeEngine, only, parseArgs, recordingReporter, requires, stage, token, WS } from './harness';
+import { builtExecutable, capabilities, ceedlingVersion, describeOutcome, fileOf, hits, main, makeEngine, only, parseArgs, recordingReporter, removeExecutables, requires, stage, token, WS } from './harness';
 
 const UNIT = 'test/unit/test_dup.c', INTEGRATION = 'test/integration/test_dup.c', FILTERS = 'test/test_filters.c';
 const ADD = `${UNIT}::test_unit_add`, LOW = `${INTEGRATION}::test_integration_clamp_low`, HIGH = `${INTEGRATION}::test_integration_clamp_high`;
@@ -137,9 +136,11 @@ main('gated', async (checks) => {
         });
     }
     await step(`G10 debug build ${INTEGRATION}`, async (r) => {
+        removeExecutables(`${WS}/project/build`, 'test_dup.out');
         const executable = await engine.compileForDebug('project', file(INTEGRATION), r, token());
+        const built = builtExecutable(`${WS}/project/build`, 'test_dup.out');
         console.log(`    executable: ${executable}`);
-        checks.expect(executable === 'integration/test_dup/test_dup.out' && fs.existsSync(`${WS}/project/build/test/out/${executable}`), `G10: executable ${executable}`);
+        checks.expect(executable === built, `G10: executable ${executable}, but Ceedling built ${built ?? 'nothing'}`);
     }, (s) => results('G10', s.results, { [LOW]: 'passed', [HIGH]: 'passed' }));
 
     engine.dispose();
