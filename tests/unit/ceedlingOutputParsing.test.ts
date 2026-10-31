@@ -105,6 +105,12 @@ suite('buildFileLabelRegex / buildTestLabelRegex', () => {
         assert.strictEqual(match[1], 'calculator');
     });
 
+    // Ceedling's :test_file_prefix is a literal string, as discovery's filter reads it.
+    test('buildFileLabelRegex reads the prefix literally', () => {
+        assert.strictEqual(buildFileLabelRegex('t.st_').exec('test/test_calc.c'), null);
+        assert.strictEqual(buildFileLabelRegex('t+_').exec('test/t+_calc.c')?.[1], 'calc');
+    });
+
     test('buildFileLabelRegex labels a file at the project root and one under backslashes', () => {
         const regex = buildFileLabelRegex('test_');
         assert.strictEqual(regex.exec('test_root.c')?.[1], 'root');

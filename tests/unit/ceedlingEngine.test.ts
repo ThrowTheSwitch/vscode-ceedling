@@ -466,16 +466,28 @@ suite('CeedlingEngine.discover', () => {
         assert.ok(logs.some((l) => l.level === 'warn' && /test\/test_calc\.c/.test(l.message) && /zero step/.test(l.message)));
     });
 
-    test('a test file prefix that is not a valid pattern leaves file labels plain, with a warning', async () => {
+    // Ceedling's :test_file_prefix is a literal string, unlike :test_runner ↳ :test_prefix.
+    test('a test file prefix with pattern characters labels files as written', async () => {
         const world = new FakeCeedling();
         world.resolvedConfig += ':project:\n  :test_file_prefix: "test_("\n';
         world.testFiles = ['test/test_(calc.c'];
         world.write(`${WS}/test/test_(calc.c`, 'void test_add(void) {}\n');
         const logs: LogCall[] = [];
         const { file } = await discovered(world, { logs });
-        assert.strictEqual(file.label, 'test/test_(calc.c');
+        assert.strictEqual(file.label, 'calc');
         assert.strictEqual(file.functions[0].label, 'add');
+        assert.ok(!logs.some((l) => /Pretty labels are unavailable/.test(l.message)));
+    });
+
+    // Ceedling reads :test_runner ↳ :test_prefix as a pattern, so a broken one finds no tests.
+    test('a test function prefix that is not a valid pattern skips each file, with warnings', async () => {
+        const world = new FakeCeedling();
+        world.resolvedConfig += ':test_runner:\n  :test_prefix: "test("\n';
+        const logs: LogCall[] = [];
+        const { file } = await discovered(world, { logs });
+        assert.strictEqual(file, undefined);
         assert.ok(logs.some((l) => l.level === 'warn' && /Pretty labels are unavailable/.test(l.message)));
+        assert.ok(logs.some((l) => l.level === 'warn' && /skipping '\/ws\/test\/test_calc\.c'/.test(l.message)));
     });
 
     test('the project file is watched even when discovery fails', async () => {

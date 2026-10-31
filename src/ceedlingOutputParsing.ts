@@ -31,9 +31,11 @@ export function parseCeedlingVersions(stdout: string): ReportedCeedling | undefi
 }
 
 // Captures a test file's pretty label: its name after the configured prefix, without directory or
-// `.c` extension. The prefix must begin the file's name, after either path separator.
+// `.c` extension. The prefix must begin the file's name, after either path separator. It is
+// literal, as Ceedling's :test_file_prefix is.
 export function buildFileLabelRegex(filePrefix: string): RegExp {
-    return new RegExp(`(?:^|[\\\\/])${filePrefix}(.*)\\.c$`, 'i');
+    const literal = filePrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(?:^|[\\\\/])${literal}(.*)\\.c$`, 'i');
 }
 
 // Captures a test function's pretty label: its name after the configured prefix (a regex
