@@ -5,6 +5,7 @@
 import path from 'path';
 import { GCOV_ARTIFACTS } from './buildLayout';
 import type { ProjectCeedling } from './ceedlingVersions';
+import { field } from './parsedXml';
 import { pathsFor } from './platformPaths';
 import type { CeedlingFileNode } from './testModel';
 
@@ -207,17 +208,17 @@ async function projectFiles(
 }
 
 export function projectState(resolved: unknown, platform: NodeJS.Platform): ProjectState {
-    const enabledPlugins = setting(resolved, ':plugins', ':enabled');
+    const enabledPlugins = field(resolved, ':plugins', ':enabled');
     return {
         buildRoot: stringSetting(resolved, 'build', ':project', ':build_root'),
         reportFilename: stringSetting(resolved, DEFAULT_CPPUNIT_REPORT_FILENAME, ':report_tests_log_factory', ':cppunit', ':filename'),
         testPrefix: stringSetting(resolved, 'test|spec|should', ':test_runner', ':test_prefix'),
         testFilePrefix: stringSetting(resolved, 'test_', ':project', ':test_file_prefix'),
         executableExtension: stringSetting(resolved, platform === 'win32' ? '.exe' : '.out', ':extension', ':executable'),
-        useParamTests: setting(resolved, ':unity', ':use_param_tests') === true,
+        useParamTests: field(resolved, ':unity', ':use_param_tests') === true,
         reportPluginEnabled: Array.isArray(enabledPlugins) && enabledPlugins.includes('report_tests_log_factory'),
         coverage: coverageState(resolved),
-        testPaths: stringList(setting(resolved, ':paths', ':test')),
+        testPaths: stringList(field(resolved, ':paths', ':test')),
         whichCeedling: stringSetting(resolved, 'gem', ':project', ':which_ceedling'),
     };
 }
@@ -226,19 +227,19 @@ export function projectState(resolved: unknown, platform: NodeJS.Platform): Proj
 // without the gcov plugin. Ceedling compares utility and report names case-insensitively, and with
 // no :utilities: listed the plugin uses gcovr.
 export function coverageState(resolved: unknown): CoverageState | undefined {
-    const enabledPlugins = setting(resolved, ':plugins', ':enabled');
+    const enabledPlugins = field(resolved, ':plugins', ':enabled');
     if (!Array.isArray(enabledPlugins) || !enabledPlugins.includes('gcov')) {
         return undefined;
     }
     const names = (value: unknown) => stringList(value).map((name) => name.toLowerCase());
-    const listed = names(setting(resolved, ':gcov', ':utilities'));
+    const listed = names(field(resolved, ':gcov', ':utilities'));
     const utilities = listed.length > 0 ? listed : ['gcovr'];
-    const cobertura = names(setting(resolved, ':gcov', ':reports')).includes('cobertura');
+    const cobertura = names(field(resolved, ':gcov', ':reports')).includes('cobertura');
     const coberturaReports = !cobertura ? [] : [
         ...utilities.includes('gcovr') ? [`${GCOV_ARTIFACTS}/gcovr/${stringSetting(resolved, 'GcovCoverageCobertura.xml', ':gcov', ':gcovr', ':cobertura_artifact_filename')}`] : [],
         ...utilities.includes('reportgenerator') ? [`${GCOV_ARTIFACTS}/ReportGenerator/Cobertura.xml`, `${GCOV_ARTIFACTS}/ReportGenerator/Cobertura/Cobertura.xml`] : [],
     ];
-    return { reportTask: setting(resolved, ':gcov', ':report_task') === true, coberturaReports };
+    return { reportTask: field(resolved, ':gcov', ':report_task') === true, coberturaReports };
 }
 
 // What a project must configure before a coverage run can show anything, or undefined.
@@ -249,24 +250,12 @@ export function coverageProblem(projectKey: string, coverage: CoverageState): st
         `See "Code coverage" in this extension's README.`;
 }
 
-// The value at a path of YAML symbol keys, or undefined anywhere along a missing path.
-function setting(config: unknown, ...keys: string[]): unknown {
-    let value = config;
-    for (const key of keys) {
-        if (typeof value !== 'object' || value === null) {
-            return undefined;
-        }
-        value = (value as Record<string, unknown>)[key];
-    }
-    return value;
-}
-
 // The strings of a list setting. Anything else in the list, or a setting that isn't one, is ignored.
 function stringList(value: unknown): string[] {
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
 function stringSetting(config: unknown, fallback: string, ...keys: string[]): string {
-    const value = setting(config, ...keys);
+    const value = field(config, ...keys);
     return typeof value === 'string' ? value : fallback;
 }

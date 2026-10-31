@@ -1,12 +1,16 @@
 // Parsing for Ceedling's console output, its report names, and the Testing view's pretty labels.
 // It has no `vscode`, `child_process`, or `fs` dependency, so it is unit-tested in plain Node.
 
+// Output's lines, whichever line endings it uses: LF, CRLF, or a lone CR. Otherwise a trailing
+// "\r" on every line defeats a line pattern, as it did on a real Windows runner.
+export function outputLines(output: string): string[] {
+    return output.split(/\r\n?|\n/);
+}
+
 // The files listed in `ceedling files:test` stdout, one per bullet line. Ceedling 1.0.0 bullets
-// with "-", 1.1.0 and later with "*". "•" is accepted as well. CRLF output is normalized first.
-// Otherwise a trailing "\r" on every line defeats the line pattern and the list comes back empty,
-// as it did on a real Windows runner.
+// with "-", 1.1.0 and later with "*". "•" is accepted as well.
 export function parseFileListBullets(stdout: string): string[] {
-    return stdout.replace(/\r\n?/g, '\n').split('\n')
+    return outputLines(stdout)
         .map((line) => /^\s*[-•*]\s+(.*)$/.exec(line))
         .filter((match): match is RegExpExecArray => match !== null)
         .map((match) => (match[1] ?? '').trim());
@@ -77,7 +81,7 @@ export function extractGdbLogReference(message: string): { text: string, logPath
 // such as a compiler's errors, up to the closing "could not complete operations" line. A decorated
 // console leads the line with an emoji, which is dropped. undefined when Ceedling raised none.
 export function extractCeedlingException(output: string): string | undefined {
-    const lines = output.replace(/\r\n?/g, '\n').split('\n');
+    const lines = outputLines(output);
     const start = lines.findIndex((line) => /^[^\w\s]*\s*EXCEPTION:/.test(line));
     if (start < 0) {
         return undefined;
@@ -95,7 +99,7 @@ export function extractCeedlingException(output: string): string | undefined {
 const LAYOUT_UPGRADE_WORDS = [/dependency cache/i, /\bearlier\b/i, /build layout/i, /\bclobber\b/i];
 
 export function detectLayoutUpgrade(output: string): boolean {
-    return output.split(/\r\n?|\n/).some((line) => LAYOUT_UPGRADE_WORDS.every((word) => word.test(line)));
+    return outputLines(output).some((line) => LAYOUT_UPGRADE_WORDS.every((word) => word.test(line)));
 }
 
 // Ceedling's own exception, from whichever stream carried it.

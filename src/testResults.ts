@@ -2,8 +2,7 @@
 // from the report_tests_log_factory plugin, which the extension's bundled mixin always enables.
 // It has no `vscode` or filesystem dependency, so it is unit-tested in plain Node.
 
-import xml2js from 'xml2js';
-import { field, list, text } from './parsedXml';
+import { field, list, parseXml, text } from './parsedXml';
 
 export type ReportedTest = { name: string };
 // `line` is 0-based. A failure Ceedling reports without a location has none.
@@ -20,7 +19,7 @@ export type TestResult =
 
 // Rejects malformed XML. Ceedling before 1.2.0 writes `<` and `&` in test names unescaped.
 export async function parseCppUnitReport(text: string): Promise<CppUnitReport> {
-    return readCppUnitReport(await new xml2js.Parser({ explicitArray: false }).parseStringPromise(text));
+    return readCppUnitReport(await parseXml(text));
 }
 
 // Reads a report as xml2js parses it with `explicitArray: false`. Throws when there is no <TestRun>
@@ -33,7 +32,7 @@ export function readCppUnitReport(parsedXml: unknown): CppUnitReport {
     return {
         passed: category(testRun, 'SuccessfulTests').map((test) => ({ name: text(field(test, 'Name')) })),
         failed: category(testRun, 'FailedTests').map((test) => {
-            const line = parseInt(text(field(field(test, 'Location'), 'Line')), 10);
+            const line = parseInt(text(field(test, 'Location', 'Line')), 10);
             return { name: text(field(test, 'Name')), message: text(field(test, 'Message')), line: Number.isFinite(line) ? line - 1 : undefined };
         }),
         ignored: category(testRun, 'IgnoredTests').map((test) => ({ name: text(field(test, 'Name')) })),
@@ -41,7 +40,7 @@ export function readCppUnitReport(parsedXml: unknown): CppUnitReport {
 }
 
 function category(testRun: object, name: string): unknown[] {
-    return list(field(field(testRun, name), 'Test'));
+    return list(field(testRun, name, 'Test'));
 }
 
 export function reportedNames(report: CppUnitReport): string[] {

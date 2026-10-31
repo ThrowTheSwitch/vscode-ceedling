@@ -5,6 +5,7 @@
 
 import path from 'path';
 import util from 'util';
+import { outputLines } from './ceedlingOutputParsing';
 import type { Log } from './log';
 
 export interface ProblemMatchingPattern {
@@ -192,7 +193,7 @@ export function matchToProblem(
 // literal `${projectPath}` in the pattern's `filePrefix`. Throws for an invalid `regexp`, so a
 // caller running several patterns catches per pattern and one bad pattern spares the rest.
 export function getPatternProblems(stdout: string, stderr: string, projectPath: string, pattern: ProblemMatchingPattern, paths: typeof path.posix = path): MatchedProblem[] {
-    const input = ((pattern.scanStdout ? stdout : '') + '\n' + (pattern.scanStderr ? stderr : '')).split(/\r?\n/);
+    const input = outputLines((pattern.scanStdout ? stdout : '') + '\n' + (pattern.scanStderr ? stderr : ''));
     const regexp = new RegExp(pattern.regexp);
     const filePrefix = pattern.filePrefix.replace(/\$\{projectPath\}/g, projectPath);
     const problems: MatchedProblem[] = [];

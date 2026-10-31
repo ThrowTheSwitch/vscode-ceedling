@@ -51,9 +51,14 @@ export function leafIds(functions: readonly CeedlingTestFunction[]): string[] {
     return functions.flatMap((fn) => fn.cases.length > 0 ? fn.cases.map((c) => c.id) : [fn.id]);
 }
 
+// A function's id and each of its cases' ids.
+export function functionIds(fn: CeedlingTestFunction): string[] {
+    return [fn.id, ...fn.cases.map((c) => c.id)];
+}
+
 // Every id within a file, the file's own included, for marking a whole file started or errored.
 export function allIds(file: CeedlingFileNode): string[] {
-    return [file.id, ...file.functions.flatMap((fn) => [fn.id, ...fn.cases.map((c) => c.id)])];
+    return [file.id, ...file.functions.flatMap(functionIds)];
 }
 
 // The Testing view names each folder's tests when there is more than one folder.

@@ -6,7 +6,11 @@ import util from 'util';
 import { exceptionOf, parseCeedlingVersions, type ReportedCeedling, withException } from './ceedlingOutputParsing';
 import type { CeedlingResult } from './ceedlingProcess';
 import type { Log } from './log';
-import { pathsFor, samePath } from './platformPaths';
+import { samePath } from './platformPaths';
+
+// Where a project keeps a Ceedling of its own, which runs in place of the installed one, as
+// `ceedling new --local` vendors it.
+export const VENDORED_CEEDLING = 'vendor/ceedling';
 
 // The oldest Ceedling this extension runs.
 export const MINIMUM_CEEDLING_VERSION = '1.0.0';
@@ -109,7 +113,7 @@ export function versionSeesSelection(whichCeedling: string, projectDir: string, 
     if (which.toLowerCase() === 'gem') {
         return true;
     }
-    return samePath(which, pathsFor(platform).join('vendor', 'ceedling'), platform, projectDir);
+    return samePath(which, VENDORED_CEEDLING, platform, projectDir);
 }
 
 // The Ceedling that runs a project, as `ceedling version` reports it. `release` counts a build as

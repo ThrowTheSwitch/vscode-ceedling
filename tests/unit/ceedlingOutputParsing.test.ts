@@ -8,6 +8,7 @@ import {
     extractCeedlingException,
     extractGdbLogReference,
     extractTestFunctionName,
+    outputLines,
     parseCeedlingVersions,
     parseFileListBullets,
     testCaseFilterMatchedExactly,
@@ -291,5 +292,11 @@ suite('detectLayoutUpgrade', () => {
         for (const separator of ['\n', '\r\n', '\r']) {
             assert.strictEqual(detectLayoutUpgrade(`Dependency cache x comes from an earlier Ceedling${separator}build layout. Run \`ceedling clobber\`.`), false, JSON.stringify(separator));
         }
+    });
+});
+
+suite('outputLines', () => {
+    test('splits on LF, CRLF, and a lone CR alike', () => {
+        assert.deepStrictEqual(outputLines('a\nb\r\nc\rd'), ['a', 'b', 'c', 'd']);
     });
 });

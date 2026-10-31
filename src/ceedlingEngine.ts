@@ -39,7 +39,7 @@ import {
     type ProjectState,
     projectState,
 } from './ceedlingProjectConfig';
-import { type CeedlingCapabilities, checkVersion, type ProjectCeedling, releaseKnown, type VersionCheck } from './ceedlingVersions';
+import { type CeedlingCapabilities, checkVersion, type ProjectCeedling, releaseKnown, VENDORED_CEEDLING, type VersionCheck } from './ceedlingVersions';
 import { KeyedLock, Limiter, mapGrouped } from './concurrency';
 import { clearTestCounters, coverageConfigurationProblem, prepareCoverage, readCoverage, type RunMode, TEST_MODE } from './coverageRun';
 import { type DiagnosticsSink } from './diagnosticsStore';
@@ -48,14 +48,14 @@ import type { Log } from './log';
 import { pathKey, type PlatformPaths, pathsFor } from './platformPaths';
 import { type MatchedProblem, matchProblems } from './problemMatching';
 import { setting, SETTING_DEFAULTS, type SettingKey, type Settings, type SettingsSource } from './settings';
-import { allIds, type CeedlingFileNode, type CeedlingProjectNode, type CeedlingTestFunction, leafIds, type RunReporter } from './testModel';
+import { allIds, type CeedlingFileNode, type CeedlingProjectNode, type CeedlingTestFunction, functionIds, leafIds, type RunReporter } from './testModel';
 import { type CppUnitReport, parseCppUnitReport, reportedNames } from './testResults';
 import { testFileNodes } from './testFileNodes';
 
 export { CeedlingLoadError } from './ceedlingProjectConfig';
 
 // A vendored Ceedling's own version, relative to the project directory.
-const VENDORED_VERSION = 'vendor/ceedling/lib/version.rb';
+const VENDORED_VERSION = `${VENDORED_CEEDLING}/lib/version.rb`;
 // Enough to overlap file reads, few enough to stay clear of file descriptor limits.
 const MAX_CONCURRENT_READS = 16;
 
@@ -257,7 +257,7 @@ export class CeedlingEngine {
         // waits out other work in its directory and last-known build root, unless discovering() finds
         // its dumpconfig read-only.
         // Outcomes apply in settings order, so errors read the same however the loads interleave.
-        const outcomes = await mapGrouped(this.candidates, (project) => this.directoryOf(project), (project) => this.loadProject(project));
+        const outcomes = await this.perDirectory(this.candidates, (project) => this.loadProject(project));
         const loaded = new Map<string, LoadedProject>();
         const errors: string[] = [];
         for (const outcome of outcomes) {
@@ -279,8 +279,7 @@ export class CeedlingEngine {
         // read-only. A failed listing fails discovery, rather than showing a project with no tests.
         // Reading and parsing sources needs no lock.
         const projects = [...loaded.values()];
-        const listings = await mapGrouped(projects, (project) => this.directoryOf(project),
-            (project) => this.discovering(project, project, project.state, () => this.listTestFiles(project)));
+        const listings = await this.perDirectory(projects, (project) => this.discovering(project, project, project.state, () => this.listTestFiles(project)));
         const unlisted = projects.flatMap((project, i) => {
             const listing = listings[i];
             return listing !== undefined && 'failed' in listing ? [{ project, exception: listing.failed }] : [];
@@ -299,7 +298,8 @@ export class CeedlingEngine {
         this.projects = loaded;
         const diagnosticsIds = new Set([...loaded.values()].flatMap((p) => [p.key, ...p.files.map((f) => fileDiagnosticsId(p.key, f.id))]));
         this.diagnostics.retainIds((id) => diagnosticsIds.has(id));
-        return [...loaded.values()].map((project) => ({ projectKey: project.key, label: project.key, files: project.files }));
+        // Copies, so the caller's tree and the engine's change only as each changes its own.
+        return [...loaded.values()].map((project) => ({ projectKey: project.key, label: project.key, files: [...project.files] }));
     }
 
     async runFile(projectKey: string, file: CeedlingFileNode, reporter: RunReporter, token: Cancellation, mode = TEST_MODE): Promise<void> {
@@ -321,7 +321,7 @@ export class CeedlingEngine {
         const project = this.project(projectKey);
         const outcome = await this.runTests(
             project, { kind: 'file', file }, mode, this.commandArgs(project, file.id, mode, name),
-            [fn.id, ...fn.cases.map((c) => c.id)], leafIds([fn]), reporter, token, name,
+            functionIds(fn), leafIds([fn]), reporter, token, name,
         );
         if (outcome === 'collision') {
             this.logger.warn(
@@ -417,6 +417,12 @@ export class CeedlingEngine {
     // The key a project's directory groups its work under.
     private directoryOf(project: CeedlingProject): string {
         return pathKey(project.absPath, this.platform);
+    }
+
+    // `work` for each project, concurrently across directories and in order within one, with the
+    // results in the projects' order.
+    private perDirectory<P extends CeedlingProject, R>(projects: readonly P[], work: (project: P) => Promise<R>): Promise<R[]> {
+        return mapGrouped(projects, (project) => this.directoryOf(project), work);
     }
 
     // Runs work holding the project's locks: its directory's, and its build root's once a
@@ -723,8 +729,7 @@ export class CeedlingEngine {
     }
 
     private async runInEveryProject(args: string[], token?: Cancellation, projects = this.candidates): Promise<boolean> {
-        const results = await mapGrouped(projects, (project) => this.directoryOf(project),
-            (project) => this.exclusively(project, () => this.ceedling(args, { project, cancellation: token })));
+        const results = await this.perDirectory(projects, (project) => this.exclusively(project, () => this.ceedling(args, { project, cancellation: token })));
         return results.every((result) => !result.error || result.cancelled);
     }
 
