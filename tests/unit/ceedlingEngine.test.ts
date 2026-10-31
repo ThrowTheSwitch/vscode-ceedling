@@ -398,7 +398,6 @@ suite('CeedlingEngine.discover', () => {
         for (const dir of ['a', 'b']) {
             world.directories.add(`${WS}/${dir}`);
             world.write(`${WS}/${dir}/project.yml`, ':project: {}\n');
-            world.write(`${WS}/${dir}/test/test_calc.c`, 'void test_add(void) {}\n');
         }
         world.handlers.push((command, cwd) => /^ceedling dumpconfig/.test(command) && cwd.endsWith('/b') ? { error: true, stderr: 'EXCEPTION: bad b\n' } : undefined);
         await assert.rejects(makeEngine(world, { settings }).discover(), (e: unknown) => e instanceof CeedlingLoadError &&
@@ -1146,6 +1145,7 @@ suite('CeedlingEngine after a build layout upgrade', () => {
         for (const dir of ['a', 'b']) {
             world.directories.add(`${WS}/${dir}`);
             world.write(`${WS}/${dir}/project.yml`, ':project: {}\n');
+            world.write(`${WS}/${dir}/test/test_calc.c`, 'void test_add(void) {}\n');
         }
         world.handlers.push((command, cwd) => /^ceedling test:/.test(command)
             ? { [cwd.endsWith('/a') ? 'stdout' : 'stderr']: upgraded, writes: { [`${cwd}/build/artifacts/test/cppunit_tests_report.xml`]: cppunit({ passed: ['test/test_calc.c::test_add'] }) } }
@@ -1157,6 +1157,19 @@ suite('CeedlingEngine after a build layout upgrade', () => {
             await engine.runProjectAll(project.projectKey, project.files, recordingReporter(), token());
         }
         assert.deepStrictEqual(upgrades.map((u) => u.projectKey), projects.map((p) => p.projectKey));
+    });
+
+    // Ceedling warns as the build starts and rewrites its cache even when stopped, so a later build won't warn.
+    test('a cancelled build that warned still offers a clobber', async () => {
+        const world = new FakeCeedling();
+        const cancel = token();
+        world.handlers.push((command) => /^ceedling test:/.test(command)
+            ? new Promise<Reply>((resolve) => setImmediate(() => { cancel.fire(); resolve({ stdout: upgraded, error: true }); }))
+            : undefined);
+        const upgrades: LayoutUpgrade[] = [];
+        const { engine, file } = await discovered(world, { upgrades });
+        await engine.runFile('default', file, recordingReporter(), cancel);
+        assert.deepStrictEqual(upgrades.map((u) => u.projectKey), ['default']);
     });
 
     test('a build without the warning offers nothing', async () => {
@@ -1180,6 +1193,16 @@ suite('CeedlingEngine after a build layout upgrade', () => {
         assert.doesNotMatch(await noticeFor(new FakeCeedling()), /coverage/i);
         assert.match(await noticeFor(coverageWorld()), /coverage stays exact/i);
         assert.match(await noticeFor(coverageWorld(), { coverageResetsCounters: false }), /coverage reports also count.*coverageResetsCounters/i);
+    });
+
+    // A rediscovery may drop the project while its notice shows.
+    test('a clobber of a project no longer configured fails, running nothing', async () => {
+        const world = new FakeCeedling();
+        const logs: LogCall[] = [];
+        const { engine } = await discovered(world, { logs });
+        assert.strictEqual(await engine.clobberProject('gone'), false);
+        assert.deepStrictEqual(world.commandsMatching(/^ceedling clobber/), []);
+        assert.ok(logs.some((l) => l.level === 'warn' && /'gone'/.test(l.message)), 'the log names the project');
     });
 
     test('a project clobber runs in that project alone, after its build', async () => {

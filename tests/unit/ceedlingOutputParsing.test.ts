@@ -282,6 +282,8 @@ suite('detectLayoutUpgrade', () => {
     });
 
     test('needs every word on one line', () => {
-        assert.strictEqual(detectLayoutUpgrade('Dependency cache x comes from an earlier Ceedling\nbuild layout. Run `ceedling clobber`.'), false);
+        for (const separator of ['\n', '\r\n', '\r']) {
+            assert.strictEqual(detectLayoutUpgrade(`Dependency cache x comes from an earlier Ceedling${separator}build layout. Run \`ceedling clobber\`.`), false, JSON.stringify(separator));
+        }
     });
 });

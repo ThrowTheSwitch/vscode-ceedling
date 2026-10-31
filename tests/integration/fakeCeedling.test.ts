@@ -171,7 +171,8 @@ suite('Extension against a fake Ceedling', function () {
     });
 
     // As after upgrading to Ceedling 1.2.2 from 1.2.1, whose cache the fake's next build sets aside.
-    test("a build Ceedling moved to a new layout offers to clobber that project", async () => {
+    // The notice shows during the run's first build. A clobber before its second would rebuild it all.
+    test("a build Ceedling moved to a new layout offers to clobber that project, once the run ends", async () => {
         const cache = fileUri('build', 'cache', '.test.dep_cache.json').fsPath;
         fs.mkdirSync(path.dirname(cache), { recursive: true });
         fs.writeFileSync(cache, JSON.stringify({ schema_version: 1, entries: {} }));
@@ -184,8 +185,9 @@ suite('Extension against a fake Ceedling', function () {
         };
         try {
             const before = invocations().length;
-            await run(['test/test_calc.c']);
+            await run(['test/test_calc.c', 'test/test_unreported.c']);
             await waitFor(() => invocations().slice(before).some((args) => args[0] === 'clobber'), 'the offered clobber', () => JSON.stringify(offers));
+            assert.deepStrictEqual(invocations().slice(before).map((args) => args[0]), ['test:test/test_calc.c', 'test:test/test_unreported.c', 'clobber']);
             assert.deepStrictEqual(offers.map((offer) => offer.actions), [['Clobber']]);
             assert.match(offers[0].message, /Clobber to remove the output left in the old layout/);
             await waitFor(() => !fs.existsSync(cache), 'the clobber to remove the build root');

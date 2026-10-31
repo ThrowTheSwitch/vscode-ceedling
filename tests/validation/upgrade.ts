@@ -1,17 +1,17 @@
 // A project built by an older Ceedling, then by the image's own, as after an upgrade. A newer
 // layout moves a test's build output, and the older layout's files stay until a clobber. For each
-// older installation under /opt/ceedling the image's launcher can run, through WHICH_CEEDLING, and
-// with coverage counters reset before each coverage run and not:
+// older installation under /opt/ceedling the image's launcher can run, through WHICH_CEEDLING, once
+// with coverage counters reset before each coverage run and once with them kept:
 // 1. The older Ceedling covers one test file and debug-builds a nested one, whose build directory
 //    differs between layouts. Both must succeed, so the older layout's files exist.
 // 2. With the image's own Ceedling, a debug build must return the executable just built, never the
 //    one left in the older layout. Where that Ceedling moved the layout and found the older one's
 //    dependency cache, it warns, and the engine must offer a clobber once. Elsewhere it must offer
-//    none. A reworded warning the engine no longer recognizes fails here.
+//    none. A reworded warning the engine doesn't recognize fails here.
 // 3. Reports read every counter on disk. With resets, coverage must equal a clobbered build's,
 //    since the engine's reset clears the older layout's counters too. Without, where the layout
-//    moved, coverage must differ from a clobbered build's, as the offer's notice says. The clobber
-//    runs as the offer's does.
+//    moved, coverage must differ from a clobbered build's, since reports count the older layout's
+//    counters too. The clobber runs as the offer's does.
 //
 // usage: node upgrade.js
 import * as fs from 'fs';
@@ -98,7 +98,7 @@ main('upgrade', async (checks) => {
                 if (resets) {
                     checks.expect(after === describe(clean), `${label}: coverage ${after}, but a clobbered build's ${describe(clean)}`);
                 } else if (moved) {
-                    checks.expect(after !== describe(clean), `${label}: coverage ${after} counts no older counters, though the notice says it does`);
+                    checks.expect(after !== describe(clean), `${label}: coverage ${after} counts no older counters, though the older layout left them`);
                 }
                 if (resets) upgraded++;
                 console.log(`${label}: debug ${executable}, after ${oldBuild.built}; ${upgrades.length} clobber offered; coverage ${after}, clobbered ${describe(clean)}`);
