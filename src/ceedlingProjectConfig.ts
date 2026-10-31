@@ -184,6 +184,7 @@ export async function projectsFromSettings(
     isDirectory: (absPath: string) => Promise<boolean>,
     exists: (absPath: string) => Promise<boolean>,
 ): Promise<CeedlingProject[]> {
+    checkSettings(settings);
     // Path rules follow the given platform rather than the host's, so Windows paths resolve as
     // Windows paths wherever this runs.
     const paths = platform === 'win32' ? path.win32 : path.posix;
@@ -206,6 +207,27 @@ export async function projectsFromSettings(
     return [...projects.values()];
 }
 
+// Settings are user JSON. VS Code's editor follows package.json's schema, but nothing enforces it,
+// so a malformed value stops discovery with an error naming it.
+function checkSettings(settings: { projects: unknown, mixins: unknown }): void {
+    const fail = (setting: string, expected: string): never => { throw new CeedlingLoadError(`ceedlingExplorer.${setting} must be ${expected}.`); };
+    const strings = (value: unknown) => Array.isArray(value) && value.every((item) => typeof item === 'string');
+    if (!strings(settings.mixins)) fail('mixins', 'a list of strings');
+    if (!Array.isArray(settings.projects)) fail('projects', 'a list');
+    (settings.projects as unknown[]).forEach((project, i) => {
+        const field = (name: string) => typeof project === 'object' && project !== null ? (project as Record<string, unknown>)[name] : undefined;
+        if (typeof field('path') !== 'string') fail(`projects[${i}].path`, 'a string');
+        if (typeof field('debugLaunchConfig') !== 'string') fail(`projects[${i}].debugLaunchConfig`, 'a string');
+        if (field('name') !== undefined && typeof field('name') !== 'string') fail(`projects[${i}].name`, 'a string');
+        if (field('mixins') !== undefined && !strings(field('mixins'))) fail(`projects[${i}].mixins`, 'a list of strings');
+    });
+}
+
+// A path Ceedling reads as a YAML file, as a project file or a mixin.
+export function isYamlFile(filePath: string): boolean {
+    return /\.ya?ml$/i.test(filePath);
+}
+
 // Gcov's XML report generation fails on Windows unless the drive letter is uppercase.
 function withUppercaseDrive(windowsPath: string): string {
     return windowsPath.replace(/^[a-z](?=:)/, (drive) => drive.toUpperCase());
@@ -217,7 +239,7 @@ export function pathKey(absPath: string, platform: NodeJS.Platform): string {
     return platform === 'win32' ? absPath.toLowerCase() : absPath;
 }
 
-// A path ending in .yml names a project file. Any other path names a directory holding a default
+// A YAML path names a project file. Any other path names a directory holding a default
 // project file. The key is the configured name, else an alternate file's base name, else the path.
 async function projectFromSetting(
     setting: ProjectSetting, globalMixins: readonly string[], root: string, paths: typeof path.posix, exists: (absPath: string) => Promise<boolean>,
@@ -225,12 +247,12 @@ async function projectFromSetting(
     let directory = setting.path;
     let configuredFile: string | undefined;
     let key = setting.path;
-    if (setting.path.endsWith('.yml')) {
+    if (isYamlFile(setting.path)) {
         const segments = setting.path.split(/[\\/]/);
         configuredFile = segments.pop() ?? setting.path;
         directory = segments.join('/') || '.';
         if (configuredFile !== DEFAULT_PROJECT_FILE && configuredFile !== ALTERNATE_DEFAULT_PROJECT_FILE) {
-            key = configuredFile.slice(0, -'.yml'.length);
+            key = configuredFile.replace(/\.ya?ml$/i, '');
         }
     }
     const resolved = paths.resolve(root, directory);

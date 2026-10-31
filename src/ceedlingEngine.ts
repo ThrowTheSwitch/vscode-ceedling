@@ -45,6 +45,7 @@ import {
     DEFAULT_PROJECT_FILE,
     firstRelease,
     isSupportedRelease,
+    isYamlFile,
     MINIMUM_CEEDLING_VERSION,
     pathKey,
     type ProjectSetting,
@@ -171,7 +172,7 @@ function quoted(exception: string | undefined): string {
 
 // A mixin naming a file, rather than one Ceedling finds by name through its load paths.
 function isMixinFile(mixin: string): boolean {
-    return /[\\/]/.test(mixin) || /\.ya?ml$/i.test(mixin);
+    return /[\\/]/.test(mixin) || isYamlFile(mixin);
 }
 
 function isLoaded(project: CeedlingProject): project is LoadedProject {

@@ -55,6 +55,32 @@ suite('projectsFromSettings', () => {
         assert.strictEqual(project.absPath, '/ws/fw');
     });
 
+    // As for mixins, which Ceedling loads by path whatever their extension's spelling.
+    test('a .yaml path, in any case, names a project file too', async () => {
+        const [yamlFile, upper] = await projectsFromSettings({
+            projects: [{ path: 'fw/ci.yaml', debugLaunchConfig: 'dbg' }, { path: 'fw/SIM.YML', debugLaunchConfig: 'dbg' }], mixins: [],
+        }, '/ws', 'linux', anyDirectory, noFiles);
+        assert.deepStrictEqual([yamlFile.key, yamlFile.ymlFileName, yamlFile.absPath], ['ci', 'ci.yaml', '/ws/fw']);
+        assert.deepStrictEqual([upper.key, upper.ymlFileName, upper.absPath], ['SIM', 'SIM.YML', '/ws/fw']);
+    });
+
+    // Settings are user JSON, typed only by package.json's schema, which VS Code doesn't enforce.
+    test('a malformed setting is a load error naming it', async () => {
+        const malformed: Array<[unknown, unknown, RegExp]> = [
+            ['fw', [], /ceedlingExplorer\.projects must be a list/],
+            [[{ path: 5, debugLaunchConfig: 'dbg' }], [], /ceedlingExplorer\.projects\[0\]\.path must be a string/],
+            [[{ path: 'fw' }], [], /ceedlingExplorer\.projects\[0\]\.debugLaunchConfig must be a string/],
+            [[{ path: 'fw', debugLaunchConfig: 'dbg', name: 7 }], [], /ceedlingExplorer\.projects\[0\]\.name must be a string/],
+            [[{ path: 'fw', debugLaunchConfig: 'dbg', mixins: 'gcc' }], [], /ceedlingExplorer\.projects\[0\]\.mixins must be a list of strings/],
+            [[], 'gcc', /ceedlingExplorer\.mixins must be a list of strings/],
+            [[], ['gcc', 3], /ceedlingExplorer\.mixins must be a list of strings/],
+        ];
+        for (const [projects, mixins, expected] of malformed) {
+            await assert.rejects(projectsFromSettings({ projects, mixins } as unknown as Parameters<typeof projectsFromSettings>[0], '/ws', 'linux', anyDirectory, noFiles),
+                (e: unknown) => e instanceof CeedlingLoadError && expected.test(e.message), `${JSON.stringify(projects)} ${JSON.stringify(mixins)}`);
+        }
+    });
+
     test('backslash separators in a yml path are understood', async () => {
         const [project] = await projectsFromSettings({ projects: [{ path: 'fw\\ci.yml', debugLaunchConfig: 'dbg' }], mixins: [] }, '/ws', 'linux', anyDirectory, noFiles);
         assert.strictEqual(project.ymlFileName, 'ci.yml');
