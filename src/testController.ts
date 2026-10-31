@@ -35,6 +35,8 @@ export class CeedlingTestController {
     private controller: vscode.TestController | undefined;
     private controllerDisposables: vscode.Disposable[] = [];
     private readonly engine: CeedlingEngine;
+    // Each run's compiler problems, in the Problems panel.
+    private readonly problems = new ProblemMatcher();
     private readonly disposables: vscode.Disposable[] = [];
     private readonly discovery: SingleFlight;
     // Each watcher with its listeners, keyed by what it watches: a configuration file, or a
@@ -74,9 +76,9 @@ export class CeedlingTestController {
         private label: string,
     ) {
         this.logger.debug(`CeedlingTestController created for ${workspaceFolder.uri.toString()}`);
-        this.engine = new CeedlingEngine(workspaceFolder, logger, isDevelopmentMode, {
-            configProvider: (uri) => vscode.workspace.getConfiguration('ceedlingExplorer', uri),
-            problemMatcher: new ProblemMatcher(logger),
+        this.engine = new CeedlingEngine(workspaceFolder.uri.fsPath, logger, isDevelopmentMode, {
+            settings: () => vscode.workspace.getConfiguration('ceedlingExplorer', workspaceFolder.uri),
+            diagnostics: this.problems,
             bundledMixinPath: path.join(extensionPath, 'assets', 'mixins', 'report-tests-log-factory.yml'),
             onLayoutUpgrade: (upgrade) => { this.offerClobber(upgrade).catch((e) => this.logger.error(`offerClobber: ${util.format(e)}`)); },
         });
@@ -163,6 +165,7 @@ export class CeedlingTestController {
         [...this.configurationWatchers.values(), ...this.sourceWatchers.values(), ...this.disposables].forEach((d) => { d.dispose(); });
         this.disposeController();
         this.engine.dispose();
+        this.problems.dispose();
         this.reported.dispose();
         this.coverageReported.dispose();
         this.coverageProblemReported.dispose();
@@ -205,7 +208,7 @@ export class CeedlingTestController {
         );
         if (clearDiagnostics) {
             this.logger.debug(`onConfigurationChanged: problem matching disabled, clearing diagnostics`);
-            this.engine.problemMatcher.clear();
+            this.problems.clear();
         }
         if (rediscoverFor.length > 0) {
             this.logger.debug(`onConfigurationChanged: ${rediscoverFor.join(', ')} changed, refreshing`);

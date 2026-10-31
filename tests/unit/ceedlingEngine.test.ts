@@ -3,12 +3,12 @@ import type * as child_process from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import type vscode from 'vscode';
 import { CeedlingEngine, coverageMode, type EngineFileSystem, fileDiagnosticsId, type LayoutUpgrade, nodeFileSystem } from '../../src/ceedlingEngine';
 import { type Cancellation, CeedlingRunner } from '../../src/ceedlingProcess';
 import { CeedlingLoadError } from '../../src/ceedlingProjectConfig';
-import type { Logger } from '../../src/logger';
-import type { FileDiagnostic, ProblemMatcher } from '../../src/problemMatcher';
+import type { DiagnosticsSink } from '../../src/diagnosticsStore';
+import type { Log } from '../../src/log';
+import type { MatchedProblem } from '../../src/problemMatching';
 import { type CeedlingFileNode, type CeedlingProjectNode, leafIds, type RunReporter } from '../../src/testModel';
 
 // Drives CeedlingEngine against a simulated Ceedling: an in-memory filesystem, and an exec double
@@ -128,34 +128,31 @@ function cppunit(parts: { passed?: string[], failed?: Array<{ name: string, mess
 
 type LogCall = { level: string, message: string };
 
-function fakeLogger(calls: LogCall[] = []): Logger {
+function fakeLogger(calls: LogCall[] = []): Log {
     const record = (level: string) => (...args: unknown[]) => { calls.push({ level, message: args.map(String).join(' ') }); };
     return {
         trace: record('trace'), debug: record('debug'), info: record('info'), warn: record('warn'), error: record('error'),
-        showWarning: record('showWarning'), showError: record('showError'), dispose() { },
-    } as unknown as Logger;
+        showWarning: record('showWarning'), showError: record('showError'),
+    };
 }
 
-// Keeps diagnostics by id exactly as ProblemMatcher does, without a vscode DiagnosticCollection.
-class FakeProblemMatcher {
-    entries = new Map<string, FileDiagnostic[]>();
-    matches: FileDiagnostic[] = [];
-    match() { return this.matches; }
-    set(id: string, diagnostics: FileDiagnostic[]) { this.entries.set(id, diagnostics); }
-    retain(id: string, keep: (d: FileDiagnostic) => boolean) {
+// Keeps each run's problems by id, as ProblemMatcher does without the Problems panel. Every run
+// finds `matches` in its output.
+class FakeProblemMatcher implements DiagnosticsSink {
+    entries = new Map<string, MatchedProblem[]>();
+    matches: MatchedProblem[] = [];
+    set(id: string, problems: MatchedProblem[]) { this.entries.set(id, problems); }
+    retain(id: string, keep: (problem: MatchedProblem) => boolean) {
         const current = this.entries.get(id);
         if (current) this.entries.set(id, current.filter(keep));
     }
     retainIds(keep: (id: string) => boolean) {
         for (const id of [...this.entries.keys()]) if (!keep(id)) this.entries.delete(id);
     }
-    clear() { this.entries.clear(); }
-    disposed = false;
-    dispose() { this.disposed = true; }
 }
 
-function diagnostic(file: string, line: number, severity: number, message: string): FileDiagnostic {
-    return { file, diagnostic: { message, severity, range: { start: { line } } } } as unknown as FileDiagnostic;
+function diagnostic(file: string, line: number, severity: 'error' | 'warning', message: string): MatchedProblem {
+    return { file, message, severity, startLine: line, startColumn: 0, endLine: line, endColumn: 999 };
 }
 
 type ReporterCall = [string, ...unknown[]];
@@ -191,13 +188,15 @@ function token(): Cancellation & { fire(): void } {
 function makeEngine(world: FakeCeedling, options: { settings?: Record<string, unknown>, logs?: LogCall[], problems?: FakeProblemMatcher, developmentMode?: boolean, folder?: string, platform?: NodeJS.Platform, upgrades?: LayoutUpgrade[] } = {}) {
     const settings = options.settings ?? {};
     const folder = options.folder ?? WS;
+    const problems = options.problems ?? new FakeProblemMatcher();
     return new CeedlingEngine(
-        { uri: { fsPath: folder, toString: () => `file://${folder}` }, name: 'ws', index: 0 } as unknown as vscode.WorkspaceFolder,
+        folder,
         fakeLogger(options.logs),
         options.developmentMode ?? false,
         {
-            configProvider: () => ({ get: (key: string, fallback?: unknown) => (key in settings ? settings[key] : fallback) }) as unknown as vscode.WorkspaceConfiguration,
-            problemMatcher: (options.problems ?? new FakeProblemMatcher()) as unknown as ProblemMatcher,
+            settings: () => ({ get: <T>(key: string, fallback: T): T => (key in settings ? settings[key] as T : fallback) }),
+            diagnostics: problems,
+            matchProblems: () => problems.matches,
             bundledMixinPath: BUNDLED_MIXIN,
             runner: world.runner,
             fileSystem: world.fileSystem,
@@ -858,7 +857,7 @@ suite('CeedlingEngine runs', () => {
     test('with no report, every id errors with the most severe diagnostic leading', async () => {
         const world = new FakeCeedling();
         const problems = new FakeProblemMatcher();
-        problems.matches = [diagnostic('/ws/a.h', 2, 1, 'a warning'), diagnostic('/ws/test/test_calc.c', 7, 0, 'the error')];
+        problems.matches = [diagnostic('/ws/a.h', 2, 'warning', 'a warning'), diagnostic('/ws/test/test_calc.c', 7, 'error', 'the error')];
         const { engine, file } = await discovered(world, { problems });
         world.handlers.push((command) => /^ceedling test:/.test(command) ? { error: true, stderr: 'build failed' } : undefined);
         const reporter = recordingReporter();
@@ -887,7 +886,7 @@ suite('CeedlingEngine runs', () => {
     test("with no report, the most severe diagnostic leads, then Ceedling's exception, then the transcript", async () => {
         const world = new FakeCeedling();
         const problems = new FakeProblemMatcher();
-        problems.matches = [diagnostic('/ws/test/test_calc.c', 7, 0, 'the error')];
+        problems.matches = [diagnostic('/ws/test/test_calc.c', 7, 'error', 'the error')];
         const { engine, file } = await discovered(world, { problems });
         world.handlers.push((command) => /^ceedling test:/.test(command) ? { error: true, stderr: STOPPED } : undefined);
         const reporter = recordingReporter();
@@ -1032,11 +1031,11 @@ suite('CeedlingEngine diagnostics', () => {
         const world = new FakeCeedling();
         const problems = new FakeProblemMatcher();
         const { engine, projects, file } = await discovered(world, { problems });
-        problems.matches = [diagnostic('/ws/test/test_calc.c', 3, 0, 'old'), diagnostic('/ws/src/other.c', 1, 0, 'other')];
+        problems.matches = [diagnostic('/ws/test/test_calc.c', 3, 'error', 'old'), diagnostic('/ws/src/other.c', 1, 'error', 'other')];
         await engine.runProjectAll('default', projects[0].files, recordingReporter(), token());
         problems.matches = [];
         await engine.runFile('default', file, recordingReporter(), token());
-        assert.deepStrictEqual(problems.entries.get('default')!.map((d) => d.diagnostic.message), ['other']);
+        assert.deepStrictEqual(problems.entries.get('default')!.map((d) => d.message), ['other']);
         assert.deepStrictEqual(problems.entries.get(fileDiagnosticsId('default', 'test/test_calc.c')), []);
     });
 
@@ -1048,11 +1047,11 @@ suite('CeedlingEngine diagnostics', () => {
         const problems = new FakeProblemMatcher();
         const engine = makeEngine(world, { folder: 'c:\\ws', platform: 'win32', problems });
         const [project] = await engine.discover();
-        problems.matches = [diagnostic('c:\\WS\\test\\Test_Calc.c', 3, 0, 'old'), diagnostic('C:\\ws\\src\\other.c', 1, 0, 'other')];
+        problems.matches = [diagnostic('c:\\WS\\test\\Test_Calc.c', 3, 'error', 'old'), diagnostic('C:\\ws\\src\\other.c', 1, 'error', 'other')];
         await engine.runProjectAll('default', project.files, recordingReporter(), token());
         problems.matches = [];
         await engine.runFile('default', project.files[0], recordingReporter(), token());
-        assert.deepStrictEqual(problems.entries.get('default')!.map((d) => d.diagnostic.message), ['other']);
+        assert.deepStrictEqual(problems.entries.get('default')!.map((d) => d.message), ['other']);
     });
 
     // Project names come from settings, so one may be another's followed by `::`.
@@ -1067,18 +1066,18 @@ suite('CeedlingEngine diagnostics', () => {
         const settings = { projects: [{ path: 'a', name: 'fw', debugLaunchConfig: 'dbg' }, { path: 'b', name: 'fw::sim', debugLaunchConfig: 'dbg' }] };
         const { engine, projects } = await discovered(world, { problems, settings });
         const [fw, sim] = projects;
-        problems.matches = [diagnostic('/ws/b/src/calc.c', 1, 0, 'sim')];
+        problems.matches = [diagnostic('/ws/b/src/calc.c', 1, 'error', 'sim')];
         await engine.runFile(sim.projectKey, sim.files[0], recordingReporter(), token());
         problems.matches = [];
         await engine.runProjectAll(fw.projectKey, fw.files, recordingReporter(), token());
-        assert.deepStrictEqual(problems.entries.get(fileDiagnosticsId('fw::sim', 'test/test_calc.c'))?.map((d) => d.diagnostic.message), ['sim']);
+        assert.deepStrictEqual(problems.entries.get(fileDiagnosticsId('fw::sim', 'test/test_calc.c'))?.map((d) => d.message), ['sim']);
     });
 
     test("a project run replaces the project entry and supersedes its files' entries", async () => {
         const world = new FakeCeedling();
         const problems = new FakeProblemMatcher();
         const { engine, projects, file } = await discovered(world, { problems });
-        problems.matches = [diagnostic('/ws/test/test_calc.c', 3, 0, 'stale')];
+        problems.matches = [diagnostic('/ws/test/test_calc.c', 3, 'error', 'stale')];
         await engine.runFile('default', file, recordingReporter(), token());
         problems.matches = [];
         await engine.runProjectAll('default', projects[0].files, recordingReporter(), token());
@@ -1432,17 +1431,16 @@ suite('CeedlingEngine lookups and lifecycle', () => {
         await run;
     });
 
-    test('dispose stops running processes and disposes the problem matcher', async () => {
+    // The controller owns the diagnostics and disposes them itself.
+    test('dispose stops running processes', async () => {
         const world = new FakeCeedling();
-        const problems = new FakeProblemMatcher();
-        const { engine, file } = await discovered(world, { problems });
+        const { engine, file } = await discovered(world);
         let release!: () => void;
         world.handlers.push((command) => /^ceedling test:/.test(command) ? new Promise<Reply>((resolve) => { release = () => resolve({}); }) : undefined);
         const run = engine.runFile('default', file, recordingReporter(), token());
         await new Promise((resolve) => setImmediate(resolve));
         engine.dispose();
         assert.strictEqual(world.killed.length, 1);
-        assert.strictEqual(problems.disposed, true);
         release();
         await run;
     });
@@ -1451,15 +1449,11 @@ suite('CeedlingEngine lookups and lifecycle', () => {
     test('with only its required dependencies, a folder without a project file on disk is no project', async () => {
         const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'ceedling-engine-'));
         try {
-            const engine = new CeedlingEngine(
-                { uri: { fsPath: folder, toString: () => `file://${folder}` }, name: 'empty', index: 0 } as unknown as vscode.WorkspaceFolder,
-                fakeLogger(), false,
-                {
-                    configProvider: () => ({ get: (_key: string, fallback?: unknown) => fallback }) as unknown as vscode.WorkspaceConfiguration,
-                    problemMatcher: new FakeProblemMatcher() as unknown as ProblemMatcher,
-                    bundledMixinPath: BUNDLED_MIXIN,
-                },
-            );
+            const engine = new CeedlingEngine(folder, fakeLogger(), false, {
+                settings: () => ({ get: <T>(_key: string, fallback: T): T => fallback }),
+                diagnostics: new FakeProblemMatcher(),
+                bundledMixinPath: BUNDLED_MIXIN,
+            });
             assert.deepStrictEqual(await engine.discover(), []);
         } finally {
             fs.rmSync(folder, { recursive: true, force: true });
@@ -1906,7 +1900,7 @@ suite('CeedlingEngine concurrent discovery', () => {
         const world = new FakeCeedling();
         world.version = '1.2.1';
         const problems = new FakeProblemMatcher();
-        problems.matches = [diagnostic(`${WS}/test/test_calc.c`, 1, 0, 'the error')];
+        problems.matches = [diagnostic(`${WS}/test/test_calc.c`, 1, 'error', 'the error')];
         const { engine, file } = await discovered(world, { problems });
         const build = held(world, /^ceedling test:/);
         const run = engine.runFile('default', file, recordingReporter(), token());

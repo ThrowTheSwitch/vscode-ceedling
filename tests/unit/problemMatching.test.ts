@@ -5,10 +5,13 @@ import {
     getGccPatternsPreset,
     getPatternProblems,
     getPatternsPreset,
+    matchProblems,
     matchToProblem,
     normalizePatterns,
     type ProblemMatchingPattern,
     resolveDiagnosticFilePath,
+    sameProblem,
+    severityRank,
 } from '../../src/problemMatching';
 
 // Fixtures stay in the source tree. Compiled tests run from out/tests/unit, three levels below.
@@ -256,5 +259,45 @@ suite('normalizePatterns', () => {
         ]);
         assert.deepStrictEqual(valid, []);
         assert.strictEqual(invalid.length, 1);
+    });
+});
+
+suite('matchProblems', () => {
+    const calls: Array<[string, string]> = [];
+    const log = { debug: (message: unknown) => { calls.push(['debug', String(message)]); }, warn: (message: unknown) => { calls.push(['warn', String(message)]); } };
+    const output = { stdout: '', stderr: 'test/test_calc.c:3:5: error: expected ‘;’\nsrc/calc.h:1:1: warning: unused\n' };
+
+    test('"disabled" finds nothing, and "gcc" its preset\'s problems under the project', () => {
+        assert.deepStrictEqual(matchProblems(output, '/ws', 'disabled', [], log), []);
+        const found = matchProblems(output, '/ws', 'gcc', [], log);
+        assert.deepStrictEqual(found.map((p) => [p.severity, p.file, p.startLine, p.message]).sort(),
+            [['error', '/ws/test/test_calc.c', 2, 'expected ‘;’'], ['warning', '/ws/src/calc.h', 0, 'unused']]);
+    });
+
+    test("the user's patterns: a malformed one is dropped and a broken regexp skipped, sparing the rest", () => {
+        calls.length = 0;
+        const patterns = [{ regexp: '(' , file: 1, message: 2 }, { file: 1 }, { regexp: '^(.*):(\\d+):(\\d+): error: (.*)$', file: 1, line: 2, column: 3, message: 4, scanStderr: true }];
+        const found = matchProblems(output, '/ws', 'patterns', patterns, log);
+        assert.deepStrictEqual(found.map((p) => p.message), ['expected ‘;’']);
+        assert.ok(calls.some(([level, message]) => level === 'debug' && /dropping malformed pattern/.test(message)));
+        assert.ok(calls.some(([level, message]) => level === 'warn' && /invalid regexp \(\(\)/.test(message)));
+    });
+
+    // The engine's platform decides, so a Windows project resolves as one wherever this runs.
+    test('paths follow the given platform', () => {
+        const found = matchProblems({ stdout: '', stderr: 'test\\test_calc.c:3:5: error: nope\n' }, 'C:\\ws', 'gcc', [], log, path.win32);
+        assert.deepStrictEqual(found.map((p) => p.file), ['C:\\ws\\test\\test_calc.c']);
+    });
+});
+
+suite('severityRank / sameProblem', () => {
+    test('errors rank before warnings, and warnings before the rest', () => {
+        assert.deepStrictEqual(['info', 'warning', 'error'].sort((a, b) => severityRank(a) - severityRank(b)), ['error', 'warning', 'info']);
+    });
+
+    test('problems are the same when every field is', () => {
+        const problem = { file: '/a.c', message: 'm', severity: 'error', startLine: 1, startColumn: 2, endLine: 1, endColumn: 999 };
+        assert.ok(sameProblem(problem, { ...problem }));
+        assert.ok(!sameProblem(problem, { ...problem, startColumn: 3 }));
     });
 });

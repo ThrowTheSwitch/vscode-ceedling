@@ -1,3 +1,15 @@
+import type { MatchedProblem } from './problemMatching';
+
+// Where the engine keeps each run's problems, by id: a project, or one of its files. ProblemMatcher
+// publishes them to the Problems panel.
+export interface DiagnosticsSink {
+    set(id: string, problems: MatchedProblem[]): void;
+    // Keeps only the problems under `id` that `keep` accepts.
+    retain(id: string, keep: (problem: MatchedProblem) => boolean): void;
+    // Keeps only the ids `keep` accepts, e.g. dropping a deleted test file's entry.
+    retainIds(keep: (id: string) => boolean): void;
+}
+
 // The diagnostics each run reported, kept by id: a project, or one of its files. The Problems
 // panel shows their union, by file, without duplicates, since a project run and a file run can
 // report the same compiler error. It has no `vscode` dependency. ProblemMatcher publishes

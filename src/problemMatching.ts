@@ -1,8 +1,11 @@
 // Problem matching without the editor: the preset patterns, applying a pattern to Ceedling's
 // output, and resolving each match's file. It has no `vscode` dependency, so it is unit-tested in
-// plain Node. problemMatcher.ts publishes the results to the Problems panel.
+// plain Node. problemMatcher.ts publishes the results to the Problems panel. Paths follow the
+// given platform's rules, the host's by default.
 
 import path from 'path';
+import util from 'util';
+import type { Log } from './log';
 
 export interface ProblemMatchingPattern {
     scanStdout: boolean;
@@ -133,11 +136,11 @@ export function getPatternsPreset(patternsPreset: string): ProblemMatchingPatter
 // Resolves a matched file against a pattern's prefix. An absolute match is used as is. A compiler
 // or linker may report one even where the prefix serves its relative paths, as GNU ld's
 // "undefined reference" line does.
-export function resolveDiagnosticFilePath(matchedFile: string, filePrefix: string): string {
-    if (filePrefix === '' || path.isAbsolute(matchedFile)) {
-        return path.normalize(matchedFile);
+export function resolveDiagnosticFilePath(matchedFile: string, filePrefix: string, paths: typeof path.posix = path): string {
+    if (filePrefix === '' || paths.isAbsolute(matchedFile)) {
+        return paths.normalize(matchedFile);
     }
-    return path.join(path.normalize(filePrefix), path.normalize(matchedFile));
+    return paths.join(paths.normalize(filePrefix), paths.normalize(matchedFile));
 }
 
 // Turns one regex match into a MatchedProblem, with 0-based positions. undefined when a configured
@@ -146,7 +149,7 @@ export function resolveDiagnosticFilePath(matchedFile: string, filePrefix: strin
 // problem at the start.
 export function matchToProblem(
     matches: RegExpExecArray, file: number, message: number, severity: string, filePrefix: string,
-    line: number | null, lastLine: number | null, column: number | null, lastColumn: number | null
+    line: number | null, lastLine: number | null, column: number | null, lastColumn: number | null, paths: typeof path.posix = path,
 ): MatchedProblem | undefined {
     const indexInBounds = (index: number | null) => index === null || index < matches.length;
     if (matches.length < 3 || file >= matches.length || message >= matches.length ||
@@ -160,7 +163,7 @@ export function matchToProblem(
     if (matchedFile === undefined || messageValue === undefined) {
         return undefined;
     }
-    const fileValue = resolveDiagnosticFilePath(matchedFile, filePrefix);
+    const fileValue = resolveDiagnosticFilePath(matchedFile, filePrefix, paths);
     const lineValue = line !== null ? Number(matches[line]) : undefined;
     const lastLineValue = lastLine !== null ? Number(matches[lastLine]) : undefined;
     const columnValue = column !== null ? Number(matches[column]) : undefined;
@@ -188,7 +191,7 @@ export function matchToProblem(
 // Every match of one pattern, line by line, in the streams it scans. `projectPath` replaces a
 // literal `${projectPath}` in the pattern's `filePrefix`. Throws for an invalid `regexp`, so a
 // caller running several patterns catches per pattern and one bad pattern spares the rest.
-export function getPatternProblems(stdout: string, stderr: string, projectPath: string, pattern: ProblemMatchingPattern): MatchedProblem[] {
+export function getPatternProblems(stdout: string, stderr: string, projectPath: string, pattern: ProblemMatchingPattern, paths: typeof path.posix = path): MatchedProblem[] {
     const input = ((pattern.scanStdout ? stdout : '') + '\n' + (pattern.scanStderr ? stderr : '')).split(/\r?\n/);
     const regexp = new RegExp(pattern.regexp);
     const filePrefix = pattern.filePrefix.replace(/\$\{projectPath\}/g, projectPath);
@@ -197,8 +200,49 @@ export function getPatternProblems(stdout: string, stderr: string, projectPath: 
         const matches = regexp.exec(line);
         if (!matches) continue;
         const problem = matchToProblem(matches, pattern.file, pattern.message, pattern.severity, filePrefix,
-            pattern.line, pattern.lastLine, pattern.column, pattern.lastColumn);
+            pattern.line, pattern.lastLine, pattern.column, pattern.lastColumn, paths);
         if (problem) problems.push(problem);
     }
     return problems;
+}
+
+// Every problem the configured patterns find in a run's output: a preset's, or with mode
+// "patterns", the user's own. A malformed pattern is dropped, and one whose regexp throws is
+// skipped, sparing the rest. Both are logged.
+export function matchProblems(
+    output: { stdout: string, stderr: string }, projectPath: string, mode: string, patterns: readonly unknown[], log: Pick<Log, 'debug' | 'warn'>,
+    paths: typeof path.posix = path,
+): MatchedProblem[] {
+    let applied: ProblemMatchingPattern[];
+    if (mode === 'patterns') {
+        const { valid, invalid } = normalizePatterns(patterns);
+        for (const dropped of invalid) {
+            log.debug(`normalizePatterns: dropping malformed pattern (missing/wrong-typed regexp, message, or file): ${JSON.stringify(dropped)}`);
+        }
+        applied = valid;
+    } else {
+        applied = getPatternsPreset(mode);
+    }
+    const problems: MatchedProblem[] = [];
+    for (const pattern of applied) {
+        try {
+            problems.push(...getPatternProblems(output.stdout, output.stderr, projectPath, pattern, paths));
+        } catch (e) {
+            log.warn(`match: pattern threw, likely an invalid regexp (${pattern.regexp}): ${util.format(e)}`);
+        }
+    }
+    log.debug(`match: mode=${mode}, patterns=${applied.length}, diagnostics=${problems.length}`);
+    return problems;
+}
+
+// Errors first, then warnings, then anything else, for choosing the problem that leads a message.
+// Patterns run warning, error, then catch-all, so the first found is not reliably the most severe.
+export function severityRank(severity: string): number {
+    return severity === 'error' ? 0 : severity === 'warning' ? 1 : 2;
+}
+
+// Whether two problems would show as one in the Problems panel.
+export function sameProblem(a: MatchedProblem, b: MatchedProblem): boolean {
+    return a.file === b.file && a.message === b.message && a.severity === b.severity &&
+        a.startLine === b.startLine && a.startColumn === b.startColumn && a.endLine === b.endLine && a.endColumn === b.endColumn;
 }

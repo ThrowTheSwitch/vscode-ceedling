@@ -1,11 +1,12 @@
 import util from 'util';
 import vscode from 'vscode';
 import { LogLevel, type LogOutputChannel } from 'vscode';
+import type { Log } from './log';
 
 // Writes to the "Ceedling Explorer" log output channel, created on first use. Its level follows
 // VS Code's own log level setting for the channel. Once disposed it logs nothing: a closed channel
 // throws, and controllers still log while VS Code disposes them.
-export class Logger {
+export class Logger implements Log {
     private _channel?: LogOutputChannel
     private disposed = false;
 
@@ -21,34 +22,34 @@ export class Logger {
         return this._channel;
     }
 
-    public trace(...args: unknown[]) {
+    public trace(...args: unknown[]): void {
         this.channel?.trace(this.format(...args));
     }
 
-    public debug(...args: unknown[]) {
+    public debug(...args: unknown[]): void {
         this.channel?.debug(this.format(...args));
     }
 
-    public info(...args: unknown[]) {
+    public info(...args: unknown[]): void {
         this.channel?.info(this.format(...args));
     }
 
-    public warn(...args: unknown[]) {
+    public warn(...args: unknown[]): void {
         this.channel?.warn(this.format(...args));
     }
 
-    public error(...args: unknown[]) {
+    public error(...args: unknown[]): void {
         this.channel?.error(this.format(...args));
     }
 
-    public showWarning(...args: unknown[]) {
+    public showWarning(...args: unknown[]): void {
         const message = this.format(...args);
         this.warn(message);
         vscode.window.showWarningMessage(message);
     }
 
     // Logs, notifies, and reveals the log without taking focus, for errors the user must act on.
-    public showError(...args: unknown[]) {
+    public showError(...args: unknown[]): void {
         const message = this.format(...args);
         this.error(message);
         this.channel?.show(true);

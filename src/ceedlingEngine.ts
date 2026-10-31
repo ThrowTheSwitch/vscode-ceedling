@@ -7,8 +7,8 @@
 // - unityTestDiscovery: test functions and cases in source, named as Ceedling names them
 // - testResults: the CppUnit report mapped onto discovered ids
 //
-// It has no runtime `vscode` dependency. Workspace configuration, the problem matcher, the
-// runner, and the filesystem come in through `deps`, so the unit tests drive it with fakes.
+// It has no `vscode` dependency, not even for types. Settings, the diagnostics sink, the runner,
+// and the filesystem come in through `deps`, so the unit tests drive it with fakes.
 
 import crypto from 'crypto';
 import fs from 'fs';
@@ -16,7 +16,6 @@ import yaml from 'js-yaml';
 import os from 'os';
 import path from 'path';
 import util from 'util';
-import type vscode from 'vscode';
 import { buildProjectArgs } from './ceedlingMixinArgs';
 import { KeyedLock, Limiter, mapGrouped } from './concurrency';
 import {
@@ -59,9 +58,10 @@ import {
     versionSeesSelection,
 } from './ceedlingProjectConfig';
 import { parseCoberturaReport, reportedFiles } from './coberturaReport';
-import type { Logger } from './logger';
-import { setting, SETTING_DEFAULTS, type SettingKey, type Settings } from './settings';
-import type { FileDiagnostic, ProblemMatcher } from './problemMatcher';
+import { type DiagnosticsSink } from './diagnosticsStore';
+import type { Log } from './log';
+import { type MatchedProblem, matchProblems, severityRank } from './problemMatching';
+import { setting, SETTING_DEFAULTS, type SettingKey, type Settings, type SettingsSource } from './settings';
 import { allIds, type CeedlingFileNode, type CeedlingProjectNode, type CeedlingTestFunction, type CoverageOutcome, leafIds, type RunReporter } from './testModel';
 import { type CppUnitReport, parseCppUnitReport, reportedNames, testResults } from './testResults';
 import { discoverTests } from './unityTestDiscovery';
@@ -121,8 +121,9 @@ export const nodeFileSystem: EngineFileSystem = {
 };
 
 export type EngineDeps = {
-    configProvider: (uri: vscode.Uri) => vscode.WorkspaceConfiguration,
-    problemMatcher: ProblemMatcher,
+    // The folder's settings as they stand, read afresh for each use.
+    settings: () => SettingsSource,
+    diagnostics: DiagnosticsSink,
     // The extension's own mixin enabling the CppUnit report. It is always the last --mixin flag.
     bundledMixinPath: string,
     runner?: CeedlingRunner,
@@ -131,6 +132,8 @@ export type EngineDeps = {
     tmpdir?: string,
     // Offers a clobber once Ceedling reports a project's build moved to a new layout.
     onLayoutUpgrade?: (upgrade: LayoutUpgrade) => void,
+    // Finds the problems in a run's output. Tests stand in their own.
+    matchProblems?: typeof matchProblems,
 };
 
 // A project whose build Ceedling moved to a new layout, leaving the old layout's output behind,
@@ -204,7 +207,7 @@ export function coverageMode(): RunMode {
 // `exception` is Ceedling's own account of why it stopped, when it did.
 type BuildOutcome =
     | { cancelled: true }
-    | { cancelled: false, transcript: string, exception: string | undefined, diagnostics: FileDiagnostic[], report: CppUnitReport | undefined, coverage: CoverageOutcome | undefined };
+    | { cancelled: false, transcript: string, exception: string | undefined, diagnostics: MatchedProblem[], report: CppUnitReport | undefined, coverage: CoverageOutcome | undefined };
 
 type CompletedBuild = Extract<BuildOutcome, { cancelled: false }>;
 
@@ -221,9 +224,9 @@ function isFileDiagnosticsIdIn(projectKey: string, id: string): boolean {
 
 export class CeedlingEngine {
 
-    readonly problemMatcher: ProblemMatcher;
-
-    private readonly configProvider: (uri: vscode.Uri) => vscode.WorkspaceConfiguration;
+    private readonly settings: () => SettingsSource;
+    private readonly diagnostics: DiagnosticsSink;
+    private readonly matchProblems: typeof matchProblems;
     private readonly bundledMixinPath: string;
     private readonly runner: CeedlingRunner;
     private readonly fs: EngineFileSystem;
@@ -254,14 +257,16 @@ export class CeedlingEngine {
     private readonly offeredClobbers = new Set<string>();
     private readonly onLayoutUpgrade: (upgrade: LayoutUpgrade) => void;
 
+    // `folderPath` is the workspace folder's. Its settings and default project live there.
     constructor(
-        public readonly workspaceFolder: vscode.WorkspaceFolder,
-        private readonly logger: Logger,
+        private readonly folderPath: string,
+        private readonly logger: Log,
         private readonly isDevelopmentMode: boolean,
         deps: EngineDeps,
     ) {
-        this.configProvider = deps.configProvider;
-        this.problemMatcher = deps.problemMatcher;
+        this.settings = deps.settings;
+        this.diagnostics = deps.diagnostics;
+        this.matchProblems = deps.matchProblems ?? matchProblems;
         this.bundledMixinPath = deps.bundledMixinPath;
         this.runner = deps.runner ?? new CeedlingRunner();
         this.fs = deps.fileSystem ?? nodeFileSystem;
@@ -273,16 +278,11 @@ export class CeedlingEngine {
 
     dispose(): void {
         this.cancel();
-        this.problemMatcher.dispose();
-    }
-
-    getConfiguration(): vscode.WorkspaceConfiguration {
-        return this.configProvider(this.workspaceFolder.uri);
     }
 
     // Read when used, so a change applies from the next read.
     setting<K extends SettingKey>(key: K): Settings[K] {
-        return setting(this.getConfiguration(), key);
+        return setting(this.settings(), key);
     }
 
     getDebugLaunchConfig(projectKey: string): string {
@@ -412,7 +412,7 @@ export class CeedlingEngine {
         }));
         this.projects = loaded;
         const diagnosticsIds = new Set([...loaded.values()].flatMap((p) => [p.key, ...p.files.map((f) => fileDiagnosticsId(p.key, f.id))]));
-        this.problemMatcher.retainIds((id) => diagnosticsIds.has(id));
+        this.diagnostics.retainIds((id) => diagnosticsIds.has(id));
         return [...loaded.values()].map((project) => ({ projectKey: project.key, label: project.key, files: project.files }));
     }
 
@@ -516,7 +516,7 @@ export class CeedlingEngine {
     private projectSettings(): Promise<CeedlingProject[]> {
         return projectsFromSettings(
             { projects: this.setting('projects'), mixins: this.setting('mixins') },
-            this.workspaceFolder.uri.fsPath, this.platform, (p) => this.fs.isDirectory(p), (p) => this.fs.exists(p),
+            this.folderPath, this.platform, (p) => this.fs.isDirectory(p), (p) => this.fs.exists(p),
         );
     }
 
@@ -880,21 +880,19 @@ export class CeedlingEngine {
     // entry and drops the project entry's diagnostics in that file, which it just rebuilt. A build
     // that outlived a rediscovery dropping its project or file publishes nothing. A rediscovery never
     // takes a dropped project's locks, and from Ceedling 1.2.1 often none of its own.
-    private updateDiagnostics(project: LoadedProject, scope: RunScope, result: CeedlingResult): FileDiagnostic[] {
-        const diagnostics = this.problemMatcher.match(
-            result.stdout, result.stderr, project.absPath, this.setting('problemMatching.mode'), this.setting('problemMatching.patterns'),
-        );
+    private updateDiagnostics(project: LoadedProject, scope: RunScope, result: CeedlingResult): MatchedProblem[] {
+        const diagnostics = this.matchProblems(result, project.absPath, this.setting('problemMatching.mode'), this.setting('problemMatching.patterns'), this.logger, this.paths);
         const current = this.projects.get(project.key);
         if (current === undefined || (scope.kind === 'file' && !current.files.some((f) => f.id === scope.file.id))) {
             return diagnostics;
         }
         if (scope.kind === 'project') {
-            this.problemMatcher.retainIds((id) => !isFileDiagnosticsIdIn(project.key, id));
-            this.problemMatcher.set(project.key, diagnostics);
+            this.diagnostics.retainIds((id) => !isFileDiagnosticsIdIn(project.key, id));
+            this.diagnostics.set(project.key, diagnostics);
         } else {
             const testFile = this.keyOfPath(this.paths.resolve(scope.file.absPath));
-            this.problemMatcher.set(fileDiagnosticsId(project.key, scope.file.id), diagnostics);
-            this.problemMatcher.retain(project.key, (d) => this.keyOfPath(this.paths.resolve(d.file)) !== testFile);
+            this.diagnostics.set(fileDiagnosticsId(project.key, scope.file.id), diagnostics);
+            this.diagnostics.retain(project.key, (d) => this.keyOfPath(this.paths.resolve(d.file)) !== testFile);
         }
         return diagnostics;
     }
@@ -903,9 +901,9 @@ export class CeedlingEngine {
     // view shows a message's first line, so the most severe compiler diagnostic leads, when problem
     // matching found one, then Ceedling's exception, then the whole transcript.
     private reportMissingReport(ids: string[], build: CompletedBuild, reporter: RunReporter): void {
-        const lead = this.mostSevereDiagnostic(build.diagnostics);
-        const message = [lead?.diagnostic.message, build.exception, build.transcript].filter((part) => part !== undefined).join('\n\n');
-        const location = lead ? { file: lead.file, line: lead.diagnostic.range.start.line } : undefined;
+        const lead = build.diagnostics.slice().sort((a, b) => severityRank(a.severity) - severityRank(b.severity))[0];
+        const message = [lead?.message, build.exception, build.transcript].filter((part) => part !== undefined).join('\n\n');
+        const location = lead ? { file: lead.file, line: lead.startLine } : undefined;
         for (const id of ids) {
             reporter.errored(id, message, location);
         }
@@ -924,12 +922,6 @@ export class CeedlingEngine {
                 case 'unreported': reporter.errored(result.id, `${UNREPORTED_MESSAGE}\n\n${transcript}`); break;
             }
         }
-    }
-
-    // Patterns run warning, error, then catch-all, so the first diagnostic found is not reliably
-    // the most severe. vscode's DiagnosticSeverity ranks Error lowest.
-    private mostSevereDiagnostic(diagnostics: FileDiagnostic[]): FileDiagnostic | undefined {
-        return diagnostics.slice().sort((a, b) => a.diagnostic.severity - b.diagnostic.severity)[0];
     }
 
     // Where the file's executable may sit under Ceedling's test output directory, its release's
@@ -1177,7 +1169,7 @@ export class CeedlingEngine {
         if (verbose) {
             fullArgs.push(...DEBUG_VERBOSITY);
         }
-        const cwd = options.cwd ?? options.project?.absPath ?? this.workspaceFolder.uri.fsPath;
+        const cwd = options.cwd ?? options.project?.absPath ?? this.folderPath;
         const command = this.setting('ceedlingCommand').trim() || SETTING_DEFAULTS.ceedlingCommand;
         const shellSetting = this.setting('shellPath');
         const shell = shellSetting && shellSetting !== 'null' ? shellSetting : undefined;

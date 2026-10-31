@@ -5,13 +5,11 @@
 import * as child_process from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import type vscode from 'vscode';
 import { CeedlingEngine, type LayoutUpgrade } from '../../src/ceedlingEngine';
 import { parseCeedlingVersions } from '../../src/ceedlingOutputParsing';
 import { applicationRelease, capabilitiesOf, type CeedlingCapabilities, type CeedlingFeature } from '../../src/ceedlingProjectConfig';
 import { type Cancellation, ceedlingEnvironment } from '../../src/ceedlingProcess';
-import type { Logger } from '../../src/logger';
-import type { ProblemMatcher } from '../../src/problemMatcher';
+import type { Log } from '../../src/log';
 import type { CeedlingFileNode, CeedlingProjectNode, CoverageOutcome, RunReporter } from '../../src/testModel';
 
 export const WS = '/ws';
@@ -28,18 +26,17 @@ export function makeEngine(settings: Record<string, unknown>): { engine: Ceedlin
     const logs: LogCall[] = [];
     const upgrades: LayoutUpgrade[] = [];
     const record = (level: string) => (...args: unknown[]) => { logs.push({ level, message: args.map(String).join(' '), at: Date.now() }); };
-    const logger = {
+    const logger: Log = {
         trace: record('trace'), debug: record('debug'), info: record('info'), warn: record('warn'), error: record('error'),
-        showWarning: record('showWarning'), showError: record('showError'), dispose() { },
-    } as unknown as Logger;
-    const problems = { match: () => [], set() { }, retain() { }, retainIds() { }, clear() { }, dispose() { } } as unknown as ProblemMatcher;
+        showWarning: record('showWarning'), showError: record('showError'),
+    };
     const engine = new CeedlingEngine(
-        { uri: { fsPath: WS, toString: () => `file://${WS}` }, name: 'ws', index: 0 } as unknown as vscode.WorkspaceFolder,
+        WS,
         logger,
         false,
         {
-            configProvider: () => ({ get: (key: string, fallback?: unknown) => (key in settings ? settings[key] : fallback) }) as unknown as vscode.WorkspaceConfiguration,
-            problemMatcher: problems,
+            settings: () => ({ get: <T>(key: string, fallback: T): T => (key in settings ? settings[key] as T : fallback) }),
+            diagnostics: { set() { }, retain() { }, retainIds() { } },
             bundledMixinPath: path.join(REPO, 'assets/mixins/report-tests-log-factory.yml'),
             onLayoutUpgrade: (upgrade) => upgrades.push(upgrade),
         },
