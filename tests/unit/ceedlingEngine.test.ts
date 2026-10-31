@@ -41,6 +41,8 @@ class FakeCeedling {
     undeletable = new Set<string>();
     // While set, every file read waits for it, so a test can observe reads in flight.
     readGate: Promise<void> | undefined;
+    // Called as each file is deleted, so a test can act at that moment.
+    unlinked: ((file: string) => void) | undefined;
     private clock = 1;
 
     constructor() {
@@ -72,6 +74,7 @@ class FakeCeedling {
             unlink: async (p) => {
                 if (this.undeletable.has(p)) throw Object.assign(new Error(`EPERM: ${p}`), { code: 'EPERM' });
                 if (!this.files.delete(p)) throw Object.assign(new Error(`ENOENT: ${p}`), { code: 'ENOENT' });
+                this.unlinked?.(p);
             },
             mtimeMs: async (p) => this.mtimes.get(p),
         };
@@ -2116,6 +2119,24 @@ suite('CeedlingEngine coverage', () => {
 
     // From Ceedling 1.2.0, gcov/out nests each test's counters under the test file's directory
     // within its test path, e.g. gcov/out/unit/test_calc/ for test/unit/test_calc.c.
+    // A coverage build of the file between the clear and the rerun would add counts the rerun reports.
+    test("a function run's whole-file fallback reruns under the lock it clears its counters under", async () => {
+        const world = coverageWorld();
+        const counter = `${WS}/build/gcov/out/test_calc/calc.gcda`;
+        world.handlers.unshift((command) => /--test-case/.test(command)
+            ? { writes: { ...world.reportWrite(cppunit({ passed: ['test/test_calc.c::test_add', 'test/test_calc.c::test_add_more'] }), 'build', 'gcov'), [counter]: '' } }
+            : undefined);
+        const { engine, file } = await discovered(world);
+        let other: Promise<void> | undefined;
+        world.unlinked = (deleted) => {
+            if (deleted === counter) other ??= engine.runFile('default', file, recordingReporter(), token(), coverageMode());
+        };
+        await engine.runFunction('default', file, file.functions[0], recordingReporter(), token(), coverageMode());
+        assert.ok(other !== undefined, 'the fallback cleared the counter');
+        assert.strictEqual(world.commandsMatching(/^ceedling gcov:/).length, 2, 'the other build waited for the rerun');
+        await other;
+    });
+
     test("a function run's whole-file fallback keeps the counters of same-named test files elsewhere", async () => {
         const world = coverageWorld();
         world.version = '1.2.1';

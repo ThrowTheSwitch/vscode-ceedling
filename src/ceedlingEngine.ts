@@ -184,7 +184,9 @@ type LoadOutcome =
     | { kind: 'unusable', error: unknown };
 
 // What a run compiled. A file run's diagnostics replace only that file's, a project run's all.
-type RunScope = { kind: 'project' } | { kind: 'file', file: CeedlingFileNode };
+// `recount` clears the file's coverage counters first, under the build's own locks, for a rerun
+// whose earlier attempt counted some of its tests.
+type RunScope = { kind: 'project' } | { kind: 'file', file: CeedlingFileNode, recount?: boolean };
 
 // One coverage request, which may run Ceedling several times. Its build directories' coverage
 // counters are cleared before their first build only, so later builds add to this request's own.
@@ -434,17 +436,14 @@ export class CeedlingEngine {
                 `runFunction: --test-case=${name} also matched an unrelated test in '${file.id}'. ` +
                 `Ceedling's filter is a substring match, not exact. Falling back to a full-file run.`
             );
-            if (mode.kind === 'coverage') {
-                await this.exclusively(project, () => this.clearTestCounters(project, file));
-            }
-            await this.runWholeFile(project, file, reporter, token, mode);
+            await this.runWholeFile(project, file, reporter, token, mode, true);
         }
     }
 
     // Runs a whole file on the project the caller started with. A rediscovery since may have
     // replaced or dropped it.
-    private async runWholeFile(project: LoadedProject, file: CeedlingFileNode, reporter: RunReporter, token: Cancellation, mode: RunMode): Promise<void> {
-        await this.runTests(project, { kind: 'file', file }, mode, this.commandArgs(project, file.id, mode), allIds(file), leafIds(file.functions), reporter, token);
+    private async runWholeFile(project: LoadedProject, file: CeedlingFileNode, reporter: RunReporter, token: Cancellation, mode: RunMode, recount = false): Promise<void> {
+        await this.runTests(project, { kind: 'file', file, recount }, mode, this.commandArgs(project, file.id, mode), allIds(file), leafIds(file.functions), reporter, token);
     }
 
     // The key two spellings of one path share, as this engine's platform compares paths.
@@ -845,6 +844,9 @@ export class CeedlingEngine {
         await this.deleteStale(this.reportPaths(project));
         if (mode.kind === 'coverage') {
             await this.prepareCoverage(project, mode.run);
+            if (scope.kind === 'file' && scope.recount === true) {
+                await this.clearTestCounters(project, scope.file);
+            }
         }
         // Delta builds reuse cached results unless told to rerun, while compilation stays
         // incremental either way. Before 1.2.1 their cache ignores the --test-case filter, so a
