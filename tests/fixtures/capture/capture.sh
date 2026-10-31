@@ -10,7 +10,8 @@
 #   <file>...           test files go to test/; .c/.h sources work too (see :paths below)
 # CAPTURE_TASK replaces `test:all`, e.g. `files:test`. CAPTURE_MIXIN, a mixin file's path, applies
 # it too. CAPTURE_VENDOR=1 copies the running Ceedling into vendor/ceedling, so Ceedling hands off
-# to it, as to any other installation.
+# to it, as to any other installation. CAPTURE_PRIOR=1, with a gem, first builds the project with
+# 1.2.1, as a project upgraded from it.
 set -euo pipefail
 version=$1; out=$2; shift 2
 here=$(cd "$(dirname "$0")" && pwd)
@@ -28,8 +29,11 @@ if [[ $version == *.gem ]]; then
     cp "$version" "$work/gem/"
     image="throwtheswitch/madsciencelab-plugins:1.2.1"
     # Two versions listed, e.g. `ceedling (1.2.2, 1.2.1)`, mean the gem is another one.
-    setup="gem install --local --no-document /project/gem/*.gem >/dev/null && { ! gem list ceedling | grep -q , || gem uninstall -x ceedling -v 1.2.1 >/dev/null; }"
+    prior=":"
+    if [ "${CAPTURE_PRIOR:-}" = 1 ]; then prior="{ ceedling test:all ${mixins[*]} >/dev/null 2>&1 || true; }"; fi
+    setup="$prior && gem install --local --no-document /project/gem/*.gem >/dev/null && { ! gem list ceedling | grep -q , || gem uninstall -x ceedling -v 1.2.1 >/dev/null; }"
 fi
+if [ "${CAPTURE_PRIOR:-}" = 1 ] && [[ $version != *.gem ]]; then echo "error: CAPTURE_PRIOR needs a .gem" >&2; exit 1; fi
 if [ "${CAPTURE_VENDOR:-}" = 1 ]; then
     setup="$setup && mkdir -p vendor && cp -R \"\$(ruby -e 'print Gem::Specification.find_by_name(%q(ceedling)).gem_dir')\" vendor/ceedling"
 fi
