@@ -1,20 +1,10 @@
 {
+  // The extension's own settings, for the tests and the code they compile with them.
+  "extends": "./tsconfig.json",
   "compilerOptions": {
-    "target": "es2021",
-    "lib": [
-      "es2021"
-    ],
-    "module": "commonjs",
     "outDir": "out-test",
-    "rootDir": ".",
-    "importHelpers": true,
-    "sourceMap": true,
-    "strict": true,
-    "noImplicitReturns": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "removeComments": true,
-    "skipLibCheck": true
+    // Tests index what they have just asserted exists.
+    "noUncheckedIndexedAccess": false
   },
   "include": [
     "src/**/*.ts",
