@@ -1,5 +1,6 @@
 import * as assert from 'assert';
-import { testBuildLayout, testBuildName, testExecutableName } from '../../src/buildLayout';
+import { chooseExecutable, ownOrUnclaimed, testBuildLayout, testBuildName, testExecutableName } from '../../src/buildLayout';
+import type { CeedlingFileNode } from '../../src/testModel';
 import { capabilitiesOf } from '../../src/ceedlingVersions';
 
 suite('testBuildLayout', () => {
@@ -116,5 +117,33 @@ suite('testExecutableName', () => {
     test('keeps a marker-named file\'s name, and a dotfile\'s', () => {
         assert.strictEqual(testExecutableName('test/_up_.c', '.out'), '_up_.out');
         assert.strictEqual(testExecutableName('test/.c', '.out'), '.c.out');
+    });
+});
+
+suite('chooseExecutable', () => {
+    test('the candidate the build wrote wins, even over a newer one it left alone', () => {
+        assert.deepStrictEqual(chooseExecutable([1, 5], [2, 5]), { chosen: 0, found: true });
+        assert.deepStrictEqual(chooseExecutable([undefined, 5], [undefined, 6]), { chosen: 1, found: true });
+    });
+
+    // A delta build may relink nothing.
+    test('with nothing written, the newest that exists wins, else the release\'s own', () => {
+        assert.deepStrictEqual(chooseExecutable([3, 7], [3, 7]), { chosen: 1, found: true });
+        assert.deepStrictEqual(chooseExecutable([undefined, undefined], [undefined, undefined]), { chosen: 0, found: false });
+    });
+});
+
+suite('ownOrUnclaimed', () => {
+    const file = (id: string) => ({ id }) as CeedlingFileNode;
+    const place = (f: CeedlingFileNode, layout = 'testRoot') => `${layout}:${f.id.replace(/^.*\//, '')}`;
+
+    test('a known release looks in its own place alone', () => {
+        assert.deepStrictEqual(ownOrUnclaimed(file('test/a.c'), [], place, true), ['testRoot:a.c']);
+    });
+
+    test("otherwise every layout's place counts, own first, but none another file claims", () => {
+        const namesake = (f: CeedlingFileNode, layout = 'testRoot') => layout === 'flat' ? 'flat:shared' : place(f, layout);
+        assert.deepStrictEqual(ownOrUnclaimed(file('test/a.c'), [file('test/a.c')], place, false), ['testRoot:a.c', 'projectPath:a.c', 'flat:a.c']);
+        assert.deepStrictEqual(ownOrUnclaimed(file('test/a.c'), [file('test/a.c'), file('test/b.c')], namesake, false), ['testRoot:a.c', 'projectPath:a.c']);
     });
 });
