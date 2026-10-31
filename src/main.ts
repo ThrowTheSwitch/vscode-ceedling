@@ -58,7 +58,6 @@ export function activate(context: vscode.ExtensionContext): CeedlingExplorerApi 
     extensionPath = context.extensionPath;
     const workspaceFolderCount = vscode.workspace.workspaceFolders?.length ?? 0;
     logger.debug(`activate(): isDevelopmentMode=${isDevelopmentMode}, workspaceFolders=${workspaceFolderCount}`);
-    context.subscriptions.push(logger);
     context.subscriptions.push(vscode.commands.registerCommand("ceedlingExplorer.clean", ceedlingClean));
     context.subscriptions.push(vscode.commands.registerCommand("ceedlingExplorer.clobber", ceedlingClobber));
     context.subscriptions.push(vscode.commands.registerCommand("ceedlingExplorer.debugTestExecutable", debugTestExecutableGuard));
@@ -78,5 +77,7 @@ export function activate(context: vscode.ExtensionContext): CeedlingExplorerApi 
         }
     }));
     context.subscriptions.push({ dispose: () => { for (const controller of controllers.values()) controller.dispose(); } });
+    // Last, since VS Code disposes subscriptions in order, and controllers log as they go.
+    context.subscriptions.push(logger);
     return context.extensionMode === vscode.ExtensionMode.Test ? { controllerFor: (folder) => controllers.get(folder.toString()) } : undefined;
 }

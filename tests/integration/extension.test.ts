@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
+import { Logger } from '../../src/logger';
 import type { CeedlingExplorerApi } from '../../src/main';
 
 // Runs inside a real VS Code with the built extension loaded (see main.ts). It checks what unit
@@ -27,6 +28,17 @@ suite('Extension in VS Code', function () {
         for (const command of ['ceedlingExplorer.clean', 'ceedlingExplorer.clobber', 'ceedlingExplorer.debugTestExecutable']) {
             assert.ok(commands.includes(command), `${command} is registered`);
         }
+    });
+
+    // VS Code disposes the extension's subscriptions in turn, and a controller logs as it goes.
+    // A closed channel throws, which would stop that controller's disposal short.
+    test('a disposed logger ignores further logging', async () => {
+        const logger = new Logger('Ceedling Explorer (test)');
+        logger.info('opened');
+        // VS Code finishes setting a channel up asynchronously, and warns of one disposed first.
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        logger.dispose();
+        assert.doesNotThrow(() => { logger.trace('after'); logger.debug('after'); logger.info('after'); logger.warn('after'); logger.error('after'); });
     });
 
     // A launch configuration started outside the Testing view resolves this token itself.
