@@ -36,7 +36,7 @@ suite('projectsFromSettings', () => {
     // the one a folder without entries uses.
     test("an entry naming no launch configuration debugs with 'ceedling'", async () => {
         const [project] = await projectsFromSettings({ projects: [{ path: 'fw' }], mixins: [] }, '/ws', 'linux', anyDirectory, noFiles);
-        assert.strictEqual(project?.debugLaunchConfig, 'ceedling');
+        assert.strictEqual(project.debugLaunchConfig, 'ceedling');
     });
 
     test('a directory path is keyed by that path and uses project.yml', async () => {
