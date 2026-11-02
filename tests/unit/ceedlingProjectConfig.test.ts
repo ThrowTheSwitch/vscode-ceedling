@@ -330,6 +330,7 @@ suite('coverageProblem', () => {
         assert.match(problem ?? '', /'fw'/);
         assert.match(problem ?? '', /Cobertura/);
         assert.match(problem ?? '', /:reports:/);
+        assert.match(problem ?? '', /https:\/\/docs\.throwtheswitch\.org\/vscode-ceedling\/latest\/manual\/code-coverage\//);
     });
 
     test('a project writing one has no problem', () => {

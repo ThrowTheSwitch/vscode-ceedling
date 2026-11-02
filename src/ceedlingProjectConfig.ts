@@ -262,7 +262,7 @@ export function coverageProblem(projectKey: string, coverage: CoverageState): st
     return coverage.coberturaReports.length > 0 ? undefined :
         `Ceedling project '${projectKey}' writes no Cobertura coverage report, so Run with Coverage has nothing to show. ` +
         `Add Cobertura to :gcov: ↳ :reports:, with gcovr or ReportGenerator among :gcov: ↳ :utilities:. ` +
-        `See "Code coverage" in this extension's README.`;
+        `The Code Coverage page explains each: https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/code-coverage/#what-coverage-needs`;
 }
 
 // The strings of a list setting. Anything else in the list, or a setting that isn't one, is ignored.
