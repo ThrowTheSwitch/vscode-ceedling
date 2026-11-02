@@ -94,6 +94,17 @@ suite('createRunReporter', () => {
         } satisfies ReportMessage]]);
     });
 
+    // A run's failure carries its transcript after Ceedling's message, so the log ends the message only.
+    test("a crash's gdb log becomes a link even with the run's transcript after it", () => {
+        const { reporter, sink } = reporterFor(['a']);
+        reporter.failed('a', 'Test crashed\n(build/test/test_calc.gdb.log)\n\nCeedling output', 7);
+        assert.deepStrictEqual(sink.calls, [['failed', 'a', {
+            text: 'Test crashed\n\nCeedling output',
+            log: { label: 'build/test/test_calc.gdb.log', absPath: path.resolve('/ws/fw', 'build/test/test_calc.gdb.log') },
+            location: { line: 7 },
+        } satisfies ReportMessage]]);
+    });
+
     test('the project directory is looked up only for a gdb log link', () => {
         let lookups = 0;
         const { reporter } = reporterFor(['a'], { projectAbsPath: () => { lookups++; return '/ws/fw'; } });

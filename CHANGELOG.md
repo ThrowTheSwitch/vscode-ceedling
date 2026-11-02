@@ -73,6 +73,7 @@ This document is the terse, itemized record of what changed in each release. Its
 * A malformed `ceedlingExplorer.projects` entry, e.g. a `path` that isn’t text, now shows an error naming the setting, instead of an internal error.
 * An unexpected discovery failure now shows its message in the notification, without a stack trace. The log keeps the stack.
 * A `ceedlingExplorer.projects` entry without a `debugLaunchConfig` debugs with the launch configuration named `ceedling`, as a folder without entries does. It used to look for one named `undefined`, and VS Code’s settings editor flagged the entry.
+* A crashed test’s gdb log, from Ceedling 1.1.0 and later with `:use_backtrace:` ⇒ `:gdb`, appears as a link in its failure message. The run’s output that follows the message used to hide it.
 
 ## 👋 Removed
 

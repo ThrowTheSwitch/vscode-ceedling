@@ -66,15 +66,18 @@ export function testCaseFilterMatchedExactly(requestedFunctionName: string, repo
 }
 
 // Splits a crash message from Ceedling 1.1.0+'s `:use_backtrace: :gdb` into its text and the gdb
-// log path it ends with, in parentheses and relative to the project directory. A caller turns
-// that path into a link. A message without one, including all Ceedling 1.0.0 output, comes back
-// whole. That version embeds the gdb text in the message instead of writing a log.
+// log path ending Ceedling's own message, in parentheses and relative to the project directory. A
+// caller turns that path into a link. A run's transcript may follow the message after a blank
+// line, and may name the log again, so the first reference ending a paragraph counts. A message
+// without one, including all Ceedling 1.0.0 output, comes back whole. That version embeds the gdb
+// text in the message instead of writing a log.
 export function extractGdbLogReference(message: string): { text: string, logPath: string | undefined } {
-    const match = message.match(/\n?\(([^()\n]+\.gdb\.log)\)\s*$/);
-    if (match?.index === undefined) {
+    const match = /\n?\(([^()\n]+\.gdb\.log)\)[ \t]*(?=\n\n|\s*$)/.exec(message);
+    if (match === null) {
         return { text: message, logPath: undefined };
     }
-    return { text: message.slice(0, match.index), logPath: match[1] };
+    const rest = message.slice(match.index + match[0].length);
+    return { text: message.slice(0, match.index) + (rest.trim() === '' ? '' : rest), logPath: match[1] };
 }
 
 // Why Ceedling stopped, from its console output: the EXCEPTION line and whatever output it carries,
