@@ -5,6 +5,8 @@ name: Continuous Delivery
 #      Commit to master.
 #   2. Tag the commit v<version> for a release, or v<version>-pre.<N> for a prerelease.
 #   3. Push the tag.
+#   4. For a release, deploy its documentation site with `just docs-deploy-latest <version>`
+#      once this workflow finishes. See "The Documentation Site" in docs/Development.md.
 #
 # This workflow validates the tag against package.json's version. It runs the test suite. It
 # packages the extension. It publishes a GitHub release with the .vsix attached and the matching
