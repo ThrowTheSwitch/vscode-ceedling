@@ -27,10 +27,14 @@ export function loadFailureMessage(error: unknown): { notice: string, log: strin
         : { notice: `${lead} ${String(error)}`, log: `${lead} ${String(error)}` };
 }
 
+// The launch configuration that debugs a project whose settings name none.
+const DEFAULT_DEBUG_LAUNCH_CONFIG = 'ceedling';
+
 // One `ceedlingExplorer.projects` entry, as the user wrote it.
 export type ProjectSetting = {
     path: string,
-    debugLaunchConfig: string,
+    // Absent means the launch configuration named `ceedling`, as for a folder without entries.
+    debugLaunchConfig?: string,
     name?: string,
     // Absent means "use ceedlingExplorer.mixins". An explicit [] opts out of that list.
     mixins?: string[],
@@ -115,7 +119,7 @@ export async function projectsFromSettings(
     const root = platform === 'win32' ? withUppercaseDrive(workspacePath) : workspacePath;
     if (settings.projects.length === 0) {
         const absPath = paths.resolve(root);
-        return [{ key: 'default', absPath, ...(await projectFiles(absPath, undefined, platform, exists)), debugLaunchConfig: 'ceedling', mixins: [...settings.mixins] }];
+        return [{ key: 'default', absPath, ...(await projectFiles(absPath, undefined, platform, exists)), debugLaunchConfig: DEFAULT_DEBUG_LAUNCH_CONFIG, mixins: [...settings.mixins] }];
     }
     const checked = await Promise.all(settings.projects.map(async (setting) => {
         const project = await projectFromSetting(setting, settings.mixins, paths.resolve(root), platform, exists);
@@ -195,7 +199,7 @@ async function projectFromSetting(
         key: setting.name ?? key,
         absPath,
         ...(await projectFiles(absPath, configuredFile, platform, exists)),
-        debugLaunchConfig: setting.debugLaunchConfig,
+        debugLaunchConfig: setting.debugLaunchConfig ?? DEFAULT_DEBUG_LAUNCH_CONFIG,
         mixins: [...(setting.mixins ?? globalMixins)],
     };
 }
@@ -258,7 +262,7 @@ export function coverageProblem(projectKey: string, coverage: CoverageState): st
     return coverage.coberturaReports.length > 0 ? undefined :
         `Ceedling project '${projectKey}' writes no Cobertura coverage report, so Run with Coverage has nothing to show. ` +
         `Add Cobertura to :gcov: ↳ :reports:, with gcovr or ReportGenerator among :gcov: ↳ :utilities:. ` +
-        `See "Code coverage" in this extension's README.`;
+        `The Code Coverage page explains each: https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/code-coverage/#what-coverage-needs`;
 }
 
 // The strings of a list setting. Anything else in the list, or a setting that isn't one, is ignored.

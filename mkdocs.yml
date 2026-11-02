@@ -67,6 +67,7 @@ markdown_extensions:
       toc_depth: 3      # Limits TOC to show headings H1 through H3
                         # (H2 and H3 in reality since H1 is reserved for page titles)
   - admonition          # !!! note / tip / warning / etc. callout blocks
+  - attr_list           # { width="320" } attributes on images, e.g. to size a screenshot
   - md_in_html          # Markdown inside raw HTML elements (required for card grids)
   - footnotes
   - pymdownx.emoji:     # Emoji shortcodes (:material-icon:, :fontawesome-icon:, etc.)
@@ -86,3 +87,16 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - How-To:
+    - howto/index.md
+  - User Manual:
+    - manual/index.md
+    - Getting Started: manual/getting-started.md
+    - Running Tests: manual/running-tests.md
+    - Debugging: manual/debugging.md
+    - Code Coverage: manual/code-coverage.md
+    - Problem Matching: manual/problem-matching.md
+    - Configuration: manual/configuration.md
+    - Troubleshooting: manual/troubleshooting.md
+  - Releases: releases.md
+  - Help: help.md
