@@ -11,7 +11,12 @@ Fixtures are grouped by where they came from.
   - `cppunit-report-unity-parity.xml` from `source/test_unity_parity.c`;
   - `files-test-stdout.txt` from `source/test_whitespace.c` with `CAPTURE_TASK=files:test`, and `files-test-handoff-stdout.txt` with `CAPTURE_VENDOR=1` as well;
   - `cppunit-report-crash.xml` from `source/test_crash.c`, with a mixin setting `:use_backtrace: :gdb`;
-  - `test-upgrade-stdout.txt` from `source/test_whitespace.c` with `CAPTURE_PRIOR=1`, the first build after 1.2.1, with Ceedling’s layout upgrade warning.
+  - `test-upgrade-stdout.txt` from `source/test_whitespace.c` with `CAPTURE_PRIOR=1`, the first build after 1.2.1, with Ceedling’s layout upgrade warning;
+  - `compile-diagnostics-stderr.txt` from `source/test_diagnostics.c`, run from the image with `CAPTURE_MIXIN` naming a mixin that adds `-Wall` to `:flags:` ↳ `:test:` ↳ `:compile:` ↳ `:*:`. GCC reports a warning, an error, and the notes explaining the error;
+  - `link-failure-stderr.txt` from `source/test_unlinked.c` and `source/unlinked.h`, run from the image. The GNU linker reports an undefined reference.
+
+  [`tests/unit/docsExamples.test.ts`](../unit/docsExamples.test.ts) runs the How-To guides’ problem-matching examples against the last two.
+- `clang-19.1/diagnostics-stderr.txt` holds Clang 19.1’s own output, not Ceedling’s, for a compile with `-Wall` and a link with an undefined reference. It was run by hand in the 1.2.2 image, with Debian’s `clang` installed, as `clang -Wall -c warn.c` and `clang -g link.c`. Both inputs sit beside it. [`tests/unit/problemMatching.test.ts`](../unit/problemMatching.test.ts) checks that the `gcc` preset reads it.
 - `source/` holds C test files. Some are read directly by discovery tests. Others are the inputs whose reports live under `ceedling-<version>/`. Each file's header comment names its reports.
 - `dumpconfig/` holds `ceedling dumpconfig` output. See [its own README](dumpconfig/README.md).
 - `gcovr-<version>/` and `reportgenerator-<version>/` hold Cobertura coverage reports from that tool, run by Ceedling's gcov plugin. The `cobertura-mixed-paths.xml` reports came from Ceedling 1.1.6. The `cobertura-probe.xml` reports came from `capture/capture-gcov.sh` (below).

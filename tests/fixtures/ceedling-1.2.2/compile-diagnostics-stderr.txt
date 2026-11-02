@@ -1,0 +1,27 @@
+EXCEPTION: 'Default Test Compiler' (gcc) terminated with exit code [1] and output >>
+In file included from build/vendor/unity/src/unity.h:22,
+                 from test/test_diagnostics.c:3:
+test/test_diagnostics.c: In function ‘test_diagnostics’:
+test/test_diagnostics.c:11:26: error: ‘undeclared’ undeclared (first use in this function)
+   11 |     TEST_ASSERT_EQUAL(1, undeclared);
+      |                          ^~~~~~~~~~
+build/vendor/unity/src/unity_internals.h:1041:159: note: in definition of macro ‘UNITY_TEST_ASSERT_EQUAL_INT’
+ 1041 | #define UNITY_TEST_ASSERT_EQUAL_INT(expected, actual, line, message)                             UnityAssertEqualIntNumber((UNITY_INT)(expected), (UNITY_INT)(actual), (message), (UNITY_LINE_TYPE)(line), UNITY_DISPLAY_STYLE_INT)
+      |                                                                                                                                                               ^~~~~~
+test/test_diagnostics.c:11:5: note: in expansion of macro ‘TEST_ASSERT_EQUAL’
+   11 |     TEST_ASSERT_EQUAL(1, undeclared);
+      |     ^~~~~~~~~~~~~~~~~
+test/test_diagnostics.c:11:26: note: each undeclared identifier is reported only once for each function it appears in
+   11 |     TEST_ASSERT_EQUAL(1, undeclared);
+      |                          ^~~~~~~~~~
+build/vendor/unity/src/unity_internals.h:1041:159: note: in definition of macro ‘UNITY_TEST_ASSERT_EQUAL_INT’
+ 1041 | #define UNITY_TEST_ASSERT_EQUAL_INT(expected, actual, line, message)                             UnityAssertEqualIntNumber((UNITY_INT)(expected), (UNITY_INT)(actual), (message), (UNITY_LINE_TYPE)(line), UNITY_DISPLAY_STYLE_INT)
+      |                                                                                                                                                               ^~~~~~
+test/test_diagnostics.c:11:5: note: in expansion of macro ‘TEST_ASSERT_EQUAL’
+   11 |     TEST_ASSERT_EQUAL(1, undeclared);
+      |     ^~~~~~~~~~~~~~~~~
+test/test_diagnostics.c:10:9: warning: unused variable ‘unused’ [-Wunused-variable]
+   10 |     int unused;
+      |         ^~~~~~
+Executed Command: gcc -Wall -I"build/vendor/unity/src" -D"UNITY_SUPPORT_TEST_CASES" -D"UNITY_SUPPORT_VARIADIC_MACROS" -DGNU_COMPILER -g -c "test/test_diagnostics.c" -o "build/test/out/test/test_diagnostics/test/test_diagnostics.o" -MMD -MF "build/test/dependencies/test/test_diagnostics/test/test_diagnostics.d"
+Ceedling could not complete operations because of errors

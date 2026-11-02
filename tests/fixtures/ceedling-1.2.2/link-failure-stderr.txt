@@ -1,0 +1,6 @@
+EXCEPTION: 'Default Test Linker' (gcc) terminated with exit code [1] and output >>
+/usr/bin/ld: build/test/out/test/test_unlinked/test/test_unlinked.o: in function `test_unlinked':
+/project/test/test_unlinked.c:11:(.text+0x18): undefined reference to `unlinked'
+collect2: error: ld returned 1 exit status
+Executed Command: gcc "build/test/out/test/test_unlinked/test/test_unlinked.o" "build/test/out/test/test_unlinked/test_unlinked_runner.o" "build/test/out/test/test_unlinked/unity.o" -o "build/test/out/test/test_unlinked/test_unlinked.out"
+Ceedling could not complete operations because of errors
