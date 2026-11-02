@@ -57,7 +57,7 @@ This extension continues the original _Ceedling Test Explorer_ extension, and mo
 
 The [Breaking Changes][breaking] document describes the changes that need action when upgrading.
 
-[first-run]: ../howto/index.md
+[first-run]: ../howto/first-run.md
 [ceedling-docs]: https://docs.throwtheswitch.org/Ceedling/latest/
 [coverage]: code-coverage.md
 [debugging]: debugging.md
