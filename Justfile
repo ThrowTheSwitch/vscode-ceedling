@@ -96,7 +96,8 @@ clean: image
     just _run "npm run clean"
 
 # The documentation site's recipes run on the host, in the .docsenv/ Python venv, not the sidecar.
-# Deploys push the gh-pages branch with your own Git credentials (see docs/Development.md).
+# Deploys push the gh-pages branch with your own Git credentials (see docs/Development.md). The
+# site keeps one version per minor release, x.y.0, which each of its patch releases redeploys.
 
 # Run CMD in .docsenv/, which `just docs-install` creates, never in another venv or the sidecar
 [private]
@@ -114,7 +115,7 @@ _docs CMD:
     source .docsenv/bin/activate
     eval "{{CMD}}"
 
-# Refuse a docs version that isn't a release's x.y.z, or a working tree with uncommitted changes, which mike would publish under HEAD's commit
+# Refuse a version that isn't a release's x.y.z, or a working tree with uncommitted changes, which mike would publish under HEAD's commit
 [private]
 _docs-deployable VERSION:
     #!/usr/bin/env bash
@@ -150,11 +151,13 @@ docs-preview:
     git fetch -q origin
     just _docs "mike serve"
 
-# Deploy one release's documentation to GitHub Pages without moving 'latest', e.g. to revise an older version
+# Deploy a release's documentation to GitHub Pages as its minor release's x.y.0, without moving 'latest', e.g. to revise an older minor release
 docs-deploy VERSION: (_docs-deployable VERSION) docs-build
-    just _docs "mike deploy --push {{VERSION}}"
+    @echo "Deploying {{VERSION}}'s documentation as {{replace_regex(VERSION, '[0-9]+$', '0')}}"
+    just _docs "mike deploy --push {{replace_regex(VERSION, '[0-9]+$', '0')}}"
 
-# Deploy a release's documentation to GitHub Pages, make it 'latest', and have the site's root open 'latest'
+# Deploy a release's documentation to GitHub Pages as its minor release's x.y.0, make that 'latest', and have the site's root open 'latest'
 docs-deploy-latest VERSION: (_docs-deployable VERSION) docs-build
-    just _docs "mike deploy --push --update-aliases {{VERSION}} latest"
+    @echo "Deploying {{VERSION}}'s documentation as {{replace_regex(VERSION, '[0-9]+$', '0')}}, and making it latest"
+    just _docs "mike deploy --push --update-aliases {{replace_regex(VERSION, '[0-9]+$', '0')}} latest"
     just _docs "mike set-default --push latest"
