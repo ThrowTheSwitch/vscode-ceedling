@@ -325,7 +325,7 @@ The extension’s user documentation is a versioned website, published apart fro
 
 ### How it’s organized
 
-The site lives at <https://docs.throwtheswitch.org/vscode-ceedling/>. [MkDocs](https://www.mkdocs.org/) builds it with the [Material](https://squidfunk.github.io/mkdocs-material/) theme, in Material’s standard colors. [mike](https://github.com/jimporter/mike) versions it, one version per extension release. Its `latest` alias names the newest, and the site’s root opens it. Every other version shows a banner linking to `latest`.
+The site lives at <https://docs.throwtheswitch.org/vscode-ceedling/>. [MkDocs](https://www.mkdocs.org/) builds it with the [Material](https://squidfunk.github.io/mkdocs-material/) theme, in Material’s standard colors. [mike](https://github.com/jimporter/mike) versions it, one version per minor release of the extension, named `x.y.0`. Each patch release, `x.y.z`, redeploys its minor release’s version, so that version always holds the newest documentation across its patch releases. The `latest` alias names the newest minor release, and the site’s root opens it. Every other version shows a banner linking to `latest`.
 
 GitHub Pages serves the repository’s `gh-pages` branch, which only mike writes. The organization’s [`throwtheswitch.github.io`](https://github.com/ThrowTheSwitch/throwtheswitch.github.io) repository owns the `docs.throwtheswitch.org` domain, so this repository’s site appears under it at `/vscode-ceedling/`. This repository needs no CNAME file. The repository’s Pages settings must serve the `gh-pages` branch, which an administrator sets once.
 
@@ -355,11 +355,11 @@ The documentation recipes run on the host, not in the sidecar, which they refuse
 | `just docs-build` | Builds the site into `site/`, with `--strict` |
 | `just docs-serve` | Serves the working tree’s site at <http://127.0.0.1:8000>, rebuilding as pages change |
 | `just docs-preview` | Serves the deployed versions from the local `gh-pages` branch, with the version selector |
-| `just docs-deploy-latest <version>` | Deploys a release’s documentation, moves `latest` to it, and makes the site’s root open `latest` |
-| `just docs-deploy <version>` | Deploys a release’s documentation without moving `latest` |
+| `just docs-deploy-latest <version>` | Deploys a release’s documentation as its minor release’s `x.y.0`, moves `latest` to it, and makes the site’s root open `latest` |
+| `just docs-deploy <version>` | Deploys a release’s documentation as its minor release’s `x.y.0`, without moving `latest` |
 
 A private `_docs` helper runs each command in `.docsenv/`, and stops when `just docs-install` hasn’t made it yet. Before a deploy, a private `_docs-deployable` helper checks three things:
-- the version is a release’s `x.y.z`;
+- the version is a release’s `x.y.z`, which the deploy turns into its minor release’s `x.y.0`;
 - the working tree has no changes, since mike would publish them under the commit `HEAD` names;
 - `origin` is fetched, since mike fast-forwards the local `gh-pages` from `origin/gh-pages` but never fetches it.
 
@@ -367,15 +367,15 @@ Each deploy then runs `just docs-build`, because mike’s own build isn’t stri
 
 ### Deploying
 
-Each release deploys its documentation by hand, as Ceedling does. Run `just docs-deploy-latest <version>` from the release’s tagged commit, once [the release workflow](../.github/workflows/cd.yml) has published it. A `-pre.<N>` prerelease deploys no documentation.
+Each release deploys its documentation by hand, as Ceedling does. Run `just docs-deploy-latest <version>` from the release’s tagged commit, once [the release workflow](../.github/workflows/cd.yml) has published it. A patch release, e.g. 2.1.3, replaces its minor release’s 2.1.0 documentation. A `-pre.<N>` prerelease deploys no documentation.
 
-A released version’s documentation can be revised without a new release.
+A minor release’s documentation can be revised without a new release.
 
-1. Branch from the version’s `docs-<version>` tag if it has one, otherwise from its `v<version>` release tag.
+1. Branch from the minor release’s `docs-x.y.0` tag if it has one, otherwise from the release tag of its newest patch release, `v<version>`.
 2. Edit the pages, and check them with `just docs-serve`.
 3. Commit the edits.
-4. Run `just docs-deploy <version>`, or `just docs-deploy-latest <version>` if it is the newest release.
-5. Point an annotated `docs-<version>` tag at the deployed commit, and push the tag. Each version’s tag records the source of its deployed documentation.
+4. Run `just docs-deploy <version>`, or `just docs-deploy-latest <version>` if it is the newest minor release. Either version of a minor release, e.g. `2.1.0` or `2.1.3`, deploys as `2.1.0`.
+5. Point an annotated `docs-x.y.0` tag at the deployed commit, and push the tag. Each minor release’s tag records the source of its deployed documentation. A later patch release’s deploy moves the source on, so move the tag then too.
 
 Changes to the documentation on the integration branch reach the site with the next release.
 
