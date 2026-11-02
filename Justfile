@@ -94,3 +94,70 @@ shell: image
 # Remove build output
 clean: image
     just _run "npm run clean"
+
+# The documentation site's recipes run on the host, in the .docsenv/ Python venv, not the sidecar.
+# Deploys push the gh-pages branch with your own Git credentials (see docs/Development.md). The
+# site keeps one version per minor release, x.y.0, which each of its patch releases redeploys.
+
+# Run CMD in .docsenv/, which `just docs-install` creates, never in another venv or the sidecar
+[private]
+_docs CMD:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "${SIDECAR:-0}" = "1" ]; then
+        echo "error: the docs recipes run on the host, not in the sidecar" >&2
+        exit 1
+    fi
+    if [ ! -f .docsenv/bin/activate ]; then
+        echo "error: no .docsenv/; run 'just docs-install' first" >&2
+        exit 1
+    fi
+    source .docsenv/bin/activate
+    eval "{{CMD}}"
+
+# Refuse a version that isn't a release's x.y.z, or a working tree with uncommitted changes, which mike would publish under HEAD's commit
+[private]
+_docs-deployable VERSION:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! [[ {{quote(VERSION)}} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "error: a docs version is a release's x.y.z, not "{{quote(VERSION)}} >&2
+        exit 1
+    fi
+    if [ -n "$(git status --porcelain)" ]; then
+        echo "error: commit or stash your changes first; mike deploys the working tree as HEAD's commit" >&2
+        exit 1
+    fi
+    git fetch -q origin
+
+# Install the documentation site's tools (mkdocs, Material, mike) into .docsenv/, a host Python venv
+docs-install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [ -d .docsenv ] || python3 -m venv .docsenv
+    .docsenv/bin/pip install -q --upgrade pip
+    .docsenv/bin/pip install -q -r docs/requirements.txt
+
+# Build the documentation site into site/, failing on any warning, such as a broken link
+docs-build:
+    just _docs "mkdocs build --strict"
+
+# Serve the documentation site at http://127.0.0.1:8000, rebuilding as pages change
+docs-serve:
+    just _docs "mkdocs serve"
+
+# Browse the deployed versions of the documentation site at http://127.0.0.1:8000
+docs-preview:
+    git fetch -q origin
+    just _docs "mike serve"
+
+# Deploy a release's documentation to GitHub Pages as its minor release's x.y.0, without moving 'latest', e.g. to revise an older minor release
+docs-deploy VERSION: (_docs-deployable VERSION) docs-build
+    @echo "Deploying {{VERSION}}'s documentation as {{replace_regex(VERSION, '[0-9]+$', '0')}}"
+    just _docs "mike deploy --push {{replace_regex(VERSION, '[0-9]+$', '0')}}"
+
+# Deploy a release's documentation to GitHub Pages as its minor release's x.y.0, make that 'latest', and have the site's root open 'latest'
+docs-deploy-latest VERSION: (_docs-deployable VERSION) docs-build
+    @echo "Deploying {{VERSION}}'s documentation as {{replace_regex(VERSION, '[0-9]+$', '0')}}, and making it latest"
+    just _docs "mike deploy --push --update-aliases {{replace_regex(VERSION, '[0-9]+$', '0')}} latest"
+    just _docs "mike set-default --push latest"

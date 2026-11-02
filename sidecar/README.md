@@ -20,7 +20,7 @@ The image holds none of the repository. The checkout is bind-mounted when a cont
 
 ## Using it through the Justfile
 
-Every interaction goes through the root `Justfile`. `just --list` shows its recipes: `install`, `build`, `watch`, `rebuild`, `test`, `lint`, `coverage`, `validate`, `validate-matrix`, `package`, `publish`, `clean`, `shell`, and `image`. Don’t run `docker` directly. The recipes handle image builds, volume mounts, and environment forwarding consistently.
+Every interaction goes through the root `Justfile`. `just --list` shows its recipes: `install`, `build`, `watch`, `rebuild`, `test`, `lint`, `coverage`, `validate`, `validate-matrix`, `package`, `publish`, `clean`, `shell`, and `image`. Don’t run `docker` directly. The recipes handle image builds, volume mounts, and environment forwarding consistently. `just --list` also shows the documentation site’s `docs-*` recipes. Those run on the host in a Python venv instead, as [docs/Development.md](../docs/Development.md#8-the-documentation-site) explains.
 
 Recipes run in one of two modes.
 

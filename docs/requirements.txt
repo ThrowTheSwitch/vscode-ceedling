@@ -1,0 +1,5 @@
+# The documentation site's tools, pinned to the versions Ceedling's own site last deployed with.
+# `just docs-install` installs them into .docsenv/, and CI's docs job into a venv of its own.
+mkdocs==1.6.1
+mkdocs-material==9.7.6
+mike==2.2.0

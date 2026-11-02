@@ -1,6 +1,6 @@
 # Development
 
-This document is for contributors changing the extension’s own code. It starts with the daily workflow and a pointer to the architecture, which [Architecture.md](Architecture.md) covers in full. Then it covers running and debugging locally, the VS Code tools this work relies on, validation against real Ceedling releases, the manual testing plan, and the Docker sidecar.
+This document is for contributors changing the extension’s own code. It starts with the daily workflow and a pointer to the architecture, which [Architecture.md](Architecture.md) covers in full. Then it covers running and debugging locally, the VS Code tools this work relies on, validation against real Ceedling releases, the manual testing plan, the Docker sidecar, and the documentation site.
 
 ---
 
@@ -315,7 +315,69 @@ There are two modes.
 | `just package` | Produces a `.vsix` |
 | `just publish` | Publishes to the Marketplace. Requires `VSCE_PAT` |
 | `just shell` | Opens an interactive container session |
-| `just clean` | Removes build output, the test build, and coverage reports |
+| `just clean` | Removes build output, the test build, coverage reports, and the built documentation site |
+
+The documentation site’s `docs-*` recipes run on the host instead. See [Section 8](#8-the-documentation-site).
+
+## 8. The Documentation Site
+
+The extension’s user documentation is a versioned website, published apart from the extension. A docs fix then reaches users without an extension release, which a README can’t do. The site follows the pattern of [Ceedling’s own](https://docs.throwtheswitch.org/Ceedling/).
+
+### How it’s organized
+
+The site lives at <https://docs.throwtheswitch.org/vscode-ceedling/>. [MkDocs](https://www.mkdocs.org/) builds it with the [Material](https://squidfunk.github.io/mkdocs-material/) theme, in Material’s standard colors. [mike](https://github.com/jimporter/mike) versions it, one version per minor release of the extension, named `x.y.0`. Each patch release, `x.y.z`, redeploys its minor release’s version, so that version always holds the newest documentation across its patch releases. The `latest` alias names the newest minor release, and the site’s root opens it. Every other version shows a banner linking to `latest`.
+
+GitHub Pages serves the repository’s `gh-pages` branch, which only mike writes. The organization’s [`throwtheswitch.github.io`](https://github.com/ThrowTheSwitch/throwtheswitch.github.io) repository owns the `docs.throwtheswitch.org` domain, so this repository’s site appears under it at `/vscode-ceedling/`. This repository needs no CNAME file. The repository’s Pages settings must serve the `gh-pages` branch, which an administrator sets once.
+
+- [`mkdocs.yml`](../mkdocs.yml) holds the site’s configuration: its navigation, link validation, theme features, and Markdown extensions.
+- `docs/mkdocs/` holds the pages, with their images under `assets/images/`.
+- [`docs/overrides/main.html`](overrides/main.html) fills Material’s outdated-version banner.
+- [`docs/requirements.txt`](requirements.txt) pins MkDocs, Material, and mike, at the versions Ceedling’s site last deployed with. Their own dependencies aren’t pinned, as Ceedling’s aren’t.
+
+The release-facing documents stay in the repository: the [Changelog](../CHANGELOG.md), [ReleaseNotes.md](ReleaseNotes.md), [KnownIssues.md](KnownIssues.md), and [BreakingChanges.md](BreakingChanges.md). So do this document and [Architecture.md](Architecture.md). Pages link to each on `master`, so they always show its current text. None of the site’s files ship in the `.vsix`, which [`.vscodeignore`](../.vscodeignore) ensures.
+
+### Writing pages
+
+Pages follow the same prose rules as the rest of the documentation. Each page opens with an overview of what it covers. Each section and each paragraph opens with a thesis sentence. Links are reference-style, collected at the bottom of the page, and every page ends with `<br/><br/>`, as Ceedling’s do.
+
+- A card grid is a `<div class="grid cards" markdown>` list. Each card starts with a `:material-<icon>:` shortcode and a bold link, then a `---` line and its summary.
+- Content tabs, `=== "Linux"`, hold variants such as one per OS or coverage tool. Choosing a tab chooses the same label in every tab set, on every page.
+- Admonitions are Material’s standard types, e.g. `!!! tip` and `!!! warning`.
+- `mkdocs build --strict` fails on any warning. `mkdocs.yml` makes every link and navigation problem one, such as a broken link or `#anchor`, a missing image, or a page left out of `nav`. CI’s `docs` job builds the site the same way, on every pull request and every push to `master` or `next_version`.
+
+### Recipes
+
+The documentation recipes run on the host, not in the sidecar, which they refuse. They use a Python virtual environment, `.docsenv/`, which git ignores. It needs Python 3.9 or later. The deploy recipes push with your own Git credentials, which the sidecar lacks.
+
+| Recipe | Does |
+|---|---|
+| `just docs-install` | Creates `.docsenv/` and installs `docs/requirements.txt` into it |
+| `just docs-build` | Builds the site into `site/`, with `--strict` |
+| `just docs-serve` | Serves the working tree’s site at <http://127.0.0.1:8000>, rebuilding as pages change |
+| `just docs-preview` | Serves the deployed versions from the local `gh-pages` branch, with the version selector |
+| `just docs-deploy-latest <version>` | Deploys a release’s documentation as its minor release’s `x.y.0`, moves `latest` to it, and makes the site’s root open `latest` |
+| `just docs-deploy <version>` | Deploys a release’s documentation as its minor release’s `x.y.0`, without moving `latest` |
+
+A private `_docs` helper runs each command in `.docsenv/`, and stops when `just docs-install` hasn’t made it yet. Before a deploy, a private `_docs-deployable` helper checks three things:
+- the version is a release’s `x.y.z`, which the deploy turns into its minor release’s `x.y.0`;
+- the working tree has no changes, since mike would publish them under the commit `HEAD` names;
+- `origin` is fetched, since mike fast-forwards the local `gh-pages` from `origin/gh-pages` but never fetches it.
+
+Each deploy then runs `just docs-build`, because mike’s own build isn’t strict. Finally, mike commits the build to the local `gh-pages` and pushes it. `docs-deploy-latest` also runs `mike set-default`, which pushes nothing once `latest` is already the default.
+
+### Deploying
+
+Each release deploys its documentation by hand, as Ceedling does. Run `just docs-deploy-latest <version>` from the release’s tagged commit, once [the release workflow](../.github/workflows/cd.yml) has published it. A patch release, e.g. 2.1.3, replaces its minor release’s 2.1.0 documentation. A `-pre.<N>` prerelease deploys no documentation.
+
+A minor release’s documentation can be revised without a new release.
+
+1. Branch from the minor release’s `docs-x.y.0` tag if it has one, otherwise from the release tag of its newest patch release, `v<version>`.
+2. Edit the pages, and check them with `just docs-serve`.
+3. Commit the edits.
+4. Run `just docs-deploy <version>`, or `just docs-deploy-latest <version>` if it is the newest minor release. Either version of a minor release, e.g. `2.1.0` or `2.1.3`, deploys as `2.1.0`.
+5. Point an annotated `docs-x.y.0` tag at the deployed commit, and push the tag. Each minor release’s tag records the source of its deployed documentation. A later patch release’s deploy moves the source on, so move the tag then too.
+
+Changes to the documentation on the integration branch reach the site with the next release.
 
 ---
 

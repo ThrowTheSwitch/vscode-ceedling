@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{#
+  The outdated-version banner. Material's base.html leaves its `outdated` block empty until a
+  template like this one fills it. Material then shows the banner on every version except the one
+  that mike's `latest` alias names.
+#}
+
+{% block outdated %}
+  You are not viewing the latest version.
+  <a href="{{ '../' ~ base_url }}">
+    <strong>Click here to go to latest.</strong>
+  </a>
+{% endblock %}
