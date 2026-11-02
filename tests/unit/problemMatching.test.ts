@@ -267,6 +267,16 @@ suite('matchProblems', () => {
     const log = { debug: (message: unknown) => { calls.push(['debug', String(message)]); }, warn: (message: unknown) => { calls.push(['warn', String(message)]); } };
     const output = { stdout: '', stderr: 'test/test_calc.c:3:5: error: expected ‘;’\nsrc/calc.h:1:1: warning: unused\n' };
 
+    // Clang reports in GCC's form, so the gcc preset serves it too, as the How-To guide says.
+    test("the gcc preset reads Clang's warnings, errors, and its linker's undefined reference", () => {
+        const found = matchProblems({ stdout: '', stderr: readFixture('clang-19.1', 'diagnostics-stderr.txt') }, '/src', 'gcc', [], log, path.posix);
+        assert.deepStrictEqual(found.map((p) => [p.severity, p.file, p.startLine, p.message]).sort(), [
+            ['error', '/src/link.c', 4, 'undefined reference to `missing\''],
+            ['error', '/src/warn.c', 8, "use of undeclared identifier 'c'"],
+            ['warning', '/src/warn.c', 2, "unused variable 'unused' [-Wunused-variable]"],
+        ]);
+    });
+
     test('"disabled" finds nothing, and "gcc" its preset\'s problems under the project', () => {
         assert.deepStrictEqual(matchProblems(output, '/ws', 'disabled', [], log, path.posix), []);
         const found = matchProblems(output, '/ws', 'gcc', [], log, path.posix);

@@ -89,6 +89,15 @@ nav:
   - Home: index.md
   - How-To:
     - howto/index.md
+    - Start Testing in Your Project: howto/first-run.md
+    - Debug a Test: howto/debug-a-test.md
+    - Measure Code Coverage: howto/code-coverage.md
+    - See Compiler Errors in the Editor: howto/compiler-problems.md
+    - Work With Several Projects: howto/workspace-layouts.md
+    - Run the Ceedling You Use: howto/ceedling-installations.md
+    - Upgrade Ceedling: howto/upgrade-ceedling.md
+    - Write Parametrized Tests: howto/parametrized-tests.md
+    - Find a Crashing Test: howto/crashing-tests.md
   - User Manual:
     - manual/index.md
     - Getting Started: manual/getting-started.md

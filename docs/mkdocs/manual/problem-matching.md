@@ -14,7 +14,7 @@ Problem matching is off by default. The [`ceedlingExplorer.problemMatching`][set
 }
 ```
 
-Every build that finishes scans its output, and a cancelled build scans none. A test file’s build replaces the problems its last build reported, and a project’s build replaces those of every build in the project. A fixed problem therefore clears with the next build of the test file or project that reported it. Setting `mode` to `"disabled"` clears every problem at once.
+Ceedling shows a compiler’s or linker’s output only when that tool fails, so problems appear from failed builds. A file that compiles with only warnings shows none, at Ceedling’s default verbosity. Every build that finishes scans its output, and a cancelled build scans none. A test file’s build replaces the problems its last build reported, and a project’s build replaces those of every build in the project. A fixed problem therefore clears with the next build of the test file or project that reported it. Setting `mode` to `"disabled"` clears every problem at once.
 
 ## The setting’s fields
 
@@ -59,7 +59,7 @@ This pattern matches GCC’s compiler warnings.
 
 A pattern whose regular expression is invalid matches nothing, and the extension’s log warns about it. A pattern missing its `regexp`, `message`, or `file` is skipped, and only the log’s debug level mentions it.
 
-[problems-guide]: ../howto/index.md
+[problems-guide]: ../howto/compiler-problems.md
 [setting]: configuration.md#ceedlingexplorerproblemmatching
 [regex101]: https://regex101.com/
 

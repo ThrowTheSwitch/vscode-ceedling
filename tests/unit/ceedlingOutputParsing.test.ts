@@ -201,6 +201,16 @@ suite('extractGdbLogReference', () => {
         assert.strictEqual(text, 'Test case crashed >> [SIGSEGV] Segmentation fault\n`*p = 42;`');
     });
 
+    // A run's failure carries Ceedling's own message, then a blank line and the run's transcript,
+    // which may name the same log again. The reference ends the message, not the whole text.
+    test("finds the reference ending Ceedling's message, before the run's transcript", async () => {
+        const [crash] = (await parseCppUnitReport(readFixture('ceedling-1.2.2', 'cppunit-report-crash.xml'))).failed;
+        const transcript = 'Ceedling output\n(build/logs/test/test/test_crash/test_should_crash.gdb.log)\n';
+        const { text, logPath } = extractGdbLogReference(`${crash.message}\n\n${transcript}`);
+        assert.strictEqual(logPath, 'build/logs/test/test/test_crash/test_should_crash.gdb.log');
+        assert.strictEqual(text, `Test case crashed >> [SIGSEGV] Segmentation fault\n\`*p = 42;\`\n\n${transcript}`);
+    });
+
     test('returns the message unchanged when there is no gdb log reference', () => {
         const message = 'Expected 1 Was 5';
         assert.deepStrictEqual(extractGdbLogReference(message), { text: message, logPath: undefined });

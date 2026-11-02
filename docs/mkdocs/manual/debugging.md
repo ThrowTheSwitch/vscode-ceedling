@@ -1,12 +1,12 @@
 # Debugging
 
-Debugging a test builds its test file, runs it, then starts your debugger on the test executable Ceedling built. The extension supplies the executable’s path to a `launch.json` configuration you provide. This page covers how that works, what a session covers, and how crashing tests are caught without a debugger. The [How-To guides][howto] add ready-to-use configurations for Linux, macOS, and Windows.
+Debugging a test builds its test file, runs it, then starts your debugger on the test executable Ceedling built. The extension supplies the executable’s path to a `launch.json` configuration you provide. This page covers how that works, what a session covers, and how crashing tests are caught without a debugger. [Debug a Test][howto] has ready-to-use configurations for Linux, macOS, and Windows.
 
 ## The launch configuration
 
 Each project debugs with the `launch.json` configuration that its `ceedlingExplorer.projects` entry names in [`debugLaunchConfig`][projects]. The setting holds the configuration’s *name*, its `"name"` field. A project that names none, like a folder without any `ceedlingExplorer.projects` entry, debugs with a configuration named `ceedling`.
 
-The configuration’s `program` names the test executable with `${command:ceedlingExplorer.debugTestExecutable}`. The extension replaces this token with the executable’s path, relative to the project’s test output directory. That directory is `build/test/out/` in the project, unless `:project` ↳ `:build_root` moves `build/`. So `program` starts with the project’s own path to it.
+The configuration’s `program` names the test executable with `${command:ceedlingExplorer.debugTestExecutable}`. The extension replaces this token with the executable’s path, relative to the project’s test output directory. That directory is `test/out/` under the project’s `:project` ↳ `:build_root`, so `build/test/out/` in a project `ceedling new` made. So `program` starts with the project’s own path to it.
 
 This example uses Microsoft’s C/C++ extension, `ms-vscode.cpptools`, with gdb.
 
@@ -56,11 +56,12 @@ Debugging several files at once debugs only the first, with a notification sayin
 
 ## Crashing tests
 
-Finding a crashing test needs no debugger. Ceedling’s own [`:use_backtrace`][use-backtrace-docs] project setting reports a crash as a failed test. Without it, a crash ends in a bare timeout or a silently stopped run. The extension shows that failure like any other, with no extra configuration.
+Finding a crashing test needs no debugger. Ceedling’s own [`:use_backtrace`][use-backtrace-docs] project setting reports a crash as a failed test, at the test case that crashed. The extension shows that failure like any other, with no extra configuration.
 
-The setting offers two ways to find a crash.
+The setting offers three choices.
 
-- **`:simple`**, the default, reruns each test case alone to find which one crashed. It needs no gdb. It also works with a simulator-based test fixture, not just native builds.
+- **`:simple`**, the default, reruns each test case of the crashed file on its own, to find which one crashed. It needs no gdb. It also works with a simulator-based test fixture, not just native builds.
+- **`:none`** reruns nothing, and reports every test in the crashed file as failed.
 - **`:gdb`** also finds the exact crashing line. On Ceedling 1.1.0 and later, it writes a gdb log file per test case, and the extension turns the failure message’s reference to that log into a clickable link. `:gdb` needs gdb installed, and supports only the native build platform. Stay on `:simple` for a cross-compiled or simulator-based test fixture.
 
 ```yaml
@@ -68,7 +69,7 @@ The setting offers two ways to find a crash.
   :use_backtrace: :gdb
 ```
 
-[howto]: ../howto/index.md
+[howto]: ../howto/debug-a-test.md
 [projects]: configuration.md#ceedlingexplorerprojects
 [use-backtrace-docs]: https://docs.throwtheswitch.org/Ceedling/latest/configuration/reference/project/#use_backtrace
 

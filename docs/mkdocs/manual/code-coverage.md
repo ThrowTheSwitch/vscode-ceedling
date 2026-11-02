@@ -60,7 +60,7 @@ A run can show no coverage for a handful of reasons, and a notification names mo
 - **No sources in the report.** A notification says so. gcovr reports only sources beneath its `:report_root:`, as above.
 - **A failed build.** No report is written, and the _Testing_ view shows the build’s errors.
 
-[coverage-guide]: ../howto/index.md
+[coverage-guide]: ../howto/code-coverage.md
 [gcov-plugin]: https://docs.throwtheswitch.org/Ceedling/latest/plugins/gcov/
 [gcovr]: https://gcovr.com/
 [ReportGenerator]: https://reportgenerator.io/

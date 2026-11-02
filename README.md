@@ -53,12 +53,13 @@ Most projects need no configuration at all.
 4. If Ceedling runs only in a particular shell, as is common on Windows, set [`ceedlingExplorer.shellPath`][shell-path].
 5. Open the _Testing_ view, and run tests from it or from the gutter icons.
 
-The [How-To guides][howto] go further, from code coverage and debugging to projects laid out your own way.
+[Start Testing in Your Project][first-run] walks through these steps. The other [How-To guides][howto] go further, from code coverage and debugging to projects laid out your own way.
 
 [getting-started]: https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/getting-started/
 [projects]: https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/configuration/#ceedlingexplorerprojects
 [shell-path]: https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/configuration/#ceedlingexplorershellpath
 [howto]: https://docs.throwtheswitch.org/vscode-ceedling/latest/howto/
+[first-run]: https://docs.throwtheswitch.org/vscode-ceedling/latest/howto/first-run/
 
 # Documentation
 
