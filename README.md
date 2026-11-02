@@ -6,7 +6,7 @@ This Visual Studio Code [extension][marketplace] runs your [Ceedling] test suite
 
 > 📖 **The full documentation lives at [docs.throwtheswitch.org/vscode-ceedling][docs].** It has step-by-step guides, every setting, and troubleshooting, kept current between releases.
 
-![Screenshot](docs/mkdocs/assets/images/screenshot.png)
+![Screenshot](img/screenshot.png)
 
 [Ceedling]: https://github.com/ThrowTheSwitch/Ceedling
 [marketplace]: https://marketplace.visualstudio.com/items?itemName=throw-the-switch.vscode-ceedling
