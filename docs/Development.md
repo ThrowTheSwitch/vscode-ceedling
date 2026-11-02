@@ -330,7 +330,7 @@ The site lives at <https://docs.throwtheswitch.org/vscode-ceedling/>. [MkDocs](h
 GitHub Pages serves the repository’s `gh-pages` branch, which only mike writes. The organization’s [`throwtheswitch.github.io`](https://github.com/ThrowTheSwitch/throwtheswitch.github.io) repository owns the `docs.throwtheswitch.org` domain, so this repository’s site appears under it at `/vscode-ceedling/`. This repository needs no CNAME file. The repository’s Pages settings must serve the `gh-pages` branch, which an administrator sets once.
 
 - [`mkdocs.yml`](../mkdocs.yml) holds the site’s configuration: its navigation, link validation, theme features, and Markdown extensions.
-- `docs/mkdocs/` holds the pages, with their images under `assets/images/`.
+- `docs/mkdocs/` holds the pages, with their images under `assets/images/`. The README keeps its own copy of the main screenshot in `img/`, so the Marketplace listing of every release finds it there.
 - [`docs/overrides/main.html`](overrides/main.html) fills Material’s outdated-version banner.
 - [`docs/requirements.txt`](requirements.txt) pins MkDocs, Material, and mike, at the versions Ceedling’s site last deployed with. Their own dependencies aren’t pinned, as Ceedling’s aren’t.
 
