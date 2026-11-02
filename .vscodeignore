@@ -17,3 +17,10 @@ node_modules
 sidecar/**
 Justfile
 .claude/**
+docs/mkdocs/**
+docs/overrides/**
+docs/requirements.txt
+mkdocs.yml
+site/**
+.docsenv/**
+out-validate/**

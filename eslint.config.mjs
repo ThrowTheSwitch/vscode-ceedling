@@ -11,7 +11,7 @@ import tseslint from 'typescript-eslint';
 
 export default defineConfig(
     {
-        ignores: ['out/', 'out-test/', 'coverage/', '.vscode-test/', 'node_modules/', 'tests/manual/', 'tests/fixtures/'],
+        ignores: ['out/', 'out-test/', 'coverage/', '.vscode-test/', 'node_modules/', 'tests/manual/', 'tests/fixtures/', 'site/', '.docsenv/'],
     },
     js.configs.recommended,
     {

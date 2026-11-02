@@ -9,3 +9,7 @@ tests/manual/build/
 
 # macOS junk
 .DS_Store
+
+# The documentation site's venv and build (just docs-install, just docs-build)
+.docsenv/
+site/
