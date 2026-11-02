@@ -71,6 +71,7 @@ This document is the terse, itemized record of what changed in each release. Its
 * Closing or reloading the window now stops every Ceedling process still running, in every workspace folder. Before, shutdown could stop partway and leave a run going.
 * A malformed `ceedlingExplorer.projects` entry, e.g. a `path` that isn’t text, now shows an error naming the setting, instead of an internal error.
 * An unexpected discovery failure now shows its message in the notification, without a stack trace. The log keeps the stack.
+* A `ceedlingExplorer.projects` entry without a `debugLaunchConfig` debugs with the launch configuration named `ceedling`, as a folder without entries does. It used to look for one named `undefined`, and VS Code’s settings editor flagged the entry.
 
 ## 👋 Removed
 

@@ -110,7 +110,7 @@
                 "type": "string"
               },
               "debugLaunchConfig": {
-                "description": "Name of the debug configuration to use for debugging tests in the launch.json file",
+                "description": "Name of the debug configuration to use for debugging tests in the launch.json file. Without it, the configuration named ceedling.",
                 "type": "string"
               },
               "name": {
@@ -126,8 +126,7 @@
               }
             },
             "required": [
-              "path",
-              "debugLaunchConfig"
+              "path"
             ],
             "additionalProperties": false
           },
