@@ -15,10 +15,11 @@ This document is the terse, itemized record of what changed in each release. Its
 * Discovery checks the Ceedling version in each project’s own directory, so a Ceedling vendored in a project’s `vendor/ceedling` or selected by `WHICH_CEEDLING` is respected. It no longer runs `ceedling summary`.
 * Discovery is faster in workspaces with several project directories or many test files. Projects in different directories load at the same time, and test files are read in parallel. Reading files no longer blocks VS Code’s extension host.
 * Ceedling commands in different project directories may now run at the same time, e.g. a run in one project while another rediscovers. Commands within one project directory, or in projects sharing a build directory, still run one at a time.
+* The user documentation moved from the README to its own site, [docs.throwtheswitch.org/vscode-ceedling](https://docs.throwtheswitch.org/vscode-ceedling/latest/), which can be updated between releases. Its User Manual covers every feature and setting, and a Troubleshooting page matches common messages to their fixes. The README keeps an overview and a quick start.
 
 ## 🌟 Added
 
-* Code coverage in VS Code’s own coverage views, contributed by [@jake-kim-sndk](https://github.com/jake-kim-sndk) ([PR #13](https://github.com/ThrowTheSwitch/vscode-ceedling/pull/13)). _Run with Coverage_ in the _Testing_ view runs tests through Ceedling’s gcov plugin, then shows each source file’s line, branch, and function coverage. It reads the Cobertura report from gcovr or ReportGenerator. See [Code coverage](README.md#code-coverage).
+* Code coverage in VS Code’s own coverage views, contributed by [@jake-kim-sndk](https://github.com/jake-kim-sndk) ([PR #13](https://github.com/ThrowTheSwitch/vscode-ceedling/pull/13)). _Run with Coverage_ in the _Testing_ view runs tests through Ceedling’s gcov plugin, then shows each source file’s line, branch, and function coverage. It reads the Cobertura report from gcovr or ReportGenerator. See [Code Coverage](https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/code-coverage/).
 * New `ceedlingExplorer.coverageCommandArgs` and `ceedlingExplorer.coverageResetsCounters` settings, for a project’s own coverage task and for accumulating coverage across runs.
 * Support for Ceedling 1.2.0:
   * A project directory may use `ceedling.yml` instead of `project.yml`. A directory holding both is reported as an error, as Ceedling itself reports it.
@@ -35,9 +36,9 @@ This document is the terse, itemized record of what changed in each release. Its
   * With Ceedling 1.2.2 installed, the _Testing_ view updates during a long run even right after an edit to `project.yml` or a mixin file, for a project running Ceedling 1.2.1 or later.
   * The first build after upgrading to Ceedling 1.2.2 from 1.2.0 or 1.2.1 offers to clobber the project, removing what the old build layout left. With `ceedlingExplorer.coverageResetsCounters` off, coverage counts the old layout’s counters until then.
 * A project that fails to load shows Ceedling’s own `EXCEPTION` message, e.g. why the installed Ceedling can’t run the project’s own.
-* The `report_tests_log_factory` plugin’s `cppunit` report, which this extension reads results from, is now enabled automatically by a bundled [mixin](README.md#mixins). Enabling it in `project.yml` is no longer required.
+* The `report_tests_log_factory` plugin’s `cppunit` report, which this extension reads results from, is now enabled automatically by a bundled [mixin](https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/configuration/#mixins). Enabling it in `project.yml` is no longer required.
 * `ceedlingExplorer.projects[].path` may name a `.yaml` project file, as a mixin may. Either extension may be in any letter case.
-* New `ceedlingExplorer.mixins` and `ceedlingExplorer.projects[].mixins` settings apply Ceedling mixins, for toolchain targets, CI overrides, or other configuration, without editing `project.yml`. See [Mixins](README.md#mixins).
+* New `ceedlingExplorer.mixins` and `ceedlingExplorer.projects[].mixins` settings apply Ceedling mixins, for toolchain targets, CI overrides, or other configuration, without editing `project.yml`. See [Mixins](https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/configuration/#mixins).
 * The _Testing_ view updates as you edit a test file, before you save. Adding or removing a test file, editing `project.yml` or a mixin file, or changing the Ceedling in a project’s `vendor/ceedling` rediscovers the project without a manual refresh.
 * Unity’s `TEST_MATRIX()` parametrized tests and exclusive `TEST_RANGE(<start, end, step>)` ranges now appear in the _Testing_ view as individual test cases.
 * New `ceedlingExplorer.ceedlingCommand` setting for running Ceedling through another command, e.g. `bundle exec ceedling`.
@@ -101,7 +102,7 @@ Documentation improvements.
 
 * Running a single test function no longer runs and reports every test in its file. Ceedling’s own `--test-case` filter is now used for a function-level run, narrowing what runs and gets reported (Ceedling still recompiles the whole file either way). A parametrized function’s cases still run together, since Unity’s test case filtering can isolate one tet function, not one paremeterized test case within it. Falls back to a full-file run, with a logged warning, on the rare case where the filter’s substring matching also catches an unrelated test.
 
-* A crashed test’s failure message now links directly to its gdb log file when one exists (Ceedling 1.1.0 and later, with `:use_backtrace:` ⇒ `:gdb`). Clicking it opens the log. See the new [Crashes and `:use_backtrace`](README.md#crashes-and-use_backtrace) section for background on this existing Ceedling feature and its platform tradeoffs.
+* A crashed test’s failure message now links directly to its gdb log file when one exists (Ceedling 1.1.0 and later, with `:use_backtrace:` ⇒ `:gdb`). Clicking it opens the log. See [Crashing tests](https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/debugging/#crashing-tests) for background on this existing Ceedling feature and its platform tradeoffs.
 
 ## 💪 Fixed
 

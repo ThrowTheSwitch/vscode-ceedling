@@ -211,7 +211,7 @@ Each new Ceedling release needs these checks before the extension supports it, s
 1. Run `just validate <version>`, then `just validate <version> probe:syscalls` and `just validate <version> probe:overlap`. Before the release is published, run `CEEDLING_GEM=<path> just validate-matrix` instead. It runs every check on the gem, and every older launcher against it.
 2. `probe:syscalls` must show no writes under `build/`, nor any outside `/dev`, `/proc`, and `/tmp`. `probe:overlap` must show `clobber` leaving no files outside `build/vendor/`, and the next build recompiling every file.
 3. To confirm the validation still catches a broken gate, temporarily make `discovering()` in `ceedlingEngine.ts` always skip the locks. Then `just validate 1.2.0 latency` must fail, as must `just validate <newest> mixed`. `stress --shared-build-root` may still pass, since the overlap rarely corrupts a build.
-4. Record the release’s new features. Add each to `APPLICATION_FEATURES` or `LAUNCHER_FEATURES` in `ceedlingVersions.ts`, and to the table in [Architecture.md](Architecture.md#ceedling-versions), which `tests/unit/docs.test.ts` checks against them. Update the supported range in the README, and capture `tests/fixtures/ceedling-<version>/` transcripts.
+4. Record the release’s new features. Add each to `APPLICATION_FEATURES` or `LAUNCHER_FEATURES` in `ceedlingVersions.ts`, and to the table in [Architecture.md](Architecture.md#ceedling-versions), which `tests/unit/docs.test.ts` checks against them. Update the supported range in the README and in the site’s [Getting Started](mkdocs/manual/getting-started.md) page, and capture `tests/fixtures/ceedling-<version>/` transcripts.
 5. Once its image is published, add it to `sidecar/validate.Dockerfile`. That takes a `FROM` stage for its image and a `COPY` from that image’s Ruby gem directory. Add its version to `MATRIX`’s default in `matrix.sh` and to the versions this section names. Consider making it the `CEEDLING_BASE` default in `run.sh`.
 
 Two launcher features rest on Ceedling 1.2.2’s `ceedling version`. A 1.2.2 launcher reports another installation’s own release, which earlier launchers get wrong ([Ceedling#1365](https://github.com/ThrowTheSwitch/Ceedling/issues/1365)). It also reads the project’s configuration, through `--project` and `--mixin`. `mixed` exercises both on every launcher, selecting each installation every way Ceedling allows. A wrong report shows as wrong results or a wrong debug executable.
@@ -344,6 +344,7 @@ Pages follow the same prose rules as the rest of the documentation. Each page op
 - Content tabs, `=== "Linux"`, hold variants such as one per OS or coverage tool. Choosing a tab chooses the same label in every tab set, on every page.
 - Admonitions are Material’s standard types, e.g. `!!! tip` and `!!! warning`.
 - `mkdocs build --strict` fails on any warning. `mkdocs.yml` makes every link and navigation problem one, such as a broken link or `#anchor`, a missing image, or a page left out of `nav`. CI’s `docs` job builds the site the same way, on every pull request and every push to `master` or `next_version`.
+- [`tests/unit/docs.test.ts`](../tests/unit/docs.test.ts) checks what the build can’t. The Configuration page must give every setting in `package.json` with its default, every project field, and every command. Every `ceedlingExplorer.*` name a page or the README uses must exist. Every link into the site from the README, the Changelog, `docs/`, `src/`, or `package.json` must name a page and heading it has.
 
 ### Recipes
 
@@ -384,7 +385,8 @@ Changes to the documentation on the integration branch reach the site with the n
 ## See also
 
 - [Architecture.md](Architecture.md) — how the extension works, for contributors and coding agents.
-- [README.md](../README.md) — end-user features and configuration.
+- [README.md](../README.md) — the extension’s landing page, which points users to the documentation site.
+- [`docs/mkdocs/`](mkdocs/) — the documentation site’s pages. See [Section 8](#8-the-documentation-site).
 - [CHANGELOG.md](../CHANGELOG.md), [ReleaseNotes.md](ReleaseNotes.md), [KnownIssues.md](KnownIssues.md), [BreakingChanges.md](BreakingChanges.md) — release-facing docs.
 - [tests/manual/README.md](../tests/manual/README.md) — the manual test project itself.
 - [sidecar/README.md](../sidecar/README.md) — the sidecar’s own fuller explanation.
