@@ -67,3 +67,20 @@ jobs:
       with:
         name: coverage-report
         path: coverage/
+
+  # The documentation site, built as `just docs-build` builds it. Deploys stay manual.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+
+    # A venv, as `just docs-install` makes, since Ubuntu's Python refuses system-wide pip installs.
+    - name: Install the documentation tools
+      run: |
+        python3 -m venv .docsenv
+        .docsenv/bin/pip install -q -r docs/requirements.txt
+
+    # --strict fails the build on any warning, such as a broken link or a missing image.
+    - name: Build the documentation site
+      run: .docsenv/bin/mkdocs build --strict
