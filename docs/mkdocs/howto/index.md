@@ -1,6 +1,6 @@
 # How-To
 
-The How-To guides walk through common goals step by step. Each one lists what it needs, and gives complete examples to paste. The [User Manual][manual] explains every feature and setting they use.
+These guides walk through common needs step by step. Each one lists requirements and provides complete examples. The [User Manual][manual] explains every feature and setting they use.
 
 <div class="grid cards" markdown>
 

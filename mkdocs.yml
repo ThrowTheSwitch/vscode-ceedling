@@ -3,7 +3,7 @@
 # deploying it. Ceedling's own site (ThrowTheSwitch/Ceedling) set the pattern.
 
 # Site metadata
-site_name: Ceedling VS Code extension
+site_name: Ceedling for Visual Studio Code
 site_description: Ceedling's test suite in Visual Studio Code's Testing view
 site_url: https://docs.throwtheswitch.org/vscode-ceedling/
 repo_url: https://github.com/ThrowTheSwitch/vscode-ceedling
@@ -11,11 +11,14 @@ repo_name: ThrowTheSwitch/vscode-ceedling
 
 docs_dir: docs/mkdocs/
 
-# Footer copyright notice
+# Footer copyright notice, with Microsoft's trademark statement for the Visual Studio Code icon
+# the front page uses
 copyright: >-
   &copy; 2018&ndash;2026 &mdash;
   Documentation license:
   <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.en">CC BY-SA 4.0</a>
+  <br/>
+  Visual Studio Code, VS Code, and the Visual Studio Code icon are trademarks of Microsoft Corporation.
 
 # Every problem MkDocs can find in links and nav is a warning, which --strict turns into a failed
 # build. By default, a broken #anchor, an absolute or unrecognized link, and a page missing from
@@ -112,6 +115,7 @@ nav:
     - Code Coverage: manual/code-coverage.md
     - Problem Matching: manual/problem-matching.md
     - Configuration: manual/configuration.md
-    - Troubleshooting: manual/troubleshooting.md
+  - Reference: reference.md
+  - Troubleshooting: troubleshooting.md
   - Releases: releases.md
   - Help: help.md

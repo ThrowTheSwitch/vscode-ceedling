@@ -1,6 +1,8 @@
 # Releases
 
-Four documents in the extension’s repository track its releases. The links below always show their current text. The version selector in this site’s header shows the documentation of other releases. Each minor release has one version, e.g. 2.1.0, which covers all its patch releases.
+Four running documents in the extension’s repository track its releases. The links below to those documents include the current and complete text across all extension versions.
+
+The version selector in this site’s header is pinned to each minor release (e.g. 2.1.0) but covers all patch releases for that version.
 
 <div class="grid cards" markdown>
 

@@ -22,8 +22,9 @@ const repository = path.resolve(__dirname, '..', '..', '..');
 const siteDirectory = path.join(repository, 'docs', 'mkdocs');
 const SITE = 'https://docs.throwtheswitch.org/vscode-ceedling/latest/';
 
+type Fields = { properties?: Record<string, Fields>, items?: Fields };
 type Contributed = {
-    configuration: { properties: Record<string, { default?: unknown, items?: { properties?: Record<string, unknown> } }> },
+    configuration: { properties: Record<string, Fields & { default?: unknown }> },
     commands: Array<{ command: string }>,
 };
 const contributes = (JSON.parse(fs.readFileSync(path.join(repository, 'package.json'), 'utf8')) as { contributes: Contributed }).contributes;
@@ -62,6 +63,14 @@ function anchors(markdown: string): Set<string> {
         .replace(/[^\w\s-]/g, '').trim().toLowerCase().replace(/[-\s]+/g, '-')));
 }
 
+// A page's reference-style link definitions, `[label]: target`, by label.
+function linkTargets(markdown: string): Map<string, string> {
+    return new Map([...markdown.matchAll(/^\[([^\]]+)\]: (\S+)$/gm)].map((m) => [m[1], m[2]]));
+}
+
+const PREFIX = 'ceedlingExplorer.';
+const CONFIGURATION = 'manual/configuration.md';
+
 suite('the documentation site', () => {
     const configurationPage = () => read(siteDirectory, 'manual', 'configuration.md');
 
@@ -88,6 +97,54 @@ suite('the documentation site', () => {
         const commands = section(configurationPage(), '## Commands') ?? '';
         for (const { command } of contributes.commands) {
             assert.ok(commands.includes(`\`${command}\``), `no "${command}" under Commands`);
+        }
+    });
+
+    // The Reference only indexes what the manual explains, so each entry there must link on to the
+    // manual section that explains its setting, or the Mixins section on its own page.
+    test('every configuration entry links to the section explaining its setting', () => {
+        const configuration = configurationPage();
+        const targets = linkTargets(configuration);
+        for (const key of Object.keys(contributes.configuration.properties)) {
+            const entry = section(configuration, `### \`${key}\``) ?? '';
+            const linked = [...entry.matchAll(/\]\[([^\]]+)\]/g)].map((m) => targets.get(m[1]) ?? '');
+            assert.ok(linked.some((target) => /^(?!configuration\.md)[\w-]+\.md(#[\w-]+)?$/.test(target) || target === '#mixins'), `${key}'s entry links to no manual section explaining it`);
+        }
+    });
+
+    // Each Reference item is `[`name`][label] — description`, its name short of the ceedlingExplorer
+    // prefix. A setting links to its own entry, and a field or command to the entry or table that
+    // documents it, so the page lists exactly what package.json contributes.
+    test('the reference lists every setting, field, pattern property, and command at its entry', () => {
+        const reference = read(siteDirectory, 'reference.md');
+        const targets = linkTargets(reference);
+        const items = [...reference.matchAll(/^ *- \[`(\w+)`\]\[([\w-]+)\] — \S/gm)].map((m) => `${m[1]} → ${targets.get(m[2]) ?? `[${m[2]}]`}`).sort();
+        const properties = contributes.configuration.properties;
+        const anchorOf = (key: string) => `${CONFIGURATION}#${key.toLowerCase().replace('.', '')}`;
+        const problemMatching = properties[`${PREFIX}problemMatching`].properties ?? {};
+        const expected = [
+            ...Object.keys(properties).map((key) => `${key.slice(PREFIX.length)} → ${anchorOf(key)}`),
+            ...Object.keys(properties[`${PREFIX}projects`].items?.properties ?? {}).map((field) => `${field} → ${anchorOf(`${PREFIX}projects`)}`),
+            ...Object.keys(problemMatching).map((field) => `${field} → manual/problem-matching.md#the-settings-fields`),
+            ...Object.keys(problemMatching.patterns.items?.properties ?? {}).map((property) => `${property} → manual/problem-matching.md#pattern-properties`),
+            ...contributes.commands.map(({ command }) => `${command.slice(PREFIX.length)} → ${CONFIGURATION}#commands`),
+        ].sort();
+        assert.deepStrictEqual(items, expected);
+    });
+
+    // Each item follows the item before it at its depth, back to its parent, where a nested list
+    // starts over.
+    test('the reference alphabetizes every list', () => {
+        let previous: string[] = [];
+        for (const line of read(siteDirectory, 'reference.md').split('\n')) {
+            const item = /^( *)- \[`(\w+)`\]/.exec(line);
+            if (!item) {
+                previous = [];
+                continue;
+            }
+            const depth = item[1].length / 4;
+            assert.ok(depth >= previous.length || previous[depth].toLowerCase().localeCompare(item[2].toLowerCase()) < 0, `${item[2]} follows ${previous[depth]}`);
+            previous = [...previous.slice(0, depth), item[2]];
         }
     });
 

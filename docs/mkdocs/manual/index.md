@@ -1,6 +1,6 @@
 # User Manual
 
-The User Manual explains how each of the extension’s features works, and lists every setting. Read a page to understand a feature, or to look up an option. The [How-To guides][howto] instead walk through common goals step by step.
+The User Manual explains how each of the extension’s features works, and lists every setting. Read a page to understand a feature, or to look up an option. The [How-To guides][howto] instead walk through common goals step by step. [Troubleshooting][troubleshooting] matches problems to their fixes, and the [Reference][reference] lists every setting at a glance.
 
 <div class="grid cards" markdown>
 
@@ -8,7 +8,7 @@ The User Manual explains how each of the extension’s features works, and lists
 
     ---
 
-    What the extension requires, and how to install it. How it reads a project, and keeps its test list current.
+    What the extension requires, and how to install it. How it reads a project, runs Ceedling, and keeps its test list current.
 
 -   :material-play-circle: **[Running Tests][running-tests]**
 
@@ -40,21 +40,16 @@ The User Manual explains how each of the extension’s features works, and lists
 
     Every setting, with its default. Mixins, and the extension’s commands.
 
--   :material-stethoscope: **[Troubleshooting][troubleshooting]**
-
-    ---
-
-    Each common symptom and message, with its cause and fix. Reading the extension’s log, and reporting a bug.
-
 </div>
 
 [howto]: ../howto/index.md
+[troubleshooting]: ../troubleshooting.md
+[reference]: ../reference.md
 [getting-started]: getting-started.md
 [running-tests]: running-tests.md
 [debugging]: debugging.md
 [code-coverage]: code-coverage.md
 [problem-matching]: problem-matching.md
 [configuration]: configuration.md
-[troubleshooting]: troubleshooting.md
 
 <br/><br/>

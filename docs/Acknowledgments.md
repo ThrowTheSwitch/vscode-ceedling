@@ -1,6 +1,6 @@
 # Acknowledgments
 
-This extension builds on the work of everyone below. The first section is the extension’s origin, as the README tells it. The second credits contributions made since.
+This extension builds on the work of everyone below. The first section is the extension’s origin, as the root README also chronicles. The second section credits contributions made since this extension replaced the now deprecated original.
 
 ## The original extension
 
@@ -16,6 +16,6 @@ Thank you to Kin, @simeon-s1, and all those who contributed to the original repo
 
 ## Contributions to this extension
 
-- **Code coverage.** [Jake Jooncheol Kim](https://github.com/jake-kim-sndk) designed and wrote native test coverage from Ceedling’s gcov plugin, in [PR #13][coverage-pr]. His work covered the _Run with Coverage_ profile, reading gcovr’s Cobertura report into VS Code’s coverage API, and the path handling that report needs. His pull request closed before it could merge. His commit was carried forward onto the reworked extension under his authorship, and his engine and controller changes were ported to the new code.
+- **Code coverage.** [Jake Jooncheol Kim](https://github.com/jake-kim-sndk) designed and wrote native test coverage from Ceedling’s gcov plugin, in [PR #13][coverage-pr]. His work covered the _Run with Coverage_ profile, reading Gcovr’s Cobertura report into VS Code’s coverage API and the path handling that report needs.
 
 [coverage-pr]: https://github.com/ThrowTheSwitch/vscode-ceedling/pull/13

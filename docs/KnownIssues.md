@@ -1,4 +1,4 @@
-# VSCode-Ceedling Known Issues
+# Ceedling for Visual Studio Code Known Issues
 
 This document lists the problems currently known, grouped by the Ceedling versions they affect. The [Changelog](../CHANGELOG.md), [ReleaseNotes.md](ReleaseNotes.md), and [BreakingChanges.md](BreakingChanges.md) complete the set.
 

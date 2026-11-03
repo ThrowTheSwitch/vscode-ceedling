@@ -1,4 +1,4 @@
-# VSCode-Ceedling Changelog
+# Ceedling for Visual Studio Code Changelog
 
 This document is the terse, itemized record of what changed in each release. Its format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). [docs/ReleaseNotes.md](docs/ReleaseNotes.md), [docs/KnownIssues.md](docs/KnownIssues.md), and [docs/BreakingChanges.md](docs/BreakingChanges.md) complete the set.
 
@@ -15,7 +15,7 @@ This document is the terse, itemized record of what changed in each release. Its
 * Discovery checks the Ceedling version in each project’s own directory, so a Ceedling vendored in a project’s `vendor/ceedling` or selected by `WHICH_CEEDLING` is respected. It no longer runs `ceedling summary`.
 * Discovery is faster in workspaces with several project directories or many test files. Projects in different directories load at the same time, and test files are read in parallel. Reading files no longer blocks VS Code’s extension host.
 * Ceedling commands in different project directories may now run at the same time, e.g. a run in one project while another rediscovers. Commands within one project directory, or in projects sharing a build directory, still run one at a time.
-* The user documentation moved from the README to its own site, [docs.throwtheswitch.org/vscode-ceedling](https://docs.throwtheswitch.org/vscode-ceedling/latest/), which can be updated between releases. Step-by-step How-To guides cover debugging on each platform, code coverage, compiler errors, several projects, and more. The User Manual covers every feature and setting, and a Troubleshooting page matches common messages to their fixes. The README keeps an overview and a quick start.
+* The user documentation moved from the README to its own site, [docs.throwtheswitch.org/vscode-ceedling](https://docs.throwtheswitch.org/vscode-ceedling/latest/), which can be updated between releases. Step-by-step How-To guides cover debugging on each platform, code coverage, compiler errors, several projects, and more. The User Manual covers every feature and setting, and a Reference page lists every setting at a glance. Troubleshooting matches common messages to their fixes. The README keeps an overview and a quick start.
 
 ## 🌟 Added
 

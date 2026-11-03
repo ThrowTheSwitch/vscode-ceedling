@@ -1,6 +1,6 @@
 # Getting Started
 
-The extension brings a Ceedling project’s tests into VS Code’s built-in _Testing_ view, and most projects need no configuration at all. This page covers what the extension requires, how to install it, and what it does when it opens a project. The [first-run guide][first-run] walks through the same steps for a typical project.
+The extension brings a Ceedling project’s tests into VS Code’s built-in _Testing_ view, and most projects need no configuration at all. This page covers what the extension requires, how to install it, what it does when it opens a project, and how it runs Ceedling. The [first-run guide][first-run] walks through the same steps for a typical project.
 
 ## Requirements
 
@@ -36,6 +36,16 @@ The extension asks Ceedling itself for each project’s configuration, so it see
 
 The extension applies a mixin of its own to every command that reads or runs the project. It enables the `report_tests_log_factory` plugin’s `cppunit` report, which is where the extension reads test results. No plugin setup is needed in `project.yml`. [Configuration][mixins] explains how it combines with your own mixins.
 
+## How the extension runs Ceedling
+
+The extension runs every Ceedling command itself, in the project’s directory, through a shell. Three settings shape how it does so.
+
+- **The shell.** Commands run in the operating system’s default shell. [`ceedlingExplorer.shellPath`][shell-path] names another, such as MSYS2’s or Git Bash’s `bash.exe` on Windows.
+- **The command.** Each command starts with `ceedling`. [`ceedlingExplorer.ceedlingCommand`][ceedling-command] replaces it, e.g. with `bundle exec ceedling` or a path to a Ceedling of your own.
+- **The output.** The extension removes ANSI escape sequences, such as terminal colors, from Ceedling’s output before it reads or shows it. [`ceedlingExplorer.ansiEscapeSequencesRemoved`][ansi] set to `false` leaves them in.
+
+[Run the Ceedling You Use][installations] sets these up for common installations.
+
 ## Keeping the test list current
 
 The _Testing_ view keeps itself current as the project changes.
@@ -64,6 +74,9 @@ The [Breaking Changes][breaking] document describes the changes that need action
 [marketplace]: https://marketplace.visualstudio.com/items?itemName=throw-the-switch.vscode-ceedling
 [projects]: configuration.md#ceedlingexplorerprojects
 [shell-path]: configuration.md#ceedlingexplorershellpath
+[ceedling-command]: configuration.md#ceedlingexplorerceedlingcommand
+[ansi]: configuration.md#ceedlingexploreransiescapesequencesremoved
+[installations]: ../howto/ceedling-installations.md
 [dumpconfig-docs]: https://docs.throwtheswitch.org/Ceedling/latest/getting-started/command-line/#ceedling-dumpconfig-filepath-sections
 [mixins]: configuration.md#mixins
 [breaking]: https://github.com/ThrowTheSwitch/vscode-ceedling/blob/master/docs/BreakingChanges.md
