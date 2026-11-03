@@ -3,13 +3,19 @@
 # deploying it. Ceedling's own site (ThrowTheSwitch/Ceedling) set the pattern.
 
 # Site metadata
-site_name: VSCode-Ceedling
+site_name: Ceedling VS Code extension
 site_description: Ceedling's test suite in Visual Studio Code's Testing view
 site_url: https://docs.throwtheswitch.org/vscode-ceedling/
 repo_url: https://github.com/ThrowTheSwitch/vscode-ceedling
 repo_name: ThrowTheSwitch/vscode-ceedling
 
 docs_dir: docs/mkdocs/
+
+# Footer copyright notice
+copyright: >-
+  &copy; 2018&ndash;2026 &mdash;
+  Documentation license:
+  <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.en">CC BY-SA 4.0</a>
 
 # Every problem MkDocs can find in links and nav is a warning, which --strict turns into a failed
 # build. By default, a broken #anchor, an absolute or unrecognized link, and a page missing from

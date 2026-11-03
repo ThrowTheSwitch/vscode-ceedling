@@ -4,9 +4,15 @@ This extension runs your [Ceedling] test suite from VS Code’s built-in _Testin
 
 ![The Testing view listing a Ceedling project's tests](assets/images/screenshot.png)
 
+## Quick start
+
 !!! tip "New to Ceedling?"
 
     Ceedling is a build system for C projects, built around unit tests with Unity and CMock. [Ceedling’s own documentation][ceedling-docs] explains how to set up a project, write tests, and configure builds.
+
+Most VS Code Ceedling projects need no special configuration. Install the extension, open your Ceedling project’s folder, and the _Testing_ view lists your tests.
+
+[Start Testing :material-arrow-right:][first-run]{ .md-button .md-button--primary }
 
 ## Documentation
 
@@ -42,6 +48,7 @@ The site has four sections. The How-To guides start from what you want to do, an
 
 [Ceedling]: https://github.com/ThrowTheSwitch/Ceedling
 [ceedling-docs]: https://docs.throwtheswitch.org/Ceedling/latest/
+[first-run]: howto/first-run.md
 [howto]: howto/index.md
 [manual]: manual/index.md
 [releases]: releases.md
