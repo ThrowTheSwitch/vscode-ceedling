@@ -32,3 +32,14 @@ export function list(value: unknown): unknown[] {
     }
     return Array.isArray(value) ? value : [value];
 }
+
+// The strings of a list setting. Anything else in the list, or a setting that isn't one, is ignored.
+export function stringList(value: unknown): string[] {
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+// The text at a path of keys, or `fallback` where the path holds anything else.
+export function stringSetting(value: unknown, fallback: string, ...keys: string[]): string {
+    const found = field(value, ...keys);
+    return typeof found === 'string' ? found : fallback;
+}

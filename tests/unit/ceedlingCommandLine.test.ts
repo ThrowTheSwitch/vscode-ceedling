@@ -66,10 +66,10 @@ suite('buildProjectArgs', () => {
 });
 
 suite('taskArgs', () => {
-    const project = (release: string, files: string[]) => ({
-        release, capabilities: capabilitiesOf(release), files: files.map((id) => ({ id })),
-    }) as unknown as LoadedProject;
     const gcov = { reportTask: false, coberturaReports: ['x'] };
+    const project = (release: string, files: string[], coverage = { gcov }) => ({
+        release, capabilities: capabilitiesOf(release), files: files.map((id) => ({ id })), state: { coverage },
+    }) as unknown as LoadedProject;
 
     test('a test file is named by its path where Ceedling takes one, else by its name, with any --test-case filter', () => {
         assert.deepStrictEqual(taskArgs(project('1.2.0', []), 'test/unit/test_a.c', undefined, ['test:${TEST_ID}'], 'test_x', path.posix),
@@ -77,14 +77,22 @@ suite('taskArgs', () => {
         assert.deepStrictEqual(taskArgs(project('1.1.10', []), 'test/unit/test_a.c', undefined, ['test:${TEST_ID}'], undefined, path.posix).args, ['test:test_a.c']);
     });
 
-    test('a deferred coverage report adds report:gcov once', () => {
-        assert.deepStrictEqual(taskArgs(project('1.2.1', []), 'all', { ...gcov, reportTask: true }, ['gcov:${TEST_ID}'], undefined, path.posix).args, ['gcov:all', 'report:gcov']);
-        assert.deepStrictEqual(taskArgs(project('1.2.1', []), 'all', { ...gcov, reportTask: true }, ['gcov:${TEST_ID}', 'report:gcov'], undefined, path.posix).args, ['gcov:all', 'report:gcov']);
+    // One setting serves every plugin, so its tasks name the run's plugin through ${PLUGIN}.
+    test("a coverage run's ${PLUGIN} becomes its plugin, and a test run leaves it be", () => {
+        assert.deepStrictEqual(taskArgs(project('1.2.1', []), 'test/a/test_x.c', 'gcov', ['${PLUGIN}:${TEST_ID}'], undefined, path.posix).args, ['gcov:test/a/test_x.c']);
+        assert.deepStrictEqual(taskArgs(project('1.2.1', []), 'test/a/test_x.c', undefined, ['${PLUGIN}:${TEST_ID}'], undefined, path.posix).args, ['${PLUGIN}:test/a/test_x.c']);
     });
 
-    // Before 1.2.1 a gcov: task takes a bare name, which a same-named file elsewhere shares.
+    test("a deferred coverage report adds the plugin's report task once", () => {
+        const deferred = project('1.2.1', [], { gcov: { ...gcov, reportTask: true } });
+        assert.deepStrictEqual(taskArgs(deferred, 'all', 'gcov', ['gcov:${TEST_ID}'], undefined, path.posix).args, ['gcov:all', 'report:gcov']);
+        assert.deepStrictEqual(taskArgs(deferred, 'all', 'gcov', ['gcov:${TEST_ID}', 'report:gcov'], undefined, path.posix).args, ['gcov:all', 'report:gcov']);
+        assert.deepStrictEqual(taskArgs(project('1.2.1', []), 'all', 'gcov', ['gcov:${TEST_ID}'], undefined, path.posix).args, ['gcov:all']);
+    });
+
+    // Before 1.2.1 a coverage task takes a bare name, which a same-named file elsewhere shares.
     test('a coverage run that names a file its namesake shares warns', () => {
-        const { warning } = taskArgs(project('1.2.0', ['test/a/test_x.c', 'test/b/test_x.c']), 'test/a/test_x.c', gcov, ['gcov:${TEST_ID}'], undefined, path.posix);
+        const { warning } = taskArgs(project('1.2.0', ['test/a/test_x.c', 'test/b/test_x.c']), 'test/a/test_x.c', 'gcov', ['gcov:${TEST_ID}'], undefined, path.posix);
         assert.match(warning ?? '', /can't tell apart from 'test\/b\/test_x\.c'.*ambiguous file reference.*1\.2\.1/);
     });
 });

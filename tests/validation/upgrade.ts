@@ -51,7 +51,7 @@ main('upgrade', async (checks) => {
             const { engine, upgrades } = makeEngine(settings);
             const cover = async (): Promise<CoverageOutcome | undefined> => {
                 const reporter = recordingReporter();
-                await engine.runFile('project', fileOf(only(await engine.discover()), COVERED), reporter, token(), coverageMode());
+                await engine.runFile('project', fileOf(only(await engine.discover()), COVERED), reporter, token(), coverageMode('gcov'));
                 return reporter.last();
             };
             // The older Ceedling's executable stays, for the newer debug build to tell apart from its own.

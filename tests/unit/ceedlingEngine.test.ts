@@ -2005,8 +2005,8 @@ const coverageCalls = (reporter: ReturnType<typeof recordingReporter>) => report
 
 suite('CeedlingEngine coverage', () => {
     test('coverage is available only while some project enables the gcov plugin', async () => {
-        assert.strictEqual((await discovered(new FakeCeedling())).engine.coverageEnabled(), false);
-        assert.strictEqual((await discovered(coverageWorld())).engine.coverageEnabled(), true);
+        assert.deepStrictEqual((await discovered(new FakeCeedling())).engine.coveragePlugins(), []);
+        assert.deepStrictEqual((await discovered(coverageWorld())).engine.coveragePlugins(), ['gcov']);
     });
 
     // Before 1.2.1, Ceedling's gcov: task prefixes the test file prefix to a name lacking it, so
@@ -2015,7 +2015,7 @@ suite('CeedlingEngine coverage', () => {
         const world = coverageWorld();
         const { engine, file } = await discovered(world);
         const reporter = recordingReporter();
-        await engine.runFile('default', file, reporter, token(), coverageMode());
+        await engine.runFile('default', file, reporter, token(), coverageMode('gcov'));
         assert.deepStrictEqual(world.commandsMatching(/^ceedling gcov:/), [`ceedling gcov:test_calc.c --force-test-rerun ${PROJECT_ARGS}`]);
         assert.deepStrictEqual(reporter.of('passed').map((c) => c[1]), ['test/test_calc.c::test_add']);
         assert.deepStrictEqual(coverageCalls(reporter), [{
@@ -2032,7 +2032,7 @@ suite('CeedlingEngine coverage', () => {
         for (const f of world.testFiles) world.write(`${WS}/${f}`, 'void test_add(void) {}\n');
         const logs: LogCall[] = [];
         const { engine, file } = await discovered(world, { logs });
-        await engine.runFile('default', file, recordingReporter(), token(), coverageMode());
+        await engine.runFile('default', file, recordingReporter(), token(), coverageMode('gcov'));
         assert.deepStrictEqual(world.commandsMatching(/^ceedling gcov:/), [`ceedling gcov:test/a/test_calc.c --force-test-rerun ${PROJECT_ARGS}`]);
         assert.ok(!logs.some((l) => l.level === 'warn' && /test\/b\/test_calc\.c/.test(l.message)));
     });
@@ -2040,30 +2040,30 @@ suite('CeedlingEngine coverage', () => {
     test('a function narrows its coverage run with --test-case', async () => {
         const world = coverageWorld();
         const { engine, file } = await discovered(world);
-        await engine.runFunction('default', file, file.functions[0], recordingReporter(), token(), coverageMode());
+        await engine.runFunction('default', file, file.functions[0], recordingReporter(), token(), coverageMode('gcov'));
         assert.deepStrictEqual(world.commandsMatching(/^ceedling gcov:/), [`ceedling gcov:test_calc.c --test-case=test_add --force-test-rerun ${PROJECT_ARGS}`]);
     });
 
     test('a project runs gcov:all', async () => {
         const world = coverageWorld();
         const { engine, projects } = await discovered(world);
-        await engine.runProjectAll('default', projects[0].files, recordingReporter(), token(), coverageMode());
+        await engine.runProjectAll('default', projects[0].files, recordingReporter(), token(), coverageMode('gcov'));
         assert.deepStrictEqual(world.commandsMatching(/^ceedling gcov:/), [`ceedling gcov:all --force-test-rerun ${PROJECT_ARGS}`]);
     });
 
     test('the configured coverage arguments replace the default task', async () => {
         const world = coverageWorld();
         const { engine, file } = await discovered(world, { settings: { coverageCommandArgs: ['gcov:${TEST_ID}', '--verbosity=obnoxious'] } });
-        await engine.runFile('default', file, recordingReporter(), token(), coverageMode());
+        await engine.runFile('default', file, recordingReporter(), token(), coverageMode('gcov'));
         assert.deepStrictEqual(world.commandsMatching(/^ceedling gcov:/), [`ceedling gcov:test_calc.c --verbosity=obnoxious --force-test-rerun ${PROJECT_ARGS}`]);
     });
 
     test('reports deferred to the report:gcov task are generated in the same run, once', async () => {
         const world = coverageWorld(undefined, gcovConfig({ reportTask: true }));
         const { engine, file } = await discovered(world);
-        await engine.runFile('default', file, recordingReporter(), token(), coverageMode());
+        await engine.runFile('default', file, recordingReporter(), token(), coverageMode('gcov'));
         const { engine: own } = await discovered(world, { settings: { coverageCommandArgs: ['gcov:${TEST_ID}', 'report:gcov'] } });
-        await own.runFile('default', file, recordingReporter(), token(), coverageMode());
+        await own.runFile('default', file, recordingReporter(), token(), coverageMode('gcov'));
         assert.deepStrictEqual(world.commandsMatching(/^ceedling gcov:/), [
             `ceedling gcov:test_calc.c report:gcov --force-test-rerun ${PROJECT_ARGS}`,
             `ceedling gcov:test_calc.c report:gcov --force-test-rerun ${PROJECT_ARGS}`,
@@ -2076,14 +2076,14 @@ suite('CeedlingEngine coverage', () => {
         const counters = [`${WS}/build/gcov/out/test_calc/calc.gcda`, `${WS}/build/gcov/out/test_calc/calc.c##1.gcov`];
         const kept = [`${WS}/build/gcov/out/test_calc/calc.gcno`, `${WS}/build/gcov/out/test_calc/calc.o`];
         for (const f of [...counters, ...kept]) world.write(f, '');
-        const mode = coverageMode();
+        const mode = coverageMode('gcov');
         await engine.runFile('default', file, recordingReporter(), token(), mode);
         assert.deepStrictEqual(counters.filter((f) => world.files.has(f)), []);
         assert.deepStrictEqual(kept.filter((f) => world.files.has(f)), kept);
         world.write(counters[0], '');
         await engine.runFile('default', file, recordingReporter(), token(), mode);
         assert.ok(world.files.has(counters[0]), 'a later build in the same run keeps the counters this run produced');
-        await engine.runFile('default', file, recordingReporter(), token(), coverageMode());
+        await engine.runFile('default', file, recordingReporter(), token(), coverageMode('gcov'));
         assert.ok(!world.files.has(counters[0]), 'a new run clears them again');
     });
 
@@ -2096,7 +2096,7 @@ suite('CeedlingEngine coverage', () => {
             ? { writes: { ...world.reportWrite(cppunit({ passed: ['test/test_calc.c::test_add', 'test/test_calc.c::test_add_more'] }), 'build', 'gcov'), [counter]: '' } }
             : undefined);
         const { engine, file } = await discovered(world);
-        const mode = coverageMode();
+        const mode = coverageMode('gcov');
         await engine.runFile('default', file, recordingReporter(), token(), mode);
         world.write(otherTest, '');
         await engine.runFunction('default', file, file.functions[0], recordingReporter(), token(), mode);
@@ -2118,9 +2118,9 @@ suite('CeedlingEngine coverage', () => {
         const { engine, file } = await discovered(world);
         let other: Promise<void> | undefined;
         world.unlinked = (deleted) => {
-            if (deleted === counter) other ??= engine.runFile('default', file, recordingReporter(), token(), coverageMode());
+            if (deleted === counter) other ??= engine.runFile('default', file, recordingReporter(), token(), coverageMode('gcov'));
         };
-        await engine.runFunction('default', file, file.functions[0], recordingReporter(), token(), coverageMode());
+        await engine.runFunction('default', file, file.functions[0], recordingReporter(), token(), coverageMode('gcov'));
         assert.ok(other !== undefined, 'the fallback cleared the counter');
         assert.strictEqual(world.commandsMatching(/^ceedling gcov:/).length, 2, 'the other build waited for the rerun');
         await other;
@@ -2145,7 +2145,7 @@ suite('CeedlingEngine coverage', () => {
             : undefined);
         const { engine, projects } = await discovered(world);
         const file = (id: string) => projects[0].files.find((f) => f.id === id)!;
-        const mode = coverageMode();
+        const mode = coverageMode('gcov');
         // A first build spends the request's one counter reset, which would clear the counters below.
         await engine.runFile('default', file('test/test_calc.c'), recordingReporter(), token(), mode);
         for (const counter of Object.values(counters)) world.write(counter, '');
@@ -2168,7 +2168,7 @@ suite('CeedlingEngine coverage', () => {
             : undefined);
         const { engine, projects } = await discovered(world);
         const file = (id: string) => projects[0].files.find((f) => f.id === id)!;
-        const mode = coverageMode();
+        const mode = coverageMode('gcov');
         // A first build spends the request's one counter reset, which would clear the counters below.
         await engine.runFile('default', file('test/test_calc.c'), recordingReporter(), token(), mode);
         world.write(own, '');
@@ -2195,7 +2195,7 @@ suite('CeedlingEngine coverage', () => {
             : undefined);
         const { engine, projects } = await discovered(world);
         const file = (id: string) => projects[0].files.find((f) => f.id === id)!;
-        const mode = coverageMode();
+        const mode = coverageMode('gcov');
         // A first build spends the request's one counter reset, which would clear the counters below.
         await engine.runFile('default', file('test/test_calc.c'), recordingReporter(), token(), mode);
         for (const counter of Object.values(counters)) world.write(counter, '');
@@ -2216,7 +2216,7 @@ suite('CeedlingEngine coverage', () => {
             : undefined);
         const { engine, projects } = await discovered(world);
         const file = projects[0].files.find((f) => f.id === 'test/unit/test_calc.c')!;
-        const mode = coverageMode();
+        const mode = coverageMode('gcov');
         // A first build spends the request's one counter reset, which would clear the counters below.
         await engine.runFile('default', file, recordingReporter(), token(), mode);
         world.write(own, '');
@@ -2235,7 +2235,7 @@ suite('CeedlingEngine coverage', () => {
             ? { writes: world.reportWrite(cppunit({ passed: ['test/unit/test_calc.c::test_add', 'test/unit/test_calc.c::test_add_more'] }), 'build', 'gcov') }
             : undefined);
         const { engine, file } = await discovered(world);
-        const mode = coverageMode();
+        const mode = coverageMode('gcov');
         await engine.runFile('default', file, recordingReporter(), token(), mode);
         world.write(counter, '');
         await engine.runFunction('default', file, file.functions[0], recordingReporter(), token(), mode);
@@ -2258,7 +2258,7 @@ suite('CeedlingEngine coverage', () => {
         const engine = makeEngine(world, { folder: 'C:\\ws', platform: 'win32' });
         const [project] = await engine.discover();
         const unit = project.files.find((f) => f.id === 'test/unit/test_calc.c')!;
-        const mode = coverageMode();
+        const mode = coverageMode('gcov');
         await engine.runFile('default', unit, recordingReporter(), token(), mode);
         world.write(own, '');
         world.write(namesake, '');
@@ -2273,7 +2273,7 @@ suite('CeedlingEngine coverage', () => {
             ? { writes: { ...world.reportWrite(cppunit({ passed: ['test/test_calc.c::test_add', 'test/test_calc.c::test_add_more'] }), 'build', 'gcov'), [counter]: '' } }
             : undefined);
         const { engine, file } = await discovered(world, { settings: { coverageResetsCounters: false } });
-        await engine.runFunction('default', file, file.functions[0], recordingReporter(), token(), coverageMode());
+        await engine.runFunction('default', file, file.functions[0], recordingReporter(), token(), coverageMode('gcov'));
         assert.strictEqual(world.commandsMatching(/^ceedling gcov:/).length, 2, 'the fallback ran');
         assert.ok(world.files.has(counter));
     });
@@ -2286,7 +2286,7 @@ suite('CeedlingEngine coverage', () => {
             world.write(`${WS}/${dir}/build/gcov/out/test_calc/calc.gcda`, '');
         }
         const { engine, projects } = await discovered(world, { settings: { projects: ['a', 'b'].map((dir) => ({ path: dir, debugLaunchConfig: 'dbg' })) } });
-        const mode = coverageMode();
+        const mode = coverageMode('gcov');
         for (const project of projects) {
             // eslint-disable-next-line no-await-in-loop -- one project after the other, as a run plan does
             await engine.runProjectAll(project.projectKey, project.files, recordingReporter(), token(), mode);
@@ -2298,7 +2298,7 @@ suite('CeedlingEngine coverage', () => {
         const world = coverageWorld();
         const { engine, file } = await discovered(world, { settings: { coverageResetsCounters: false } });
         world.write(`${WS}/build/gcov/out/test_calc/calc.gcda`, '');
-        await engine.runFile('default', file, recordingReporter(), token(), coverageMode());
+        await engine.runFile('default', file, recordingReporter(), token(), coverageMode('gcov'));
         assert.ok(world.files.has(`${WS}/build/gcov/out/test_calc/calc.gcda`));
     });
 
@@ -2307,7 +2307,7 @@ suite('CeedlingEngine coverage', () => {
         world.write(GCOVR_REPORT, CALC_COVERAGE);
         const { engine, file } = await discovered(world);
         const reporter = recordingReporter();
-        await engine.runFile('default', file, reporter, token(), coverageMode());
+        await engine.runFile('default', file, reporter, token(), coverageMode('gcov'));
         const [outcome] = coverageCalls(reporter) as Array<{ kind: string, message: string }>;
         assert.strictEqual(outcome.kind, 'missing');
         assert.match(outcome.message, /GcovCoverageCobertura\.xml/);
@@ -2319,7 +2319,7 @@ suite('CeedlingEngine coverage', () => {
             gcovConfig({ utilities: ['gcovr', 'ReportGenerator'] }));
         const { engine, file } = await discovered(world);
         const reporter = recordingReporter();
-        await engine.runFile('default', file, reporter, token(), coverageMode());
+        await engine.runFile('default', file, reporter, token(), coverageMode('gcov'));
         assert.strictEqual((coverageCalls(reporter)[0] as { path: string }).path, GCOVR_REPORT);
     });
 
@@ -2331,7 +2331,7 @@ suite('CeedlingEngine coverage', () => {
             gcovConfig({ utilities: ['ReportGenerator'] }));
         const { engine, file } = await discovered(world);
         const reporter = recordingReporter();
-        await engine.runFile('default', file, reporter, token(), coverageMode());
+        await engine.runFile('default', file, reporter, token(), coverageMode('gcov'));
         assert.deepStrictEqual(coverageCalls(reporter).map((o) => (o as { path: string, files: Array<{ path: string }> }))
             .map((o) => [o.path, o.files.map((f) => f.path)]), [[nested, [`${WS}/src/calc.c`]]]);
     });
@@ -2344,7 +2344,7 @@ suite('CeedlingEngine coverage', () => {
         world.write('/lib/Clamp.c', '');
         const { engine, file } = await discovered(world);
         const reporter = recordingReporter();
-        await engine.runFile('default', file, reporter, token(), coverageMode());
+        await engine.runFile('default', file, reporter, token(), coverageMode('gcov'));
         assert.deepStrictEqual((coverageCalls(reporter)[0] as { files: Array<{ path: string }> }).files.map((f) => f.path), ['/lib/Clamp.c', `${WS}/src/Calculator.c`]);
     });
 
@@ -2352,7 +2352,7 @@ suite('CeedlingEngine coverage', () => {
         const world = coverageWorld({}, gcovConfig({ reports: [] }));
         const { engine, file } = await discovered(world);
         const reporter = recordingReporter();
-        await engine.runFile('default', file, reporter, token(), coverageMode());
+        await engine.runFile('default', file, reporter, token(), coverageMode('gcov'));
         assert.strictEqual(world.commandsMatching(/^ceedling gcov:/).length, 1);
         assert.match((coverageCalls(reporter)[0] as { message: string }).message, /:reports:/);
     });
@@ -2362,7 +2362,7 @@ suite('CeedlingEngine coverage', () => {
         world.handlers.push((command) => /^ceedling test:/.test(command) ? { writes: world.reportWrite(cppunit({ passed: ['test/test_calc.c::test_add'] })) } : undefined);
         const { engine, file } = await discovered(world);
         const reporter = recordingReporter();
-        await engine.runFile('default', file, reporter, token(), coverageMode());
+        await engine.runFile('default', file, reporter, token(), coverageMode('gcov'));
         assert.deepStrictEqual(world.commandsMatching(/^ceedling (test|gcov):/), [`ceedling test:test/test_calc.c --force-test-rerun ${PROJECT_ARGS}`]);
         assert.match((coverageCalls(reporter)[0] as { message: string }).message, /gcov plugin/);
     });
@@ -2372,7 +2372,7 @@ suite('CeedlingEngine coverage', () => {
         world.handlers.unshift((command) => /^ceedling gcov:/.test(command) ? { error: true } : undefined);
         const { engine, file } = await discovered(world);
         const reporter = recordingReporter();
-        await engine.runFile('default', file, reporter, token(), coverageMode());
+        await engine.runFile('default', file, reporter, token(), coverageMode('gcov'));
         assert.match((coverageCalls(reporter)[0] as { message: string }).message, /:reports:/);
     });
 
@@ -2382,7 +2382,7 @@ suite('CeedlingEngine coverage', () => {
         world.handlers.unshift((command) => /^ceedling gcov:/.test(command) ? { error: true } : undefined);
         const { engine, file } = await discovered(world);
         const reporter = recordingReporter();
-        await engine.runFile('default', file, reporter, token(), coverageMode());
+        await engine.runFile('default', file, reporter, token(), coverageMode('gcov'));
         assert.deepStrictEqual(coverageCalls(reporter), []);
         assert.ok(reporter.of('errored').length > 0);
     });
@@ -2391,7 +2391,7 @@ suite('CeedlingEngine coverage', () => {
         const world = coverageWorld({ [GCOVR_REPORT]: cobertura(['.'], []) });
         const { engine, file } = await discovered(world);
         const reporter = recordingReporter();
-        await engine.runFile('default', file, reporter, token(), coverageMode());
+        await engine.runFile('default', file, reporter, token(), coverageMode('gcov'));
         assert.match((coverageCalls(reporter)[0] as { message: string }).message, /:report_root:/);
     });
 
@@ -2399,7 +2399,7 @@ suite('CeedlingEngine coverage', () => {
         const world = coverageWorld({ [GCOVR_REPORT]: cobertura(['src', 'lib'], [{ filename: 'gone.c', lines: [[1, 1]] }]) });
         const { engine, file } = await discovered(world);
         const reporter = recordingReporter();
-        await engine.runFile('default', file, reporter, token(), coverageMode());
+        await engine.runFile('default', file, reporter, token(), coverageMode('gcov'));
         assert.deepStrictEqual((coverageCalls(reporter)[0] as { files: Array<{ path: string }> }).files.map((f) => f.path), [`${WS}/src/gone.c`]);
     });
 
@@ -2413,7 +2413,7 @@ suite('CeedlingEngine coverage', () => {
             for (const f of world.testFiles) world.write(`${WS}/${f}`, 'void test_add(void) {}\n');
             const logs: LogCall[] = [];
             const { engine, file } = await discovered(world, { logs });
-            await engine.runFile('default', file, recordingReporter(), token(), coverageMode());
+            await engine.runFile('default', file, recordingReporter(), token(), coverageMode('gcov'));
             const warnings = logs.filter((l) => l.level === 'warn' && /test\/a\/test_calc\.c/.test(l.message) && /test\/b\/test_calc\.c/.test(l.message));
             assert.strictEqual(warnings.length, 1);
             assert.match(warnings[0].message, outcome);
@@ -2433,7 +2433,7 @@ suite('CeedlingEngine coverage', () => {
         const engine = makeEngine(world, { folder: 'c:\\ws', platform: 'win32' });
         const [project] = await engine.discover();
         const reporter = recordingReporter();
-        await engine.runFile('default', project.files[0], reporter, token(), coverageMode());
+        await engine.runFile('default', project.files[0], reporter, token(), coverageMode('gcov'));
         assert.ok(!world.files.has('C:\\ws\\build\\gcov\\out\\test_calc\\calc.gcda'));
         assert.deepStrictEqual((coverageCalls(reporter)[0] as { files: Array<{ path: string }> }).files.map((f) => f.path), ['C:\\ws\\src\\calc.c']);
         assert.strictEqual(engine.keyOfPath('c:\\WS\\Src\\Calc.c'), engine.keyOfPath('C:\\ws\\src\\calc.c'));
@@ -2443,7 +2443,7 @@ suite('CeedlingEngine coverage', () => {
         const world = coverageWorld({ [GCOVR_REPORT]: '<coverage><packages>' });
         const { engine, file } = await discovered(world);
         const reporter = recordingReporter();
-        await engine.runFile('default', file, reporter, token(), coverageMode());
+        await engine.runFile('default', file, reporter, token(), coverageMode('gcov'));
         assert.match((coverageCalls(reporter)[0] as { message: string }).message, /GcovCoverageCobertura\.xml/);
     });
 
@@ -2455,7 +2455,7 @@ suite('CeedlingEngine coverage', () => {
             ? new Promise<Reply>((resolve) => setImmediate(() => { cancel.fire(); resolve({ error: true }); }))
             : undefined);
         const reporter = recordingReporter();
-        await engine.runFile('default', file, reporter, cancel, coverageMode());
+        await engine.runFile('default', file, reporter, cancel, coverageMode('gcov'));
         assert.deepStrictEqual(coverageCalls(reporter), []);
         assert.deepStrictEqual(reporter.of('skipped').length, leafIds(file.functions).length);
     });

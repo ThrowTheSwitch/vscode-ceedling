@@ -72,14 +72,14 @@ main('gated', async (checks) => {
         checks.expect(warned !== pathTasks, `${label}: ambiguity warning ${pathTasks ? 'logged' : 'missing'}`);
     };
 
-    await step(`G1 cover ${UNIT}`, (r) => engine.runFile('project', file(UNIT), r, token(), coverageMode()), (s) => {
+    await step(`G1 cover ${UNIT}`, (r) => engine.runFile('project', file(UNIT), r, token(), coverageMode('gcov')), (s) => {
         oneCommand('G1', s.commands, coverTask(UNIT));
         ambiguity('G1', s.warnings);
         if (!pathTasks) return;
         results('G1', s.results, { [ADD]: 'passed' });
         checks.expect(hits(s.outcome, 'src/Calculator.c', 5) === 1 && !hits(s.outcome, 'src/Clamp.c', 6), 'G1: hits');
     });
-    await step(`G2 cover ${INTEGRATION}`, (r) => engine.runFile('project', file(INTEGRATION), r, token(), coverageMode()), (s) => {
+    await step(`G2 cover ${INTEGRATION}`, (r) => engine.runFile('project', file(INTEGRATION), r, token(), coverageMode('gcov')), (s) => {
         oneCommand('G2', s.commands, coverTask(INTEGRATION));
         ambiguity('G2', s.warnings);
         if (!pathTasks) return;
@@ -87,27 +87,27 @@ main('gated', async (checks) => {
         checks.expect(hits(s.outcome, 'src/Clamp.c', 6) === 1 && hits(s.outcome, 'src/Clamp.c', 8) === 1, 'G2: Clamp.c hits');
         checks.expect(!hits(s.outcome, 'src/Calculator.c', 5), 'G2: counters were reset, so Calculator.c should be unexecuted');
     });
-    await step('G3 cover test_integration_clamp_high', (r) => engine.runFunction('project', file(INTEGRATION), fn(INTEGRATION, HIGH), r, token(), coverageMode()), (s) => {
+    await step('G3 cover test_integration_clamp_high', (r) => engine.runFunction('project', file(INTEGRATION), fn(INTEGRATION, HIGH), r, token(), coverageMode('gcov')), (s) => {
         oneCommand('G3', s.commands, coverTask(INTEGRATION, ' --test-case=test_integration_clamp_high'));
         if (!pathTasks) return;
         results('G3', s.results, { [HIGH]: 'passed' });
         checks.expect(hits(s.outcome, 'src/Clamp.c', 8) === 1 && !hits(s.outcome, 'src/Clamp.c', 6), 'G3: only the high branch should be hit');
     });
     // Ceedling before 1.2.1 ignores a changed --test-case filter in a delta build (#1360).
-    await step('G4 cover test_integration_clamp_low, a changed filter', (r) => engine.runFunction('project', file(INTEGRATION), fn(INTEGRATION, LOW), r, token(), coverageMode()), (s) => {
+    await step('G4 cover test_integration_clamp_low, a changed filter', (r) => engine.runFunction('project', file(INTEGRATION), fn(INTEGRATION, LOW), r, token(), coverageMode('gcov')), (s) => {
         oneCommand('G4', s.commands, coverTask(INTEGRATION, ' --test-case=test_integration_clamp_low'));
         if (!pathTasks) return;
         results('G4', s.results, { [LOW]: 'passed' });
         checks.expect(hits(s.outcome, 'src/Clamp.c', 6) === 1 && !hits(s.outcome, 'src/Clamp.c', 8), 'G4: only the low branch should be hit');
     });
-    await step('G5 cover the project', (r) => engine.runProjectAll('project', project.files, r, token(), coverageMode()), (s) => {
+    await step('G5 cover the project', (r) => engine.runProjectAll('project', project.files, r, token(), coverageMode('gcov')), (s) => {
         oneCommand('G5', s.commands, 'gcov:all --force-test-rerun');
         results('G5', s.results, { [ADD]: 'passed', [LOW]: 'passed', [HIGH]: 'passed', [ALPHA]: 'passed', [BETA]: 'failed' });
         checks.expect(hits(s.outcome, 'src/Calculator.c', 5) === 1 && hits(s.outcome, 'src/Clamp.c', 6) === 1 && hits(s.outcome, 'src/Clamp.c', 8) === 1, 'G5: hits');
     });
 
     await rediscover('task.yml');
-    await step(`G6 cover ${UNIT} with :report_task: TRUE`, (r) => engine.runFile('project', file(UNIT), r, token(), coverageMode()), (s) => {
+    await step(`G6 cover ${UNIT} with :report_task: TRUE`, (r) => engine.runFile('project', file(UNIT), r, token(), coverageMode('gcov')), (s) => {
         oneCommand('G6', s.commands, coverTask(UNIT, ' report:gcov'));
         if (!pathTasks) return;
         results('G6', s.results, { [ADD]: 'passed' });
@@ -115,7 +115,7 @@ main('gated', async (checks) => {
     });
 
     await rediscover('reportgenerator.yml');
-    await step(`G7 cover ${INTEGRATION} with ReportGenerator`, (r) => engine.runFile('project', file(INTEGRATION), r, token(), coverageMode()), (s) => {
+    await step(`G7 cover ${INTEGRATION} with ReportGenerator`, (r) => engine.runFile('project', file(INTEGRATION), r, token(), coverageMode('gcov')), (s) => {
         oneCommand('G7', s.commands, coverTask(INTEGRATION));
         if (!pathTasks) return;
         checks.expect(s.outcome?.kind === 'report' && s.outcome.path.endsWith('ReportGenerator/Cobertura.xml'), 'G7: expected the ReportGenerator report');

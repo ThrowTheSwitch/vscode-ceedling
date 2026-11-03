@@ -4,6 +4,7 @@
 // reports.
 
 import { type CoverageReport } from './coberturaReport';
+import { COVERAGE_PLUGIN, type CoveragePlugin } from './coveragePlugins';
 
 export type CeedlingTestCase = { id: string, label: string, line: number };
 
@@ -64,4 +65,9 @@ export function allIds(file: CeedlingFileNode): string[] {
 // The Testing view names each folder's tests when there is more than one folder.
 export function controllerLabel(folderName: string, folderCount: number): string {
     return folderCount > 1 ? `Ceedling (${folderName})` : 'Ceedling';
+}
+
+// A folder offering one coverage plugin offers plain Coverage. With several, each profile names its own.
+export function coverageProfileLabel(plugin: CoveragePlugin, offered: readonly CoveragePlugin[]): string {
+    return offered.length > 1 ? `Coverage (${COVERAGE_PLUGIN[plugin].label})` : 'Coverage';
 }
