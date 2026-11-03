@@ -10,7 +10,11 @@ Every test in the _Testing_ view has run and debug buttons, and so does every te
 
 The view groups tests by where they come from. A workspace folder holding several Ceedling projects lists each project, by its [`name`][projects], with its test files beneath it. A folder holding one project lists its test files directly. A workspace with several folders adds an entry per folder, labeled _Ceedling (folder)_.
 
-A run of a test file runs it through Ceedling’s `test:` task. A run of a whole project runs `test:all`. A run covering several projects runs them one after another. Separate runs of projects in different directories may overlap. Commands within one project directory, or in projects sharing a build directory, never overlap, since Ceedling’s builds there would collide.
+## How a run calls Ceedling
+
+Each run calls one of Ceedling’s `test:` tasks, with the arguments [`ceedlingExplorer.testCommandArgs`][test-args] gives. A run of a test file runs that file’s task, and a run of a whole project runs `test:all`. Coverage runs use `gcov:` tasks instead, as [Code Coverage][coverage-runs] explains.
+
+A run covering several projects runs them one after another. Separate runs of projects in different directories may overlap. Commands within one project directory, or in projects sharing a build directory, never overlap, since Ceedling’s builds there would collide.
 
 ## A single test
 
@@ -69,6 +73,8 @@ Ceedling 1.2.2 builds each test in a new place, and an earlier release’s build
 
 [debugging]: debugging.md
 [projects]: configuration.md#ceedlingexplorerprojects
+[test-args]: configuration.md#ceedlingexplorertestcommandargs
+[coverage-runs]: code-coverage.md#how-coverage-runs-work
 [problem-matching]: problem-matching.md
 [crashes]: debugging.md#crashing-tests
 [pretty-test]: configuration.md#ceedlingexplorerprettytestlabel

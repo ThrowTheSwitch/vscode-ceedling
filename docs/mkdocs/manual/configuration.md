@@ -12,7 +12,7 @@ Each setting below gives its default. A setting left unset takes its default.
 
 Default: `[]`
 
-The Ceedling projects in the workspace folder, one entry each. With none, the folder itself is the project, with its `project.yml` at the folder’s root. From Ceedling 1.2.0, `ceedling.yml` works there too.
+The Ceedling projects in the workspace folder, one entry each. With none, the folder itself is the project, with its `project.yml` at the folder’s root. From Ceedling 1.2.0, `ceedling.yml` works there too. [Getting Started][opening] explains when a project needs an entry.
 
 ```json
 "ceedlingExplorer.projects": [
@@ -47,7 +47,7 @@ The [mixins][mixins] applied to every project that doesn’t name its own, lowes
 
 Default: `null`
 
-The path to the shell Ceedling runs in. With `null`, Ceedling runs in the operating system’s default shell. Set it when Ceedling runs only in a particular shell, as is common on Windows with MSYS2 or Git Bash.
+The path to the shell Ceedling runs in. With `null`, Ceedling runs in the operating system’s default shell. Set it when Ceedling runs only in a particular shell, as is common on Windows with MSYS2 or Git Bash. [Getting Started][runs-ceedling] explains how the extension runs Ceedling.
 
 ```json
 "ceedlingExplorer.shellPath": "C:/msys64/usr/bin/bash.exe"
@@ -57,7 +57,7 @@ The path to the shell Ceedling runs in. With `null`, Ceedling runs in the operat
 
 Default: `"ceedling"`
 
-The command that runs Ceedling. Set it to run Ceedling through Bundler, or from a path of its own.
+The command that runs Ceedling. Set it to run Ceedling through Bundler, or from a path of its own. [Getting Started][runs-ceedling] explains how the extension runs Ceedling.
 
 ```json
 "ceedlingExplorer.ceedlingCommand": "bundle exec ceedling"
@@ -67,7 +67,7 @@ The command that runs Ceedling. Set it to run Ceedling through Bundler, or from 
 
 Default: `["test:${TEST_ID}"]`
 
-The arguments that run one test file. Their `${TEST_ID}` tag becomes the test file, or `all` when a run covers a whole project. With Ceedling 1.2.0 and later, the test file is its project-relative path, e.g. `test/unit/test_foo.c`, which tells same-named test files apart. With earlier versions, it is the file’s name alone. Coverage runs use [`ceedlingExplorer.coverageCommandArgs`][coverage-args] instead.
+The arguments that run one test file. Their `${TEST_ID}` tag becomes the test file, or `all` when a run covers a whole project. With Ceedling 1.2.0 and later, the test file is its project-relative path, e.g. `test/unit/test_foo.c`, which tells same-named test files apart. With earlier versions, it is the file’s name alone. Coverage runs use [`ceedlingExplorer.coverageCommandArgs`][coverage-args] instead. [Running Tests][run-tasks] explains which task each run calls.
 
 ### `ceedlingExplorer.coverageCommandArgs`
 
@@ -79,7 +79,7 @@ The arguments that run one test file with [coverage][coverage]. Their `${TEST_ID
 
 Default: `true`
 
-Whether each coverage run first clears the coverage counters earlier runs left, so it shows only what it executed. Set it to `false` to accumulate coverage across runs instead, as Ceedling itself does until a `clean` or `clobber`.
+Whether each coverage run first clears the coverage counters earlier runs left, so it shows only what it executed. Set it to `false` to accumulate coverage across runs instead, as Ceedling itself does until a `clean` or `clobber`. [Code Coverage][coverage] explains how coverage runs work.
 
 ### `ceedlingExplorer.prettyTestLabel`
 
@@ -111,7 +111,7 @@ Reports compiler and linker problems in the editor and the _Problems_ panel. Pro
 
 Default: `true`
 
-Whether ANSI escape sequences, such as terminal colors, are removed from Ceedling’s output before the extension reads it and shows it.
+Whether ANSI escape sequences, such as terminal colors, are removed from Ceedling’s output before the extension reads it and shows it. [Getting Started][runs-ceedling] explains how the extension runs Ceedling.
 
 ## Mixins
 
@@ -136,7 +136,10 @@ Bind a keyboard shortcut to either by its ID. Running, debugging, and refreshing
 
 [howto]: ../howto/index.md
 [debugging]: debugging.md
-[coverage]: code-coverage.md
+[coverage]: code-coverage.md#how-coverage-runs-work
+[opening]: getting-started.md#opening-a-project
+[runs-ceedling]: getting-started.md#how-the-extension-runs-ceedling
+[run-tasks]: running-tests.md#how-a-run-calls-ceedling
 [labels]: running-tests.md#test-labels
 [mixins]: #mixins
 [coverage-args]: #ceedlingexplorercoveragecommandargs

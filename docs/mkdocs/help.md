@@ -22,7 +22,7 @@ Help with the extension comes from its repository and from the Ceedling communit
 
     Support contracts and training for Ceedling, from the people who make it.
 
--   :material-source-pull: **[Contribute][development]**
+-   :material-source-pull: **[Development][development]**
 
     ---
 
@@ -38,7 +38,7 @@ Help with the extension comes from its repository and from the Ceedling communit
 [ceedling-suite]: https://www.thingamabyte.com/ceedling
 [sponsor]: https://github.com/sponsors/ThrowTheSwitch
 [issues]: https://github.com/ThrowTheSwitch/vscode-ceedling/issues
-[troubleshooting]: manual/troubleshooting.md
+[troubleshooting]: troubleshooting.md
 [known-issues]: https://github.com/ThrowTheSwitch/vscode-ceedling/blob/master/docs/KnownIssues.md
 [forum]: https://throwtheswitch.discourse.group
 [ceedling-docs]: https://docs.throwtheswitch.org/Ceedling/latest/

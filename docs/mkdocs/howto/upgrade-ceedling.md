@@ -36,6 +36,6 @@ The [Breaking Changes][breaking] describe the changes that need action when upgr
 [debugging]: ../manual/debugging.md#the-launch-configuration
 [breaking]: https://github.com/ThrowTheSwitch/vscode-ceedling/blob/master/docs/BreakingChanges.md
 [known-issues]: https://github.com/ThrowTheSwitch/vscode-ceedling/blob/master/docs/KnownIssues.md
-[troubleshooting]: ../manual/troubleshooting.md
+[troubleshooting]: ../troubleshooting.md
 
 <br/><br/>

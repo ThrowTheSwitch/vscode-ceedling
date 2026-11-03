@@ -1,4 +1,4 @@
-# VSCode-Ceedling Breaking Changes
+# Ceedling for Visual Studio Code Breaking Changes
 
 This document explains each change that can break an existing setup, and what to do about it. The [Changelog](../CHANGELOG.md), [ReleaseNotes.md](ReleaseNotes.md), and [KnownIssues.md](KnownIssues.md) complete the set.
 

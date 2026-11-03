@@ -1,10 +1,10 @@
 [![Docs](https://img.shields.io/badge/Docs-white?logo=materialformkdocs&link=https%3A%2F%2Fdocs.throwtheswitch.org%2Fvscode-ceedling%2F)][docs]
 
-# 🌱 Ceedling Visual Studio Code Extension
+# 🌱 Ceedling for Visual Studio Code
 
 This Visual Studio Code [extension][marketplace] runs your [Ceedling] test suite from VS Code’s built-in _Testing_ view. Ceedling is a handy-dandy build system for C projects.
 
-> 📖 **The full documentation lives at [docs.throwtheswitch.org/vscode-ceedling][docs].** It has step-by-step guides, every setting, and troubleshooting, kept current between releases.
+📖 **Full documentation lives at [docs.throwtheswitch.org/vscode-ceedling][docs].** It includes step-by-step guides, explains every setting, and provides troubleshooting guidance.
 
 ![Screenshot](img/screenshot.png)
 
@@ -36,8 +36,10 @@ The extension brings your Ceedling tests into VS Code’s own testing tools.
 * Runs a single test function without running the rest of its file.
 * Keeps the test list current as you edit, add, or remove tests.
 * Reports compiler and linker problems in the editor and the _Problems_ panel, when configured.
-* Supports several Ceedling projects per workspace, and Ceedling mixins.
-* Reports code coverage through VS Code’s built-in coverage UI, from Ceedling’s gcov plugin.
+* Supports several Ceedling projects per workspace and Ceedling mixins.
+* Reports code coverage through VS Code’s built-in coverage UI, from Ceedling’s [GCov plugin][gcov-plugin].
+
+[gcov-plugin]: https://docs.throwtheswitch.org/Ceedling/latest/plugins/gcov/
 
 # Requirements
 
@@ -63,14 +65,18 @@ Most projects need no configuration at all.
 
 # Documentation
 
-The documentation site covers using the extension, and this repository holds its release history.
+# User documentation site
+The documentation site covers using the extension, troubleshooting, and links to the project’s history tracking.
 
 | Page | Covers |
 |---|---|
-| [How-To][howto] | Step-by-step guides for common goals, each ending with a complete example |
+| [How-To][howto] | Step-by-step guides for common needs, each ending with a complete example |
 | [User Manual][manual] | How each feature works, from running tests to code coverage, debugging, and problem matching |
 | [Configuration][configuration] | Every setting, with its default, plus mixins and commands |
 | [Troubleshooting][troubleshooting] | Common symptoms and messages, with their causes and fixes |
+| [Reference][reference] | Every setting and command at a glance, each linking to its full entry |
+
+# Repository project history
 
 * [Changelog](CHANGELOG.md) — a terse, itemized record of what changed in each release.
 * [Release Notes](docs/ReleaseNotes.md) — the narrative version, with the highlights worth reading before upgrading.
@@ -79,7 +85,8 @@ The documentation site covers using the extension, and this repository holds its
 
 [manual]: https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/
 [configuration]: https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/configuration/
-[troubleshooting]: https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/troubleshooting/
+[reference]: https://docs.throwtheswitch.org/vscode-ceedling/latest/reference/
+[troubleshooting]: https://docs.throwtheswitch.org/vscode-ceedling/latest/troubleshooting/
 
 # Troubleshooting
 
@@ -97,7 +104,7 @@ Ceedling 1.0.0 compatibility was added to the original extension by merging a [P
 
 Thank you to Kin, @simeon-s1, and all those who contributed to the original repository.
 
-[Acknowledgments.md](docs/Acknowledgments.md) also credits the contributions made to this extension since then.
+[Acknowledgments.md](docs/Acknowledgments.md) also credits the contributions made to this extension since it became the replacement for the now deprecated _Ceedling Test Explorer_.
 
 [ceedling-test-explorer-github]: https://github.com/numaru/vscode-ceedling-test-adapter.git
 [ceedling-test-explorer-marketplace]: https://marketplace.visualstudio.com/items?itemName=numaru.vscode-ceedling-test-adapter

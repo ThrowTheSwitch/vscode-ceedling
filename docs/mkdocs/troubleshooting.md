@@ -2,7 +2,7 @@
 
 Most problems show up as a notification, and the extension’s log says more. This page matches each common symptom and message to its cause and fix. When nothing here fits, check the [Known Issues][known-issues] before [filing a bug report][issues].
 
-## Reading the log
+## Reading the extension’s log
 
 The extension logs each problem it finds to the _Ceedling Explorer_ output channel. Open the _Output_ panel and choose _Ceedling Explorer_ from its list.
 
@@ -61,12 +61,12 @@ Open problems are listed by Ceedling version in the [Known Issues][known-issues]
 
 [known-issues]: https://github.com/ThrowTheSwitch/vscode-ceedling/blob/master/docs/KnownIssues.md
 [issues]: https://github.com/ThrowTheSwitch/vscode-ceedling/issues
-[shell-path]: configuration.md#ceedlingexplorershellpath
-[command]: configuration.md#ceedlingexplorerceedlingcommand
-[projects]: configuration.md#ceedlingexplorerprojects
-[problem-matching]: problem-matching.md
-[debugging]: debugging.md
-[no-coverage]: code-coverage.md#when-no-coverage-appears
+[shell-path]: manual/configuration.md#ceedlingexplorershellpath
+[command]: manual/configuration.md#ceedlingexplorerceedlingcommand
+[projects]: manual/configuration.md#ceedlingexplorerprojects
+[problem-matching]: manual/problem-matching.md
+[debugging]: manual/debugging.md
+[no-coverage]: manual/code-coverage.md#when-no-coverage-appears
 [ceedling-1365]: https://github.com/ThrowTheSwitch/Ceedling/issues/1365
 
 <br/><br/>

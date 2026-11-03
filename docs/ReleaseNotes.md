@@ -1,4 +1,4 @@
-# VSCode-Ceedling Release Notes
+# Ceedling for Visual Studio Code Release Notes
 
 This document tells the story of each release: the highlights worth reading before upgrading. The [Changelog](../CHANGELOG.md) is the terse, itemized record. [KnownIssues.md](KnownIssues.md) and [BreakingChanges.md](BreakingChanges.md) complete the set.
 

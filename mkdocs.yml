@@ -3,7 +3,7 @@
 # deploying it. Ceedling's own site (ThrowTheSwitch/Ceedling) set the pattern.
 
 # Site metadata
-site_name: Ceedling VS Code extension
+site_name: Ceedling for Visual Studio Code
 site_description: Ceedling's test suite in Visual Studio Code's Testing view
 site_url: https://docs.throwtheswitch.org/vscode-ceedling/
 repo_url: https://github.com/ThrowTheSwitch/vscode-ceedling
@@ -112,6 +112,7 @@ nav:
     - Code Coverage: manual/code-coverage.md
     - Problem Matching: manual/problem-matching.md
     - Configuration: manual/configuration.md
-    - Troubleshooting: manual/troubleshooting.md
+  - Reference: reference.md
+  - Troubleshooting: troubleshooting.md
   - Releases: releases.md
   - Help: help.md

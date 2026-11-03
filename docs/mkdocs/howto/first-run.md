@@ -51,7 +51,7 @@ The test list keeps itself current from then on. Editing a test file updates its
 - [See Compiler Errors in the Editor][problems] puts compiler and linker errors in the _Problems_ panel.
 
 [installations]: ceedling-installations.md
-[troubleshooting]: ../manual/troubleshooting.md
+[troubleshooting]: ../troubleshooting.md
 [getting-started]: ../manual/getting-started.md#how-the-extension-reads-a-project
 [debug]: debug-a-test.md
 [coverage]: code-coverage.md
