@@ -181,7 +181,7 @@
           }
         },
         "ceedlingExplorer.coverageCommandArgs": {
-          "markdownDescription": "The command line arguments that run a test file with coverage, from the Testing view's **Run with Coverage**. Each `${PLUGIN}` becomes the run's coverage plugin, `gcov`. Each `${TEST_ID}` becomes the test file: its project-relative path with Ceedling 1.2.1 and later, and its name alone before, as earlier coverage tasks require. Requires a Ceedling coverage plugin writing a Cobertura report.",
+          "markdownDescription": "The command line arguments that run a test file with coverage, from the Testing view's **Run with Coverage**. Each `${PLUGIN}` becomes the run's coverage plugin, `gcov` or `bullseye`. Each `${TEST_ID}` becomes the test file: its project-relative path with Ceedling 1.2.1 and later, and its name alone before, as earlier coverage tasks require. Requires a Ceedling coverage plugin writing a Cobertura report.",
           "type": "array",
           "items": {
             "type": "string"
@@ -192,7 +192,7 @@
           "scope": "resource"
         },
         "ceedlingExplorer.coverageResetsCounters": {
-          "markdownDescription": "Whether **Run with Coverage** clears the coverage counters earlier runs left in each project's build directory, so its results show only what that run executed. Turn it off to accumulate coverage across runs, as Ceedling itself does until `ceedling clobber`.",
+          "markdownDescription": "Whether **Run with Coverage** first clears the coverage earlier runs counted, so its results show only what that run executed: gcov's counters in each project's build directory, or Bullseye's coverage file, which its `covclear` resets. Turn it off to accumulate coverage across runs, as Ceedling itself does until `ceedling clean` or `ceedling clobber`.",
           "type": "boolean",
           "default": true,
           "scope": "resource"

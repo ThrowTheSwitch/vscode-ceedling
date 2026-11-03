@@ -14,5 +14,11 @@ suite('controllerLabel', () => {
 suite('coverageProfileLabel', () => {
     test("a folder offering one coverage plugin offers plain Coverage", () => {
         assert.strictEqual(coverageProfileLabel('gcov', ['gcov']), 'Coverage');
+        assert.strictEqual(coverageProfileLabel('bullseye', ['bullseye']), 'Coverage');
+    });
+
+    test('a folder offering both names each profile by its plugin', () => {
+        assert.deepStrictEqual(['gcov', 'bullseye'].map((plugin) => coverageProfileLabel(plugin as 'gcov' | 'bullseye', ['gcov', 'bullseye'])),
+            ['Coverage (gcov)', 'Coverage (Bullseye)']);
     });
 });

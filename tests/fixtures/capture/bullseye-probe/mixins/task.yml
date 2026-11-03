@@ -1,0 +1,3 @@
+:bullseye:
+  :xml_report: :cobertura
+  :report_task: TRUE

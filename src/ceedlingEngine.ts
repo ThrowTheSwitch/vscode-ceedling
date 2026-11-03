@@ -46,7 +46,7 @@ import {
 } from './ceedlingProjectConfig';
 import { type CeedlingCapabilities, checkVersion, type ProjectCeedling, releaseKnown, VENDORED_CEEDLING, type VersionCheck } from './ceedlingVersions';
 import { KeyedLock, Limiter, mapGrouped } from './concurrency';
-import { COVERAGE_PLUGINS, type CoveragePlugin } from './coveragePlugins';
+import { COVERAGE_PLUGIN, COVERAGE_PLUGINS, type CoveragePlugin } from './coveragePlugins';
 import { clearTestCounters, coverageConfigurationProblem, prepareCoverage, readCoverage, type RunMode, TEST_MODE } from './coverageRun';
 import { type DiagnosticsSink } from './diagnosticsStore';
 import { deleteFiles, type EngineFileSystem, type EngineIo, nodeFileSystem, readText } from './engineFileSystem';
@@ -564,7 +564,9 @@ export class CeedlingEngine {
         }
         this.offeredClobbers.add(project.key);
         const lead = `Ceedling changed where project '${project.key}' builds its tests. Clobber to remove the output left in the old layout.`;
-        const counted = COVERAGE_PLUGINS.some((plugin) => project.state.coverage[plugin] !== undefined);
+        // Only gcov's counters sit in the build tree. Bullseye's coverage file counts what its builds
+        // run, and the old layout's never run again.
+        const counted = COVERAGE_PLUGINS.some((plugin) => project.state.coverage[plugin] !== undefined && COVERAGE_PLUGIN[plugin].reset.kind === 'delete');
         const coverage = !counted ? undefined : this.resetsCounters()
             ? 'Coverage stays exact meanwhile, since its counters reset before each coverage run.'
             : 'Until then, coverage reports also count the old layout\'s counters, since ceedlingExplorer.coverageResetsCounters is off.';
@@ -634,7 +636,12 @@ export class CeedlingEngine {
     private async buildAndRun(project: LoadedProject, scope: RunScope, mode: RunMode, args: string[], reporter: RunReporter, token: Cancellation): Promise<BuildOutcome> {
         await deleteFiles(this.io, cppunitReportPaths(project, this.paths));
         if (mode.kind === 'coverage') {
-            await prepareCoverage(this.io, project, mode, this.resetsCounters());
+            const notice = await prepareCoverage(this.io, project, mode, this.resetsCounters(), (tool) => token.isCancellationRequested
+                ? Promise.resolve({ error: null, stdout: '', stderr: '', cancelled: true })
+                : this.coverageTool(project, tool));
+            if (notice !== undefined) {
+                reporter.coverage(notice);
+            }
             if (scope.kind === 'file' && scope.recount === true && this.resetsCounters()) {
                 // An unknown release's counters may sit in any layout's place.
                 const places = ownOrUnclaimed(scope.file, project.files, (f, layout) => projectBuildName(project, f.id, this.platform, layout), this.releaseKnown(project, project, project.state));
@@ -710,6 +717,12 @@ export class CeedlingEngine {
         return candidates[chosen] ?? candidates[0];
     }
 
+    // The configured shell, or undefined for the platform's default.
+    private shell(): string | undefined {
+        const shellSetting = this.setting('shellPath');
+        return shellSetting && shellSetting !== 'null' ? shellSetting : undefined;
+    }
+
     private resetsCounters(): boolean {
         return this.setting('coverageResetsCounters');
     }
@@ -764,22 +777,40 @@ export class CeedlingEngine {
         if (verbose) {
             fullArgs.push(...DEBUG_VERBOSITY);
         }
-        const cwd = options.cwd ?? options.project?.absPath ?? this.folderPath;
         const command = this.setting('ceedlingCommand').trim() || SETTING_DEFAULTS.ceedlingCommand;
-        const shellSetting = this.setting('shellPath');
-        const shell = shellSetting && shellSetting !== 'null' ? shellSetting : undefined;
-        this.logger.debug(`ceedling: ${buildCommandLine(command, fullArgs)} (cwd=${cwd}, shell=${shell ?? 'default'})`);
-        const result = await this.runner.run({
-            command,
-            args: fullArgs,
-            cwd,
-            shell,
-            stripAnsi: this.setting('ansiEscapeSequencesRemoved'),
-            cancellation: options.cancellation,
-        });
+        const cwd = options.cwd ?? options.project?.absPath ?? this.folderPath;
+        this.logger.debug(`ceedling: ${buildCommandLine(command, fullArgs)} (cwd=${cwd}, shell=${this.shell() ?? 'default'})`);
+        const result = await this.execute(command, fullArgs, { cwd, cancellation: options.cancellation });
         if (verbose) {
             this.logger.debug(transcriptOf(result));
         }
         return result;
+    }
+
+    // A coverage plugin's own tool, run where Ceedling would run it. It takes no cancellation: a
+    // killed Bullseye tool holds a floating license for 10 minutes, and a cancelled request stops
+    // at the build that follows. A failure's output goes to the log, and its notice to the run.
+    private async coverageTool(project: LoadedProject, tool: { command: string, args: readonly string[], env: Readonly<Record<string, string>>, timeoutMs: number }): Promise<CeedlingResult> {
+        const { command, args, env, timeoutMs } = tool;
+        this.logger.debug(`coverageTool(${project.key}): ${buildCommandLine(command, args)} (cwd=${project.absPath}, shell=${this.shell() ?? 'default'})`);
+        const result = await this.execute(command, args, { cwd: project.absPath, env, timeoutMs });
+        if (result.error) {
+            this.logger.warn(`coverageTool(${project.key}): '${buildCommandLine(command, args)}' failed: ${transcriptOf(result)}`);
+        }
+        return result;
+    }
+
+    // Runs a command line in the configured shell.
+    private execute(command: string, args: readonly string[], options: { cwd: string, cancellation?: Cancellation, env?: Readonly<Record<string, string>>, timeoutMs?: number }): Promise<CeedlingResult> {
+        return this.runner.run({
+            command,
+            args,
+            cwd: options.cwd,
+            shell: this.shell(),
+            stripAnsi: this.setting('ansiEscapeSequencesRemoved'),
+            cancellation: options.cancellation,
+            env: options.env,
+            timeoutMs: options.timeoutMs,
+        });
     }
 }

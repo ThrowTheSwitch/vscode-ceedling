@@ -5,7 +5,7 @@
 
 import type { ProjectCeedling } from './ceedlingVersions';
 import { type CoverageStates, coverageStates } from './coveragePlugins';
-import { field, stringList, stringSetting } from './parsedXml';
+import { field, list, stringList, stringSetting } from './parsedXml';
 import { pathsFor } from './platformPaths';
 import type { CeedlingFileNode } from './testModel';
 
@@ -74,6 +74,8 @@ export type ProjectState = {
     // it reads `gem`, and WHICH_CEEDLING or a `vendor/ceedling` then chooses, as every command does.
     // Before 1.2.2 `ceedling version` never reads it. See versionSeesSelection().
     whichCeedling: string,
+    // `:environment`, which Ceedling sets for every tool it runs, by upper-cased name.
+    environment: Readonly<Record<string, string>>,
 };
 
 // A project discovery loaded: the Ceedling it runs, its resolved configuration, and its test files.
@@ -224,5 +226,22 @@ export function projectState(resolved: unknown, platform: NodeJS.Platform): Proj
         coverage: coverageStates(resolved),
         testPaths: stringList(field(resolved, ':paths', ':test')),
         whichCeedling: stringSetting(resolved, 'gem', ':project', ':which_ceedling'),
+        environment: environmentOf(resolved, platform),
     };
+}
+
+// Each `:environment` entry is a one-name mapping. Ceedling joins a list value with the platform's
+// path separator, as dumpconfig already shows it, and sets any other value as its text.
+function environmentOf(resolved: unknown, platform: NodeJS.Platform): Record<string, string> {
+    const environment: Record<string, string> = {};
+    const textOf = (value: unknown) => typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : undefined;
+    for (const entry of list(field(resolved, ':environment'))) {
+        for (const [name, value] of typeof entry === 'object' && entry !== null ? Object.entries(entry) : []) {
+            const text = Array.isArray(value) ? value.map(textOf).filter((part) => part !== undefined).join(pathsFor(platform).delimiter) : textOf(value);
+            if (text !== undefined) {
+                environment[name.replace(/^:/, '').toUpperCase()] = text;
+            }
+        }
+    }
+    return environment;
 }

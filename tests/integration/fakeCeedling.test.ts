@@ -257,6 +257,44 @@ suite('Extension against a fake Ceedling', function () {
         }
     });
 
+    // With both plugins, each profile names its own. Bullseye's covclear resets the coverage file a
+    // first run made, and the extension finds it on the project's :environment path alone.
+    test('a project with both plugins offers a profile for each, and a Bullseye run resets its coverage file first', async () => {
+        const scenarioFile = fileUri('fake-ceedling.json').fsPath;
+        const original = fs.readFileSync(scenarioFile, 'utf8');
+        const covered: vscode.FileCoverage[] = [];
+        const listener = controller.onDidReportCoverage((c) => covered.push(c));
+        try {
+            const scenario = JSON.parse(original) as { gcov: { coverage: unknown }, bullseye?: unknown };
+            scenario.bullseye = { xmlReport: ':cobertura', coverage: scenario.gcov.coverage };
+            fs.writeFileSync(scenarioFile, JSON.stringify(scenario));
+            await controller.whenDiscovered();
+            assert.deepStrictEqual([...controller.coverageRunProfiles].map(([plugin, profile]) => [plugin, profile.label]),
+                [['gcov', 'Coverage (gcov)'], ['bullseye', 'Coverage (Bullseye)']]);
+            await run(['test/test_calc.c'], undefined, 'bullseye');
+            // An earlier run's measurement of another source, which only a reset clears.
+            const covfile = fileUri('test.cov').fsPath;
+            const measured = JSON.parse(fs.readFileSync(covfile, 'utf8')) as { sources: Record<string, unknown> };
+            measured.sources['src/earlier.c'] = { lines: [[1, 1]], functions: [] };
+            fs.writeFileSync(covfile, JSON.stringify(measured));
+            const before = invocations().length;
+            covered.length = 0;
+            const results = await run(['test/test_calc.c'], undefined, 'bullseye');
+            assert.deepStrictEqual(outcome(results, 'test/test_calc.c::test_add'), ['passed']);
+            assert.deepStrictEqual(invocations().slice(before).map((args) => args[0]).filter((name) => /^(covclear|bullseye:)/.test(name)),
+                ['covclear', 'bullseye:test_calc.c']);
+            const coverage = new Map(covered.map((c) => [c.uri.toString(), [c.statementCoverage.covered, c.statementCoverage.total]]));
+            assert.deepStrictEqual(coverage.get(fileUri('src', 'calc.c').toString()), [2, 3]);
+            assert.deepStrictEqual(coverage.get(fileUri('src', 'earlier.c').toString()), [0, 1]);
+        } finally {
+            listener.dispose();
+            fs.writeFileSync(scenarioFile, original);
+            fs.rmSync(fileUri('test.cov').fsPath, { force: true });
+            await controller.whenDiscovered();
+        }
+        assert.deepStrictEqual([...controller.coverageRunProfiles].map(([plugin, profile]) => [plugin, profile.label]), [['gcov', 'Coverage']]);
+    });
+
     test('the Coverage profile follows the gcov plugin across rediscovery', async () => {
         const scenarioFile = fileUri('fake-ceedling.json').fsPath;
         const original = fs.readFileSync(scenarioFile, 'utf8');

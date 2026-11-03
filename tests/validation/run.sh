@@ -7,8 +7,11 @@
 #   <ceedling-version>  a throwtheswitch/madsciencelab-plugins image tag, e.g. 1.2.2
 #   <ceedling.gem>      the absolute path to a Ceedling .gem file, which then replaces the Ceedling of
 #                       CEEDLING_BASE (1.2.2)
-#   <suite>             stress, coverage, gated, layout, latency, mixed, upgrade, all, or a probe:
-#                       probe:fixes, probe:overlap, probe:syscalls. `list` prints what `all` runs.
+#   <suite>             stress, coverage, gated, layout, latency, mixed, upgrade, all, bullseye, or a
+#                       probe: probe:fixes, probe:overlap, probe:syscalls. `list` prints what `all` runs.
+#                       bullseye, never in `all`, needs BULLSEYE_INSTALLER, an unpacked Bullseye
+#                       Coverage installer for Linux x64, and BULLSEYE_LICENSE_KEY. Bullseye is
+#                       commercial, so each run installs it in the container, which keeps nothing.
 #   [args...]           passed to the suite (stress and coverage take seconds, maxInFlight, seed);
 #                       `all` passes them to stress and coverage only
 # CEEDLING_GEM, the path to a .gem file, adds its installation to /opt/ceedling beside the published
@@ -28,7 +31,7 @@ suites=()
 for entry in "${all[@]}"; do suites+=("${entry%% *}"); done
 case $suite in
     list) printf '%s\n' "${all[@]}"; exit 0 ;;
-    all | probe:fixes | probe:overlap | probe:syscalls) ;;
+    all | bullseye | probe:fixes | probe:overlap | probe:syscalls) ;;
     *) [[ " ${suites[*]} " == *" $suite "* ]] || { echo "error: no suite or probe named '$suite'" >&2; exit 1; } ;;
 esac
 
@@ -84,6 +87,22 @@ case $suite in
             run_suite $one ${args[@]+"${args[@]}"} || status=1
         done
         exit $status
+        ;;
+    bullseye)
+        : "${BULLSEYE_INSTALLER:?set BULLSEYE_INSTALLER to an unpacked Bullseye Coverage installer for Linux x64}"
+        : "${BULLSEYE_LICENSE_KEY:?set BULLSEYE_LICENSE_KEY to your Bullseye license key}"
+        installer=$(cd "$BULLSEYE_INSTALLER" && pwd)
+        [ -x "$installer/install" ] || { echo "error: $installer has no install script" >&2; exit 1; }
+        echo "=== Ceedling $label: bullseye"
+        # The installer's output names the license, so only its failure shows.
+        "${container[@]}" -e BULLSEYE_LICENSE_KEY -v "$installer":/opt/bullseye-installer:ro --entrypoint sh "$image" -c '
+            /opt/bullseye-installer/install --prefix /tmp/bullseye --key "$BULLSEYE_LICENSE_KEY" --search /usr/bin:/usr/local/bin >/tmp/install.txt 2>&1 || {
+                echo "error: the Bullseye installer failed:" >&2
+                grep -vF -e "$BULLSEYE_LICENSE_KEY" -e "0% ..." /tmp/install.txt | sed -E "s/License [0-9]+/License NNNNNN/g" >&2
+                exit 1
+            }
+            unset BULLSEYE_LICENSE_KEY
+            PATH=/tmp/bullseye/bin:$PATH exec node /workspace/out-test/tests/validation/bullseye.js "$@"' bullseye "$@"
         ;;
     probe:syscalls) "${container[@]}" --user root --entrypoint sh "$image" /workspace/tests/validation/probes/syscalls.sh ;;
     probe:*) "${container[@]}" --entrypoint sh "$image" "/workspace/tests/validation/probes/${suite#probe:}.sh" ;;

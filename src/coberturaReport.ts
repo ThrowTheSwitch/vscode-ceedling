@@ -1,6 +1,6 @@
 // Reads a Cobertura XML coverage report, as Ceedling's gcov plugin writes one through gcovr or
-// ReportGenerator, into plain per-file line, branch, and function coverage. It has no `vscode` or filesystem dependency,
-// so it is unit-tested in plain Node. Choosing among a file's candidate paths is the engine's job,
+// ReportGenerator, or its Bullseye plugin through covxml, into plain per-file line, branch, and
+// function coverage. It has no `vscode` or filesystem dependency, so it is unit-tested in plain Node. Choosing among a file's candidate paths is the engine's job,
 // since only the filesystem knows which exists.
 
 import type path from 'path';
@@ -18,8 +18,9 @@ export type CoveredFunction = { name: string, line: number, hits: number };
 
 export type CoveredFile = { path: string, lines: CoveredLine[], functions: CoveredFunction[] };
 
-// One report's files, at their resolved paths.
-export type CoverageReport = { path: string, files: CoveredFile[] };
+// One report's files, at their resolved paths. `counters` names the store the report counts: gcov's
+// counter directory, or Bullseye's coverage file.
+export type CoverageReport = { path: string, counters: string, files: CoveredFile[] };
 
 // A report's files with their names exactly as written, relative to one of `sources` or absolute.
 export type CoberturaReport = {
@@ -68,15 +69,15 @@ export function reportedFiles(report: CoberturaReport, baseDir: string, paths: t
     }));
 }
 
-// One coverage view from a request's reports. A later report at the same path supersedes an earlier
-// one, since it counts the counters the earlier one did. Reports at different paths, from separate
-// build directories, add up per file, as do two classes naming one file in a report. Hits sum.
+// One coverage view from a request's reports. A later report over the same counters supersedes an
+// earlier one, since it counts everything the earlier one did. Reports over separate counters add
+// up per file, as do two classes naming one file in a report. Hits sum.
 // Cobertura counts a line's taken branch outcomes without saying which, so a merged line shows the
 // most any report took. `keyOf` compares paths, e.g. case-insensitively on Windows.
 export function mergeCoverage(reports: readonly CoverageReport[], keyOf: (filePath: string) => string): CoveredFile[] {
     const latest = new Map<string, CoveredFile[]>();
     for (const report of reports) {
-        latest.set(keyOf(report.path), report.files);
+        latest.set(keyOf(report.counters), report.files);
     }
     const merged = new Map<string, CoveredFile>();
     for (const file of [...latest.values()].flat()) {

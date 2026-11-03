@@ -31,7 +31,7 @@ class FakeCeedling {
     files = new Map<string, string>();
     mtimes = new Map<string, number>();
     directories = new Set<string>([WS]);
-    commands: Array<{ command: string, cwd: string, shell?: string }> = [];
+    commands: Array<{ command: string, cwd: string, shell?: string, env?: NodeJS.ProcessEnv, timeout?: number }> = [];
     handlers: Handler[] = [];
     version = '1.2.0';
     resolvedConfig = `:plugins:\n  :enabled:\n    - report_tests_log_factory\n:unity:\n  :use_param_tests: true\n`;
@@ -87,7 +87,7 @@ class FakeCeedling {
         let pid = 1000;
         const exec = ((command: string, options: child_process.ExecOptions, callback: any) => {
             const cwd = String(options.cwd);
-            this.commands.push({ command, cwd, shell: options.shell });
+            this.commands.push({ command, cwd, shell: options.shell, env: options.env, timeout: options.timeout });
             void Promise.resolve(this.reply(command, cwd)).then((reply) => {
                 for (const [file, content] of Object.entries(reply.writes ?? {})) this.write(file, content);
                 callback(reply.error ? new Error(`exit 1: ${command}`) : null, reply.stdout ?? '', reply.stderr ?? '');
@@ -110,8 +110,8 @@ class FakeCeedling {
         return {};
     }
 
-    // The CppUnit report a run would write to the project's artifacts: test/ for a test run,
-    // gcov/ for a coverage run.
+    // The CppUnit report a run would write to the project's artifacts, under its build context:
+    // test/ for a test run, a coverage plugin's own for a coverage run.
     reportWrite(xml: string, buildRoot = 'build', context = 'test'): Record<string, string> {
         return { [`${WS}/${buildRoot}/artifacts/${context}/cppunit_tests_report.xml`]: xml };
     }
@@ -1260,7 +1260,7 @@ suite('CeedlingEngine after a build layout upgrade', () => {
     // Coverage reports read every counter on disk, the old layout's too, unless counters reset first.
     test('the notice says what the old layout does to coverage', async () => {
         const noticeFor = async (world: FakeCeedling, settings: Record<string, unknown> = {}) => {
-            world.handlers.unshift((command) => /^ceedling (test|gcov):/.test(command) ? { stdout: upgraded, writes: passing(world) } : undefined);
+            world.handlers.unshift((command) => /^ceedling (test|gcov|bullseye):/.test(command) ? { stdout: upgraded, writes: passing(world) } : undefined);
             const upgrades: LayoutUpgrade[] = [];
             const { engine, file } = await discovered(world, { upgrades, settings });
             await engine.runFile('default', file, recordingReporter(), token());
@@ -1269,6 +1269,9 @@ suite('CeedlingEngine after a build layout upgrade', () => {
         assert.doesNotMatch(await noticeFor(new FakeCeedling()), /coverage/i);
         assert.match(await noticeFor(coverageWorld()), /coverage stays exact/i);
         assert.match(await noticeFor(coverageWorld(), { coverageResetsCounters: false }), /coverage reports also count.*coverageResetsCounters/i);
+        assert.match(await noticeFor(bullseyeWorld(undefined, bullseyeConfig({ gcov: true }))), /coverage stays exact/i);
+        // Bullseye's coverage file counts what its builds run, and the old layout's never run again.
+        assert.doesNotMatch(await noticeFor(bullseyeWorld(), { coverageResetsCounters: false }), /coverage/i);
     });
 
     // A rediscovery may drop the project while its notice shows.
@@ -2019,7 +2022,7 @@ suite('CeedlingEngine coverage', () => {
         assert.deepStrictEqual(world.commandsMatching(/^ceedling gcov:/), [`ceedling gcov:test_calc.c --force-test-rerun ${PROJECT_ARGS}`]);
         assert.deepStrictEqual(reporter.of('passed').map((c) => c[1]), ['test/test_calc.c::test_add']);
         assert.deepStrictEqual(coverageCalls(reporter), [{
-            kind: 'report', path: GCOVR_REPORT,
+            kind: 'report', path: GCOVR_REPORT, counters: `${WS}/build/gcov/out`,
             files: [{ path: `${WS}/src/calc.c`, lines: [{ line: 1, hits: 2, branches: [] }, { line: 2, hits: 0, branches: [] }], functions: [] }],
         }]);
     });
@@ -2458,5 +2461,225 @@ suite('CeedlingEngine coverage', () => {
         await engine.runFile('default', file, reporter, cancel, coverageMode('gcov'));
         assert.deepStrictEqual(coverageCalls(reporter), []);
         assert.deepStrictEqual(reporter.of('skipped').length, leafIds(file.functions).length);
+    });
+});
+
+// A resolved configuration enabling the Bullseye plugin, with its defaults as Ceedling merges them,
+// and the environment it gives every Bullseye tool.
+function bullseyeConfig(options: { xmlReport?: string, reportTask?: boolean, gcov?: boolean, environment?: string[] } = {}): string {
+    return `:plugins:\n  :enabled:\n    - report_tests_log_factory\n    - bullseye\n${options.gcov === true ? '    - gcov\n' : ''}:unity:\n  :use_param_tests: true\n` +
+        `:paths:\n  :test:\n    - "+:test/**"\n` +
+        `:bullseye:\n  :report_task: ${options.reportTask === true}\n  :xml_report: ${options.xmlReport ?? ':cobertura'}\n` +
+        (options.gcov === true ? ':gcov:\n  :reports:\n    - Cobertura\n' : '') +
+        `:environment:\n${(options.environment ?? ['- :covfile: test.cov']).map((line) => `${line}\n`).join('')}`;
+}
+
+const BULLSEYE_REPORT = `${WS}/build/artifacts/bullseye/coverage.xml`;
+const COVFILE = `${WS}/test.cov`;
+
+// A project with the Bullseye plugin and a coverage file an earlier build instrumented, whose
+// coverage tasks pass and write `writes` besides their CppUnit report, and whose covclear succeeds.
+function bullseyeWorld(writes: Record<string, string> = { [BULLSEYE_REPORT]: CALC_COVERAGE }, config = bullseyeConfig()): FakeCeedling {
+    const world = new FakeCeedling();
+    world.resolvedConfig = config;
+    world.write(`${WS}/src/calc.c`, 'int add(int a, int b) { return a + b; }\n');
+    world.write(COVFILE, 'instrumented');
+    world.handlers.push((command) => /^ceedling bullseye:/.test(command)
+        ? { writes: { ...world.reportWrite(cppunit({ passed: ['test/test_calc.c::test_add'] }), 'build', 'bullseye'), ...writes } }
+        : undefined);
+    return world;
+}
+
+const resets = (world: FakeCeedling) => world.commands.filter((c) => /^covclear /.test(c.command));
+
+suite('CeedlingEngine Bullseye coverage', () => {
+    test('coverage is available through each plugin some project enables', async () => {
+        assert.deepStrictEqual((await discovered(bullseyeWorld())).engine.coveragePlugins(), ['bullseye']);
+        assert.deepStrictEqual((await discovered(bullseyeWorld(undefined, bullseyeConfig({ gcov: true })))).engine.coveragePlugins(), ['gcov', 'bullseye']);
+    });
+
+    // Ceedling 1.2.0, the plugin's first release, takes a bare name, as its gcov: tasks do.
+    test("a file runs through bullseye:, with results from Bullseye's artifacts and coverage over the project's coverage file", async () => {
+        const world = bullseyeWorld();
+        const { engine, file } = await discovered(world);
+        const reporter = recordingReporter();
+        await engine.runFile('default', file, reporter, token(), coverageMode('bullseye'));
+        assert.deepStrictEqual(world.commandsMatching(/^ceedling bullseye:/), [`ceedling bullseye:test_calc.c --force-test-rerun ${PROJECT_ARGS}`]);
+        assert.deepStrictEqual(reporter.of('passed').map((c) => c[1]), ['test/test_calc.c::test_add']);
+        assert.deepStrictEqual(coverageCalls(reporter), [{
+            kind: 'report', path: BULLSEYE_REPORT, counters: COVFILE,
+            files: [{ path: `${WS}/src/calc.c`, lines: [{ line: 1, hits: 2, branches: [] }, { line: 2, hits: 0, branches: [] }], functions: [] }],
+        }]);
+    });
+
+    test('from Ceedling 1.2.1, a Bullseye run names its file by path', async () => {
+        const world = bullseyeWorld();
+        world.version = '1.2.1';
+        const { engine, file } = await discovered(world);
+        await engine.runFile('default', file, recordingReporter(), token(), coverageMode('bullseye'));
+        assert.deepStrictEqual(world.commandsMatching(/^ceedling bullseye:/), [`ceedling bullseye:test/test_calc.c --force-test-rerun ${PROJECT_ARGS}`]);
+    });
+
+    // covclear keeps the coverage file's instrumentation, so a delta build that compiles nothing
+    // still measures. Deleting the file would leave nothing to measure into.
+    test("covclear resets the coverage file once per request, in the project's directory and shell, before its first build", async () => {
+        const world = bullseyeWorld();
+        const { engine, file } = await discovered(world, { settings: { shellPath: '/bin/zsh' } });
+        const mode = coverageMode('bullseye');
+        await engine.runFile('default', file, recordingReporter(), token(), mode);
+        await engine.runFile('default', file, recordingReporter(), token(), mode);
+        const run = world.commands.filter((c) => /^(covclear|ceedling bullseye:)/.test(c.command));
+        assert.deepStrictEqual(run.map((c) => [c.command.replace(/ --force-test-rerun.*/, ''), c.cwd, c.shell]), [
+            ['covclear -q --file test.cov', WS, '/bin/zsh'],
+            ['ceedling bullseye:test_calc.c', WS, '/bin/zsh'],
+            ['ceedling bullseye:test_calc.c', WS, '/bin/zsh'],
+        ]);
+        assert.ok(world.files.has(COVFILE));
+        await engine.runFile('default', file, recordingReporter(), token(), coverageMode('bullseye'));
+        assert.strictEqual(resets(world).length, 2, 'a new request resets again');
+    });
+
+    test('a project without a coverage file yet has nothing to reset, and counters left to accumulate stay', async () => {
+        const fresh = bullseyeWorld();
+        fresh.files.delete(COVFILE);
+        const { engine, file } = await discovered(fresh);
+        await engine.runFile('default', file, recordingReporter(), token(), coverageMode('bullseye'));
+        assert.deepStrictEqual(resets(fresh), []);
+        const kept = bullseyeWorld();
+        const { engine: keeping, file: keptFile } = await discovered(kept, { settings: { coverageResetsCounters: false } });
+        await keeping.runFile('default', keptFile, recordingReporter(), token(), coverageMode('bullseye'));
+        assert.deepStrictEqual(resets(kept), []);
+    });
+
+    // Ceedling gives Bullseye's tools its :environment, e.g. a PATH holding them, and a floating
+    // license's COVLM, which the plugin adds there.
+    test("covclear runs with the environment Ceedling gives Bullseye's tools", async () => {
+        const world = bullseyeWorld(undefined, bullseyeConfig({ environment: ['- :path: "/opt/bullseye/bin:/usr/bin"', '- :covfile: test.cov', '- :covlm: "/shared/bullseye.lmgr"'] }));
+        const { engine, file } = await discovered(world);
+        await engine.runFile('default', file, recordingReporter(), token(), coverageMode('bullseye'));
+        const env = resets(world)[0]?.env ?? {};
+        assert.deepStrictEqual([env.PATH, env.COVLM], ['/opt/bullseye/bin:/usr/bin', '/shared/bullseye.lmgr']);
+    });
+
+    // A killed Bullseye tool holds a floating license for 10 minutes, so covclear is never killed
+    // for a cancelled request. It is never started for one, and a hung one times out.
+    test('covclear never starts for a cancelled request, and gets a timeout rather than the cancellation', async () => {
+        const world = bullseyeWorld();
+        const { engine, file } = await discovered(world);
+        const cancelled = token();
+        cancelled.fire();
+        const reporter = recordingReporter();
+        await engine.runFile('default', file, reporter, cancelled, coverageMode('bullseye'));
+        assert.deepStrictEqual(resets(world), []);
+        assert.deepStrictEqual(coverageCalls(reporter), []);
+        await engine.runFile('default', file, recordingReporter(), token(), coverageMode('bullseye'));
+        assert.strictEqual(resets(world)[0]?.timeout, 120_000);
+    });
+
+    test('a failed reset is noticed, once per request, and the run goes on to report its coverage', async () => {
+        const world = bullseyeWorld();
+        world.handlers.unshift((command) => /^covclear /.test(command) ? { error: true, stderr: 'covclear: not found' } : undefined);
+        const logs: LogCall[] = [];
+        const { engine, file } = await discovered(world, { logs });
+        const reporter = recordingReporter();
+        const mode = coverageMode('bullseye');
+        await engine.runFile('default', file, reporter, token(), mode);
+        await engine.runFile('default', file, reporter, token(), mode);
+        const [notice, ...reports] = coverageCalls(reporter) as Array<{ kind: string, message?: string }>;
+        assert.strictEqual(notice.kind, 'notice');
+        assert.match(notice.message ?? '', new RegExp(`'default'.*${COVFILE}.*earlier runs.*PATH.*ceedling bullseye:license`));
+        assert.deepStrictEqual(reports.map((r) => r.kind), ['report', 'report']);
+        assert.strictEqual(resets(world).length, 1);
+        assert.ok(logs.some((l) => l.level === 'warn' && /covclear: not found/.test(l.message)), "covclear's output is logged");
+    });
+
+    test('projects in one directory share its coverage file and one reset, and projects apart reset their own', async () => {
+        const run = async (a: string, b: string) => {
+            const world = bullseyeWorld();
+            const settings = twoProjects(world, a, b);
+            for (const dir of ['fw', 'a', 'b']) world.write(`${WS}/${dir}/test.cov`, 'instrumented');
+            for (const dir of ['fw', 'a', 'b']) world.write(`${WS}/${dir}/test/test_calc.c`, 'void test_add(void) {}\n');
+            const engine = makeEngine(world, { settings });
+            const projects = await engine.discover();
+            const mode = coverageMode('bullseye');
+            // eslint-disable-next-line no-await-in-loop -- one request's entries run in turn, as the controller runs them
+            for (const project of projects) await engine.runFile(project.projectKey, project.files[0], recordingReporter(), token(), mode);
+            return resets(world).map((c) => [c.cwd]);
+        };
+        assert.deepStrictEqual(await run('fw/a.yml', 'fw/b.yml'), [[`${WS}/fw`]]);
+        assert.deepStrictEqual(await run('a', 'b'), [[`${WS}/a`], [`${WS}/b`]]);
+    });
+
+    // Bullseye records whether each probe ran, not how often, so a test run twice counts once.
+    test("a function run's whole-file fallback clears nothing and resets nothing again", async () => {
+        const world = bullseyeWorld();
+        world.handlers.unshift((command) => /^ceedling bullseye:.*--test-case/.test(command)
+            ? { writes: world.reportWrite(cppunit({ passed: ['test/test_calc.c::test_add', 'test/test_calc.c::test_add_more'] }), 'build', 'bullseye') }
+            : undefined);
+        const { engine, file } = await discovered(world);
+        await engine.runFunction('default', file, file.functions[0], recordingReporter(), token(), coverageMode('bullseye'));
+        assert.deepStrictEqual(world.commands.map((c) => c.command).filter((c) => /^(covclear|ceedling bullseye:)/.test(c)), [
+            'covclear -q --file test.cov',
+            `ceedling bullseye:test_calc.c --test-case=test_add --force-test-rerun ${PROJECT_ARGS}`,
+            `ceedling bullseye:test_calc.c --force-test-rerun ${PROJECT_ARGS}`,
+        ]);
+        assert.ok(world.files.has(COVFILE));
+    });
+
+    test("a native report is Bullseye's own XML, so the run says to choose Cobertura and never reads it", async () => {
+        const world = bullseyeWorld({ [BULLSEYE_REPORT]: '<BullseyeCoverage/>' }, bullseyeConfig({ xmlReport: ':native' }));
+        const { engine, file } = await discovered(world);
+        const reporter = recordingReporter();
+        await engine.runFile('default', file, reporter, token(), coverageMode('bullseye'));
+        assert.deepStrictEqual(coverageCalls(reporter).map((c) => (c as { kind: string }).kind), ['missing']);
+        assert.match((coverageCalls(reporter)[0] as { message: string }).message, /:bullseye: ↳ :xml_report: to :cobertura/);
+        assert.ok(!world.reads.includes(BULLSEYE_REPORT));
+    });
+
+    test('reports deferred to the report:bullseye task are generated in the same run', async () => {
+        const world = bullseyeWorld(undefined, bullseyeConfig({ reportTask: true }));
+        const { engine, file } = await discovered(world);
+        await engine.runFile('default', file, recordingReporter(), token(), coverageMode('bullseye'));
+        assert.deepStrictEqual(world.commandsMatching(/^ceedling bullseye:/), [`ceedling bullseye:test_calc.c report:bullseye --force-test-rerun ${PROJECT_ARGS}`]);
+    });
+
+    test("a project without the run's plugin runs its tests plainly, and says why it has no coverage", async () => {
+        const world = coverageWorld();
+        world.handlers.push((command) => /^ceedling test:/.test(command) ? { writes: world.reportWrite(cppunit({ passed: ['test/test_calc.c::test_add'] })) } : undefined);
+        const { engine, file } = await discovered(world);
+        const reporter = recordingReporter();
+        await engine.runFile('default', file, reporter, token(), coverageMode('bullseye'));
+        assert.deepStrictEqual(world.commandsMatching(/^ceedling (test|gcov|bullseye):/), [`ceedling test:test/test_calc.c --force-test-rerun ${PROJECT_ARGS}`]);
+        assert.deepStrictEqual(reporter.of('passed').map((c) => c[1]), ['test/test_calc.c::test_add']);
+        assert.match((coverageCalls(reporter)[0] as { message: string }).message, /doesn't enable Ceedling's Bullseye plugin/);
+        assert.deepStrictEqual(resets(world), []);
+    });
+
+    test("a project enabling both plugins measures through the request's", async () => {
+        const world = bullseyeWorld(undefined, bullseyeConfig({ gcov: true }));
+        world.handlers.push((command) => /^ceedling gcov:/.test(command) ? { writes: world.reportWrite(cppunit({ passed: ['test/test_calc.c::test_add'] }), 'build', 'gcov') } : undefined);
+        const { engine, file } = await discovered(world);
+        await engine.runFile('default', file, recordingReporter(), token(), coverageMode('gcov'));
+        assert.deepStrictEqual(resets(world), []);
+        await engine.runFile('default', file, recordingReporter(), token(), coverageMode('bullseye'));
+        assert.deepStrictEqual(world.commandsMatching(/^(covclear|ceedling (gcov|bullseye):)/).map((c) => c.split(' ')[0] === 'covclear' ? 'covclear' : c.split(' ')[1]),
+            ['gcov:test_calc.c', 'covclear', 'bullseye:test_calc.c']);
+    });
+
+    test('a stale report is deleted before each build, so a build writing none says what to check', async () => {
+        const world = bullseyeWorld({});
+        world.write(BULLSEYE_REPORT, CALC_COVERAGE);
+        const { engine, file } = await discovered(world);
+        const reporter = recordingReporter();
+        await engine.runFile('default', file, reporter, token(), coverageMode('bullseye'));
+        assert.match((coverageCalls(reporter)[0] as { message: string }).message, /wrote no coverage report.*covxml.*ceedling bullseye:license/);
+    });
+
+    test('a report covering no source files says what Bullseye leaves out', async () => {
+        const world = bullseyeWorld({ [BULLSEYE_REPORT]: cobertura(['/ws/'], []) });
+        const { engine, file } = await discovered(world);
+        const reporter = recordingReporter();
+        await engine.runFile('default', file, reporter, token(), coverageMode('bullseye'));
+        assert.match((coverageCalls(reporter)[0] as { message: string }).message, /covers no source files.*test files, mocks/);
     });
 });

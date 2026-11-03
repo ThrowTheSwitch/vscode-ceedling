@@ -15,7 +15,7 @@ export function buildPath(project: Pick<LoadedProject, 'absPath' | 'state'>, pat
 }
 
 // Where a run leaves its CppUnit report, under its build context's artifacts: artifacts/test for a
-// test run, artifacts/gcov for a gcov run.
+// test run, and each coverage plugin's own, e.g. artifacts/bullseye, for its coverage run.
 export function cppunitReportPaths(project: Pick<LoadedProject, 'absPath' | 'state'>, paths: PlatformPaths): string[] {
     return TEST_CONTEXTS.map((context) => buildPath(project, paths, contextArtifacts(context), project.state.reportFilename));
 }

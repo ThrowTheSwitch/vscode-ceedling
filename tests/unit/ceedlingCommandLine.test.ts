@@ -67,7 +67,7 @@ suite('buildProjectArgs', () => {
 
 suite('taskArgs', () => {
     const gcov = { reportTask: false, coberturaReports: ['x'] };
-    const project = (release: string, files: string[], coverage = { gcov }) => ({
+    const project = (release: string, files: string[], coverage: Record<string, unknown> = { gcov }) => ({
         release, capabilities: capabilitiesOf(release), files: files.map((id) => ({ id })), state: { coverage },
     }) as unknown as LoadedProject;
 
@@ -88,6 +88,23 @@ suite('taskArgs', () => {
         assert.deepStrictEqual(taskArgs(deferred, 'all', 'gcov', ['gcov:${TEST_ID}'], undefined, path.posix).args, ['gcov:all', 'report:gcov']);
         assert.deepStrictEqual(taskArgs(deferred, 'all', 'gcov', ['gcov:${TEST_ID}', 'report:gcov'], undefined, path.posix).args, ['gcov:all', 'report:gcov']);
         assert.deepStrictEqual(taskArgs(project('1.2.1', []), 'all', 'gcov', ['gcov:${TEST_ID}'], undefined, path.posix).args, ['gcov:all']);
+    });
+
+    // Bullseye's tasks take a test file as gcov's do: by name in 1.2.0, its first release, by path from 1.2.1.
+    test('a Bullseye run names its plugin and its file as its release takes them, and defers to report:bullseye', () => {
+        const bullseye = { bullseye: { reportTask: true, coberturaReports: ['x'] } };
+        assert.deepStrictEqual(taskArgs(project('1.2.0', [], bullseye), 'test/a/test_x.c', 'bullseye', ['${PLUGIN}:${TEST_ID}'], 'test_y', path.posix),
+            { args: ['bullseye:test_x.c', 'report:bullseye', '--test-case=test_y'], warning: undefined });
+        assert.deepStrictEqual(taskArgs(project('1.2.1', [], bullseye), 'test/a/test_x.c', 'bullseye', ['${PLUGIN}:${TEST_ID}'], undefined, path.posix).args,
+            ['bullseye:test/a/test_x.c', 'report:bullseye']);
+    });
+
+    // A configured task naming another plugin's runs that plugin, whose report this run never reads.
+    test("a coverage run whose arguments name another plugin's task warns", () => {
+        const both = { gcov, bullseye: gcov };
+        assert.match(taskArgs(project('1.2.1', [], both), 'test/a.c', 'bullseye', ['gcov:${TEST_ID}'], undefined, path.posix).warning ?? '',
+            /runs gcov:test\/a\.c, a gcov task, in a Bullseye coverage run.*\$\{PLUGIN\}/);
+        assert.strictEqual(taskArgs(project('1.2.1', [], both), 'test/a.c', 'gcov', ['gcov:${TEST_ID}'], undefined, path.posix).warning, undefined);
     });
 
     // Before 1.2.1 a coverage task takes a bare name, which a same-named file elsewhere shares.

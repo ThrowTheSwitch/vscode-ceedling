@@ -108,7 +108,7 @@ suite('the documentation site', () => {
         for (const key of Object.keys(contributes.configuration.properties)) {
             const entry = section(configuration, `### \`${key}\``) ?? '';
             const linked = [...entry.matchAll(/\]\[([^\]]+)\]/g)].map((m) => targets.get(m[1]) ?? '');
-            assert.ok(linked.some((target) => /^(?!configuration\.md)[\w-]+\.md(#[\w-]+)?$/.test(target) || target === '#mixins'), `${key}'s entry links to no manual section explaining it`);
+            assert.ok(linked.some((target) => /^(?!configuration\.md)[\w-]+(\/[\w-]+)*\.md(#[\w-]+)?$/.test(target) || target === '#mixins'), `${key}'s entry links to no manual section explaining it`);
         }
     });
 

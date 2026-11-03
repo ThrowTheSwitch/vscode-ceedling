@@ -2,11 +2,11 @@
 // them: how a project configures each, where its builds and reports go, how a request clears what
 // earlier runs counted, and what to tell a user whose project shows nothing. The rest of the
 // extension derives its coverage behavior from this table. It has no `vscode` dependency.
-import { field, stringList, stringSetting } from './parsedXml';
+import { field, stringList, stringSetting, text } from './parsedXml';
 
 // A plugin's name is also its `:plugins` ↳ `:enabled` entry, its task prefix, e.g. `gcov:`, and
 // the build context Ceedling builds its instrumented tests in.
-export const COVERAGE_PLUGINS = ['gcov'] as const;
+export const COVERAGE_PLUGINS = ['gcov', 'bullseye'] as const;
 export type CoveragePlugin = typeof COVERAGE_PLUGINS[number];
 
 // Ceedling's test build contexts: plain test builds, then each coverage plugin's. Each builds under
@@ -34,10 +34,22 @@ export type CoverageState = {
 // Each plugin's state, or undefined for a plugin the project doesn't enable. Every plugin has a key.
 export type CoverageStates = Readonly<Record<CoveragePlugin, CoverageState | undefined>>;
 
-// How a coverage request clears what earlier runs counted, before its first build. gcov's counter
-// files sit beneath the plugin's build output, each test's beneath its own build directory, so a
-// test's counters can go alone.
-type CounterReset = { kind: 'delete', counters: RegExp };
+// How a coverage request clears what earlier runs counted, before its first build.
+// - delete: counter files beneath the plugin's build output, each test's beneath its own build
+//   directory, so a test's counters can go alone. A rebuilt test writes them afresh.
+// - covclear: one coverage file in the project directory, which also holds the instrumentation a
+//   build compiled in. Bullseye's covclear zeroes its measurements in place, since a delta build
+//   that compiles nothing would measure into nothing once the file is gone. Bullseye records
+//   whether each probe ran, not how often, so a test run twice needs no reset of its own.
+type CounterReset =
+    | { kind: 'delete', counters: RegExp }
+    // `advice` is what to check when covclear fails.
+    | { kind: 'covclear', covfile: string, advice: string };
+
+// Bullseye's reset, run in the project directory and given the coverage file there by name, so no
+// project path reaches the shell. A covclear waiting on an unreachable floating license fails after
+// its timeout.
+export const COVCLEAR = { command: 'covclear', args: (covfile: string): string[] => ['-q', '--file', covfile], timeoutMs: 120_000 };
 
 type CoveragePluginInfo = {
     // The plugin's name in messages.
@@ -48,11 +60,9 @@ type CoveragePluginInfo = {
     // What to do when the configuration writes no Cobertura report, when a run wrote none, and when
     // the report covers no sources.
     advice: { cobertura: string, noReport: string, noSources: string },
-    // The documentation section on what the plugin needs.
+    // The documentation section on what the plugin needs, written out whole so the docs tests check it.
     page: string,
 };
-
-const SITE = 'https://docs.throwtheswitch.org/vscode-ceedling/latest/';
 
 export const COVERAGE_PLUGIN: Readonly<Record<CoveragePlugin, CoveragePluginInfo>> = {
     gcov: {
@@ -65,7 +75,24 @@ export const COVERAGE_PLUGIN: Readonly<Record<CoveragePlugin, CoveragePluginInfo
             noReport: 'Check that gcovr or ReportGenerator runs in the configured shell.',
             noSources: 'gcovr reports only sources beneath :gcov: ↳ :gcovr: ↳ :report_root:, the project directory by default.',
         },
-        page: `${SITE}manual/code-coverage/#what-coverage-needs`,
+        page: 'https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/code-coverage/gcov/#what-gcov-coverage-needs',
+    },
+    bullseye: {
+        label: 'Bullseye',
+        // Relative to the project directory, where Ceedling runs. The plugin sets COVFILE to it over any
+        // :environment of the user's.
+        reset: {
+            kind: 'covclear',
+            covfile: 'test.cov',
+            advice: "Check that Bullseye's tools are on the configured shell's PATH, and that Bullseye is licensed, as `ceedling bullseye:license` reports.",
+        },
+        state: bullseyeState,
+        advice: {
+            cobertura: "Set :bullseye: ↳ :xml_report: to :cobertura. Its :native report is Bullseye's own XML, which VS Code can't show.",
+            noReport: "Check that Bullseye's covxml runs in the configured shell, and that Bullseye is licensed, as `ceedling bullseye:license` reports.",
+            noSources: "Bullseye's reports leave out test files, mocks, and the Unity, CMock, and CException frameworks.",
+        },
+        page: 'https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/code-coverage/bullseye/#what-bullseye-coverage-needs',
     },
 };
 
@@ -80,7 +107,7 @@ export function coverageProblem(projectKey: string, plugin: CoveragePlugin, stat
     const { advice, page } = COVERAGE_PLUGIN[plugin];
     return state.coberturaReports.length > 0 ? undefined :
         `Ceedling project '${projectKey}' writes no Cobertura coverage report, so Run with Coverage has nothing to show. ` +
-        `${advice.cobertura} The Code Coverage page explains each: ${page}`;
+        `${advice.cobertura} See ${page}`;
 }
 
 // The gcov plugin writes Cobertura through gcovr, ReportGenerator, or both, into fixed directories.
@@ -98,4 +125,13 @@ function gcovState(resolved: unknown): CoverageState {
         ...utilities.includes('reportgenerator') ? [`${artifacts}/ReportGenerator/Cobertura.xml`, `${artifacts}/ReportGenerator/Cobertura/Cobertura.xml`] : [],
     ];
     return { reportTask: field(resolved, ':gcov', ':report_task') === true, coberturaReports };
+}
+
+// The Bullseye plugin writes Cobertura through covxml only with :xml_report: :cobertura, which
+// dumpconfig shows as the YAML string ':cobertura'.
+function bullseyeState(resolved: unknown): CoverageState {
+    return {
+        reportTask: field(resolved, ':bullseye', ':report_task') === true,
+        coberturaReports: text(field(resolved, ':bullseye', ':xml_report')) === ':cobertura' ? [`${contextArtifacts('bullseye')}/coverage.xml`] : [],
+    };
 }

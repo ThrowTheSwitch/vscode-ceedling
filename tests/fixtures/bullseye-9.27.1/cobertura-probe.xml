@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE coverage SYSTEM "http://cobertura.sourceforge.net/xml/coverage-04.dtd">
+<coverage line-rate="0.71" branch-rate="0.6" lines-covered="5" lines-valid="7" branches-covered="6" branches-valid="10" complexity="0.0" version="BullseyeCoverage 9.27.1" timestamp="1793739579">
+	<sources>
+		<source>/tmp/probe/project/</source>
+	</sources>
+	<packages>
+		<package name="lib" line-rate="0.66" branch-rate="0.25" complexity="0.0">
+			<classes>
+				<class name="Clamp_c" filename="../lib/Clamp.c" line-rate="0.66" branch-rate="0.25" complexity="0.0">
+					<methods>
+						<method name="clamp(int,int,int)" signature="" line-rate="0.66" branch-rate="0.25">
+							<lines>
+								<line number="4" hits="1" branch="false"/>
+								<line number="5" hits="1" branch="true" condition-coverage="50% (1/2)"><conditions><condition number="0" type="jump" coverage="50%"/></conditions></line>
+								<line number="6" hits="1" branch="false"/>
+								<line number="7" hits="0" branch="true" condition-coverage="0% (0/2)"><conditions><condition number="0" type="jump" coverage="0%"/></conditions></line>
+								<line number="8" hits="0" branch="false"/>
+							</lines>
+						</method>
+					</methods>
+					<lines>
+						<line number="4" hits="1" branch="false"/>
+						<line number="5" hits="1" branch="true" condition-coverage="50% (1/2)"><conditions><condition number="0" type="jump" coverage="50%"/></conditions></line>
+						<line number="6" hits="1" branch="false"/>
+						<line number="7" hits="0" branch="true" condition-coverage="0% (0/2)"><conditions><condition number="0" type="jump" coverage="0%"/></conditions></line>
+						<line number="8" hits="0" branch="false"/>
+					</lines>
+				</class>
+			</classes>
+		</package>
+		<package name="src" line-rate="0.75" branch-rate="0.83" complexity="0.0">
+			<classes>
+				<class name="Calculator_c" filename="src/Calculator.c" line-rate="0.75" branch-rate="0.83" complexity="0.0">
+					<methods>
+						<method name="add(int,int)" signature="" line-rate="1.0" branch-rate="0.0">
+							<lines>
+								<line number="4" hits="1" branch="false"/>
+							</lines>
+						</method>
+						<method name="subtract(int,int)" signature="" line-rate="0.0" branch-rate="0.0">
+							<lines>
+								<line number="9" hits="0" branch="false"/>
+							</lines>
+						</method>
+						<method name="both(int,int)" signature="" line-rate="1.0" branch-rate="0.83">
+							<lines>
+								<line number="14" hits="1" branch="false"/>
+								<line number="15" hits="1" branch="true" condition-coverage="100% (2/2)"><conditions><condition number="0" type="jump" coverage="100%"/></conditions></line>
+								<line number="16" hits="1" branch="false"/>
+							</lines>
+						</method>
+					</methods>
+					<lines>
+						<line number="4" hits="1" branch="false"/>
+						<line number="9" hits="0" branch="false"/>
+						<line number="14" hits="1" branch="false"/>
+						<line number="15" hits="1" branch="true" condition-coverage="100% (2/2)"><conditions><condition number="0" type="jump" coverage="100%"/></conditions></line>
+						<line number="16" hits="1" branch="false"/>
+					</lines>
+				</class>
+			</classes>
+		</package>
+	</packages>
+</coverage>

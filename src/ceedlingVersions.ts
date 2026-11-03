@@ -26,7 +26,7 @@ const APPLICATION_FEATURES = {
     forceTestRerun: '1.2.0',
     // A `test:` task accepts a project-relative path, which tells same-named test files apart.
     pathQualifiedTestTasks: '1.2.0',
-    // A `gcov:` task does too. Ceedling 1.2.0's gcov plugin still took a bare name.
+    // A coverage task, `gcov:` or `bullseye:`, does too. Ceedling 1.2.0's plugins still took a bare name.
     pathQualifiedCoverageTasks: '1.2.1',
     // ceedling.yml is a default project file, like project.yml.
     ceedlingYml: '1.2.0',

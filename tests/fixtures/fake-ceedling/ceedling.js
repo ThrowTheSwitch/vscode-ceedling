@@ -9,7 +9,8 @@
 //                "test/test_y.c": { "compileError": "ceedling-1.0.0/compile-failure-stderr.txt" },
 //                "test/test_z.c": { "hang": true } },
 //     "gcov": { "utilities": ["gcovr"], "reports": ["Cobertura"], "reportTask": false,
-//               "coverage": { "test/test_x.c": { "src/x.c": { "lines": [[1, 3], [2, 0], [4, 1, "50% (1/2)"]], "functions": [["f", 1, 3]] } } } } }
+//               "coverage": { "test/test_x.c": { "src/x.c": { "lines": [[1, 3], [2, 0], [4, 1, "50% (1/2)"]], "functions": [["f", 1, 3]] } } } },
+//     "bullseye": { "xmlReport": ":cobertura", "reportTask": false, "coverage": { ...as for gcov } } }
 //
 // A result left out of `results` goes unreported, as when discovery and Ceedling disagree on a
 // name. `compileError` names a captured compiler failure under tests/fixtures. `hang` runs until
@@ -23,6 +24,12 @@
 // Cobertura report of each run test file's `coverage`, unless `reportTask` defers that to a
 // `report:gcov` task on the same command line. A line is [number, hits] or [number, hits,
 // "condition-coverage"], e.g. "50% (1/2)", for a branch line.
+//
+// `bullseye` enables the Bullseye plugin. Its `bullseye:` tasks name test files as `gcov:` tasks
+// do, and add each run test file's `coverage` to the project's coverage file, test.cov, here JSON.
+// Bullseye marks each line run or not, so hits are 0 or 1. Each build then writes covxml's
+// Cobertura report of the whole file, with `xmlReport` :cobertura and unless `reportTask` defers it.
+// dumpconfig's :environment puts bin/, holding a covclear for it, on the path.
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -36,8 +43,9 @@ const task = args[0] ?? '';
 const option = (name) => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const mixins = args.flatMap((a, i) => args[i - 1] === '--mixin' ? [a] : []);
 const buildRoot = path.join(cwd, 'build');
+const covfile = path.join(cwd, 'test.cov');
 
-if (/^(test|gcov):/.test(task)) {
+if (/^(test|gcov|bullseye):/.test(task)) {
     upgradeCache();
 }
 if (task === 'version') {
@@ -47,15 +55,19 @@ if (task === 'version') {
     const reporting = mixins.some((m) => /report-tests-log-factory\.yml$/.test(m));
     process.stdout.write('Loaded project configuration from command line argument.\n---\n' +
         `:project:\n  :build_root: build\n:plugins:\n  :enabled:\n${reporting ? '  - report_tests_log_factory\n' : ''}${scenario.gcov ? '  - gcov\n' : ''}` +
-        ':unity:\n  :use_param_tests: true\n' + (scenario.gcov ? gcovConfig(scenario.gcov) : ''));
+        `${scenario.bullseye ? '  - bullseye\n' : ''}:unity:\n  :use_param_tests: true\n` +
+        (scenario.gcov ? gcovConfig(scenario.gcov) : '') + (scenario.bullseye ? bullseyeConfig(scenario.bullseye) : ''));
 } else if (task === 'files:test') {
     process.stdout.write(`Test files:\n${testFiles().map((f) => ` - ${f}`).join('\n')}\n`);
 } else if (task.startsWith('test:')) {
     test(task.slice('test:'.length), 'test');
 } else if (task.startsWith('gcov:') && scenario.gcov) {
     gcov(task.slice('gcov:'.length));
+} else if (task.startsWith('bullseye:') && scenario.bullseye) {
+    bullseye(task.slice('bullseye:'.length));
 } else if (task === 'clean' || task === 'clobber') {
     fs.rmSync(buildRoot, { recursive: true, force: true });
+    fs.rmSync(covfile, { force: true });
 } else {
     process.stderr.write(`fake ceedling: unsupported command: ${args.join(' ')}\n`);
     process.exitCode = 1;
@@ -90,21 +102,67 @@ function gcovConfig(gcov) {
     return `:gcov:\n  :report_task: ${gcov.reportTask === true}\n  :utilities:${list(gcov.utilities ?? ['gcovr'])}  :reports:${list(gcov.reports ?? [])}`;
 }
 
-// Before 1.2.1, Ceedling's gcov task prepends the test file prefix to a name lacking it, so a path
-// never names a test file. From 1.2.1 it takes a project-relative path, as test: tasks do.
-function gcov(name) {
+function bullseyeConfig(bullseye) {
+    return `:bullseye:\n  :report_task: ${bullseye.reportTask === true}\n  :xml_report: ${bullseye.xmlReport ?? ':none'}\n` +
+        `:environment:\n- :covfile: test.cov\n- :path: ${JSON.stringify([path.join(__dirname, 'bin'), process.env.PATH].join(path.delimiter))}\n`;
+}
+
+// Before 1.2.1, Ceedling's coverage tasks prepend the test file prefix to a name lacking it, so a
+// path never names a test file. From 1.2.1 they take a project-relative path, as test: tasks do.
+function coverageTask(name, context) {
     const byPath = /^1\.2\.[1-9]|^1\.([3-9]|\d\d)\.|^[2-9]\./.test(scenario.version);
     if (/[\\/]/.test(name) && !byPath) {
         process.stderr.write(`EXCEPTION: Found no file \`test_${name}\` in search paths.\n`);
         process.exitCode = 1;
-        return;
+        return undefined;
     }
     const files = name === 'all' ? ['all'] : Object.keys(scenario.files).filter((file) => file === name || path.basename(file) === name);
-    const ran = test(files[0] ?? name, 'gcov');
+    return test(files[0] ?? name, context);
+}
+
+function gcov(name) {
+    const ran = coverageTask(name, 'gcov');
     const cobertura = (scenario.gcov.reports ?? []).some((report) => report.toLowerCase() === 'cobertura');
     if (ran && cobertura && (!scenario.gcov.reportTask || args.includes('report:gcov'))) {
         writeCobertura(ran);
     }
+}
+
+function bullseye(name) {
+    const ran = coverageTask(name, 'bullseye');
+    if (!ran) return;
+    const measured = fs.existsSync(covfile) ? JSON.parse(fs.readFileSync(covfile, 'utf8')) : { sources: {} };
+    const files = ran[0] === 'all' ? Object.keys(scenario.files) : ran;
+    for (const file of files) {
+        for (const [source, covered] of Object.entries(scenario.bullseye.coverage?.[file] ?? {})) {
+            // A line or function counts as run if this run or an earlier one ran it.
+            const earlier = measured.sources[source] ?? { lines: [], functions: [] };
+            const ran = (hits, before) => Math.max(Math.min(hits, 1), before ?? 0);
+            measured.sources[source] = {
+                lines: covered.lines.map(([number, hits, condition], i) =>
+                    [number, ran(hits, earlier.lines[i]?.[1]), ...condition === undefined ? [] : [condition]]),
+                functions: (covered.functions ?? []).map(([fn, line, hits], i) => [fn, line, ran(hits, earlier.functions[i]?.[2])]),
+            };
+        }
+    }
+    fs.writeFileSync(covfile, JSON.stringify(measured));
+    if (scenario.bullseye.xmlReport === ':cobertura' && (!scenario.bullseye.reportTask || args.includes('report:bullseye'))) {
+        writeCoverageXml(measured);
+    }
+}
+
+// covxml's Cobertura report of the whole coverage file, named from its directory.
+function writeCoverageXml(measured) {
+    const line = ([number, hits, condition]) => condition === undefined
+        ? `<line number="${number}" hits="${hits}" branch="false"/>`
+        : `<line number="${number}" hits="${hits}" branch="true" condition-coverage="${condition}"/>`;
+    const classes = Object.entries(measured.sources).map(([source, covered]) => `<class name="${path.basename(source)}" filename="${source}">` +
+        `<methods>${covered.functions.map(([name, number, hits]) => `<method name="${name}"><lines>${line([number, hits])}</lines></method>`).join('')}</methods>` +
+        `<lines>${covered.lines.map(line).join('')}</lines></class>`).join('');
+    const reportDir = path.join(buildRoot, 'artifacts', 'bullseye');
+    fs.mkdirSync(reportDir, { recursive: true });
+    fs.writeFileSync(path.join(reportDir, 'coverage.xml'), `<?xml version="1.0"?>\n<coverage version="BullseyeCoverage 9.27.1"><sources><source>${cwd}${path.sep}</source></sources>` +
+        `<packages><package name="fake"><classes>${classes}</classes></package></packages></coverage>\n`);
 }
 
 // The test files run, or undefined when the build failed or never finished.

@@ -196,9 +196,10 @@ suite('projectState', () => {
                 executableExtension: '.out',
                 useParamTests: false,
                 reportPluginEnabled: false,
-                coverage: { gcov: undefined },
+                coverage: { gcov: undefined, bullseye: undefined },
                 testPaths: [],
                 whichCeedling: 'gem',
+                environment: {},
             });
         }
     });
@@ -212,6 +213,19 @@ suite('projectState', () => {
     test('the Ceedling a project selects is the gem by default, as dumpconfig shows it', () => {
         assert.strictEqual(projectState(dumpconfigFixture('dumpconfig-stdout.yml', 'ceedling-1.2.0'), 'linux').whichCeedling, 'gem');
         assert.strictEqual(projectState({ ':project': { ':which_ceedling': '../tools/ceedling' } }, 'linux').whichCeedling, '../tools/ceedling');
+    });
+
+    // Ceedling sets each :environment entry, its name upper-cased, for every tool it runs, the
+    // Bullseye plugin's own COVFILE and a floating license's COVLM among them. dumpconfig shows a
+    // list value already joined, as a path list.
+    test("the environment is :environment's, as Ceedling sets it", () => {
+        const fixture = (name: string) => projectState(dumpconfigFixture(`dumpconfig-bullseye-${name}.yml`, 'ceedling-1.2.2'), 'linux').environment;
+        assert.deepStrictEqual(fixture('env-path'), { PATH: '/tmp/bullseye/bin:/usr/local/bin:/usr/bin:/bin', COVFILE: 'test.cov' });
+        assert.deepStrictEqual(fixture('license-manager'), { COVFILE: 'test.cov', COVLM: '/tmp/probe.lmgr' });
+        assert.deepStrictEqual(projectState({ ':environment': [{ ':count': 3 }, 'stray', { ':Mixed_Case': 'x' }, { ':empty': null }] }, 'linux').environment, { COUNT: '3', MIXED_CASE: 'x' });
+        // A list Ceedling joins with the platform's path separator.
+        assert.deepStrictEqual(projectState({ ':environment': [{ ':path': ['/a', '/b'] }] }, 'linux').environment, { PATH: '/a:/b' });
+        assert.deepStrictEqual(projectState({ ':environment': [{ ':path': ['C:\\a', 'C:\\b'] }] }, 'win32').environment, { PATH: 'C:\\a;C:\\b' });
     });
 
     test('the default executable extension is .exe on Windows', () => {
@@ -236,9 +250,10 @@ suite('projectState', () => {
             executableExtension: '.bin',
             useParamTests: true,
             reportPluginEnabled: true,
-            coverage: { gcov: undefined },
+            coverage: { gcov: undefined, bullseye: undefined },
             testPaths: ['spec/**'],
             whichCeedling: 'vendor/ceedling',
+            environment: {},
         });
     });
 

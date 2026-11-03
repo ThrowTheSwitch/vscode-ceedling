@@ -139,25 +139,36 @@ suite('reportedFiles', () => {
     });
 });
 
-// A request's coverage runs leave one report per build directory. Each report already counts the
-// counters every earlier build of the request left there, so the last one read supersedes the rest.
+// A request's coverage runs leave one report per counter store: gcov's counters in a build
+// directory, or Bullseye's coverage file in a project directory. Each report already counts what
+// every earlier build of the request left there, so the last one read supersedes the rest.
 suite('mergeCoverage', () => {
     const file = (filePath: string, lines: Array<[number, number, boolean[]?]>, functions: Array<[string, number, number]> = []): CoveredFile =>
         ({ path: filePath, lines: lines.map(([line, hits, branches = []]) => ({ line, hits, branches })), functions: functions.map(([name, line, hits]) => ({ name, line, hits })) });
     const exact = (p: string) => p;
 
-    test("a later report at the same path replaces an earlier one", () => {
+    test("a later report over the same counters replaces an earlier one", () => {
         const merged = mergeCoverage([
-            { path: '/p/build/report.xml', files: [file('/p/a.c', [[1, 1]]), file('/p/b.c', [[1, 1]])] },
-            { path: '/p/build/report.xml', files: [file('/p/a.c', [[1, 3]])] },
+            { path: '/p/build/report.xml', counters: '/p/build/gcov/out', files: [file('/p/a.c', [[1, 1]]), file('/p/b.c', [[1, 1]])] },
+            { path: '/p/build/report.xml', counters: '/p/build/gcov/out', files: [file('/p/a.c', [[1, 3]])] },
         ], exact);
         assert.deepStrictEqual(merged, [file('/p/a.c', [[1, 3]])]);
     });
 
-    test('reports at different paths add up per file: hits, taken branches, and function hits', () => {
+    // Projects in one directory with build roots apart write their reports apart, each counting
+    // the one coverage file they share.
+    test('reports at different paths over the same counters replace one another too', () => {
         const merged = mergeCoverage([
-            { path: '/p/build/report.xml', files: [file('/lib/c.c', [[1, 1, [true, false]], [2, 0]], [['f', 1, 1]])] },
-            { path: '/q/build/report.xml', files: [file('/lib/c.c', [[1, 2, [false, true]], [3, 1]], [['f', 1, 2]]), file('/q/d.c', [[1, 1]])] },
+            { path: '/p/build/artifacts/bullseye/coverage.xml', counters: '/p/test.cov', files: [file('/p/a.c', [[1, 1]])] },
+            { path: '/p/build2/artifacts/bullseye/coverage.xml', counters: '/p/test.cov', files: [file('/p/a.c', [[1, 1]]), file('/p/b.c', [[1, 1]])] },
+        ], exact);
+        assert.deepStrictEqual(merged, [file('/p/a.c', [[1, 1]]), file('/p/b.c', [[1, 1]])]);
+    });
+
+    test('reports over different counters add up per file: hits, taken branches, and function hits', () => {
+        const merged = mergeCoverage([
+            { path: '/p/build/report.xml', counters: '/p/build/gcov/out', files: [file('/lib/c.c', [[1, 1, [true, false]], [2, 0]], [['f', 1, 1]])] },
+            { path: '/q/build/report.xml', counters: '/q/build/gcov/out', files: [file('/lib/c.c', [[1, 2, [false, true]], [3, 1]], [['f', 1, 2]]), file('/q/d.c', [[1, 1]])] },
         ], exact);
         assert.deepStrictEqual(merged, [
             file('/lib/c.c', [[1, 3, [true, true]], [2, 0], [3, 1]], [['f', 1, 3]]),
@@ -167,8 +178,8 @@ suite('mergeCoverage', () => {
 
     test('paths are compared through the given key, e.g. ignoring case on Windows', () => {
         const merged = mergeCoverage([
-            { path: 'C:\\p\\report.xml', files: [file('C:\\lib\\c.c', [[1, 1]])] },
-            { path: 'c:\\P\\REPORT.xml', files: [file('c:\\lib\\c.c', [[1, 5]])] },
+            { path: 'C:\\p\\report.xml', counters: 'C:\\p\\gcov', files: [file('C:\\lib\\c.c', [[1, 1]])] },
+            { path: 'c:\\P\\REPORT.xml', counters: 'c:\\P\\GCOV', files: [file('c:\\lib\\c.c', [[1, 5]])] },
         ], (p) => p.toLowerCase());
         assert.deepStrictEqual(merged, [file('c:\\lib\\c.c', [[1, 5]])]);
     });
@@ -218,6 +229,49 @@ suite('readCoberturaReport (gcovr 7.2)', () => {
         const report = await parseCoberturaReport(fs.readFileSync(path.resolve(fixturesRoot, 'gcovr-7.2', 'cobertura-probe.xml'), 'utf8'));
         assert.deepStrictEqual(reportedFiles(report, '/probe/project', path.posix).map((f) => [f.candidates, f.lines.map((l) => [l.line, l.hits]), f.functions]),
             [[['/probe/project/src/Calculator.c'], [[3, 1], [5, 1], [8, 0], [10, 0]], []]]);
+    });
+});
+
+// Bullseye 9.27.1 through Ceedling 1.2.2's plugin, run by tests/fixtures/capture/capture-bullseye.sh
+// in /tmp/probe/project, after test_calculator.c and then test_clamp.c. Its one coverage file
+// accumulates both runs.
+suite('readCoberturaReport (Bullseye 9.27.1)', () => {
+    const fixture = (name: string) => parseCoberturaReport(fs.readFileSync(path.resolve(fixturesRoot, 'bullseye-9.27.1', name), 'utf8'));
+
+    // covxml names files relative to the coverage file's directory, its one absolute <source>.
+    test('names files from the project directory, a source above it included', async () => {
+        const report = await fixture('cobertura-probe.xml');
+        assert.deepStrictEqual(report.sources, ['/tmp/probe/project/']);
+        assert.deepStrictEqual(reportedFiles(report, '/elsewhere', path.posix).map((f) => f.candidates), [['/tmp/probe/lib/Clamp.c'], ['/tmp/probe/project/src/Calculator.c']]);
+    });
+
+    // Bullseye records whether each probe ran, not how often, so add's three calls are one hit. A
+    // decision taken both ways is fully covered. Only probe lines appear.
+    test('marks each probe line run or not, and each decision by its outcomes taken', async () => {
+        const [clamp, calculator] = (await fixture('cobertura-probe.xml')).files;
+        assert.deepStrictEqual(clamp.lines.map((l) => [l.line, l.hits, l.branches]), [
+            [4, 1, []], [5, 1, [true, false]], [6, 1, []], [7, 0, [false, false]], [8, 0, []],
+        ]);
+        assert.deepStrictEqual(calculator.lines.map((l) => [l.line, l.hits, l.branches]), [
+            [4, 1, []], [9, 0, []], [14, 1, []], [15, 1, [true, true]], [16, 1, []],
+        ]);
+    });
+
+    test('names each function with its signature', async () => {
+        assert.deepStrictEqual((await fixture('cobertura-probe.xml')).files.map((f) => f.functions), [
+            [{ name: 'clamp(int,int,int)', line: 4, hits: 1 }],
+            [{ name: 'add(int,int)', line: 4, hits: 1 }, { name: 'subtract(int,int)', line: 9, hits: 0 }, { name: 'both(int,int)', line: 14, hits: 1 }],
+        ]);
+    });
+
+    // covclear resets measurements and keeps what was compiled, so every source stays, at 0%.
+    test('a cleared coverage file reports every source it holds, with nothing run', async () => {
+        const report = await fixture('cobertura-cleared.xml');
+        assert.deepStrictEqual(report.files.map((f) => [f.filename, f.lines.filter((l) => l.hits > 0).length]), [['../lib/Clamp.c', 0], ['src/Calculator.c', 0]]);
+    });
+
+    test("Bullseye's native XML isn't Cobertura", async () => {
+        await assert.rejects(fixture('native-probe.xml'), /no <coverage> element/);
     });
 });
 
@@ -293,8 +347,8 @@ suite('parseCoberturaReport (structure)', () => {
 suite('mergeCoverage (functions)', () => {
     test('a function only one report names is kept as that report counted it', () => {
         const merged = mergeCoverage([
-            { path: '/p/report.xml', files: [{ path: '/lib/c.c', lines: [], functions: [{ name: 'f', line: 1, hits: 1 }] }] },
-            { path: '/q/report.xml', files: [{ path: '/lib/c.c', lines: [], functions: [{ name: 'g', line: 5, hits: 2 }] }] },
+            { path: '/p/report.xml', counters: '/p/gcov', files: [{ path: '/lib/c.c', lines: [], functions: [{ name: 'f', line: 1, hits: 1 }] }] },
+            { path: '/q/report.xml', counters: '/q/gcov', files: [{ path: '/lib/c.c', lines: [], functions: [{ name: 'g', line: 5, hits: 2 }] }] },
         ], (p) => p);
         assert.deepStrictEqual(merged[0].functions, [{ name: 'f', line: 1, hits: 1 }, { name: 'g', line: 5, hits: 2 }]);
     });

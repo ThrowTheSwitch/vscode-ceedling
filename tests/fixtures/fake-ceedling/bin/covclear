@@ -1,0 +1,23 @@
+#!/usr/bin/env node
+// A stand-in for Bullseye's covclear in the integration tests. The fake Ceedling's dumpconfig puts
+// this directory on :environment ↳ :path, so the extension finds it only through the project's
+// environment, as it would find Bullseye's own tools. It zeroes every measurement in the fake's
+// coverage file, keeping its sources, as covclear keeps what a build instrumented. A missing file
+// fails as covclear does. Its arguments are logged beside the fake Ceedling's.
+'use strict';
+const fs = require('fs');
+const path = require('path');
+
+const args = process.argv.slice(2);
+fs.appendFileSync(path.join(process.cwd(), 'fake-ceedling.log'), `${JSON.stringify(['covclear', ...args])}\n`);
+const file = args[args.indexOf('--file') + 1];
+if (!args.includes('--file') || !fs.existsSync(file)) {
+    process.stderr.write(`covclear: cannot open '${file}': No such file or directory\n`);
+    process.exit(1);
+}
+const covfile = JSON.parse(fs.readFileSync(file, 'utf8'));
+for (const covered of Object.values(covfile.sources)) {
+    covered.lines = covered.lines.map(([number, , condition]) => condition === undefined ? [number, 0] : [number, 0, condition.replace(/^\d+% \(\d+/, '0% (0')]);
+    covered.functions = covered.functions.map(([name, line]) => [name, line, 0]);
+}
+fs.writeFileSync(file, JSON.stringify(covfile));

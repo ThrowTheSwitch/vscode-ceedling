@@ -156,13 +156,13 @@ suite('report paths', () => {
         ({ absPath: '/ws/fw', state: { buildRoot: 'out', reportFilename: 'results.xml', coverage } }) as unknown as LoadedProject;
 
     test("a run's CppUnit report is a test run's, then each coverage plugin's", () => {
-        assert.deepStrictEqual(cppunitReportPaths(project({ gcov: undefined }), path.posix),
-            ['/ws/fw/out/artifacts/test/results.xml', '/ws/fw/out/artifacts/gcov/results.xml']);
+        assert.deepStrictEqual(cppunitReportPaths(project({ gcov: undefined, bullseye: undefined }), path.posix),
+            ['/ws/fw/out/artifacts/test/results.xml', '/ws/fw/out/artifacts/gcov/results.xml', '/ws/fw/out/artifacts/bullseye/results.xml']);
     });
 
     test("a plugin's Cobertura reports resolve beneath the build root, and a plugin the project lacks has none", () => {
         const gcov = { reportTask: false, coberturaReports: ['artifacts/gcov/gcovr/a.xml', 'artifacts/gcov/b.xml'] };
-        assert.deepStrictEqual(coberturaReportPaths(project({ gcov }), 'gcov', path.posix), ['/ws/fw/out/artifacts/gcov/gcovr/a.xml', '/ws/fw/out/artifacts/gcov/b.xml']);
-        assert.deepStrictEqual(coberturaReportPaths(project({ gcov: undefined }), 'gcov', path.posix), []);
+        assert.deepStrictEqual(coberturaReportPaths(project({ gcov, bullseye: undefined }), 'gcov', path.posix), ['/ws/fw/out/artifacts/gcov/gcovr/a.xml', '/ws/fw/out/artifacts/gcov/b.xml']);
+        assert.deepStrictEqual(coberturaReportPaths(project({ gcov, bullseye: undefined }), 'bullseye', path.posix), []);
     });
 });

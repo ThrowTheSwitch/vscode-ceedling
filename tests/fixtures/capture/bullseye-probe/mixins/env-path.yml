@@ -1,0 +1,6 @@
+:environment:
+  - :path:
+    - /tmp/bullseye/bin
+    - /usr/local/bin
+    - /usr/bin
+    - /bin
