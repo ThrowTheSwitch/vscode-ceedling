@@ -12,7 +12,7 @@ This [Visual Studio Code][vscode] extension runs your [Ceedling] test suite from
 
 Most VS Code Ceedling projects need no special configuration. Install the extension, open your Ceedling project’s folder, and the _Testing_ view lists your tests.
 
-[Start Testing :material-arrow-right:][first-run]{ .md-button .md-button--primary } [Marketplace Install :material-download-circle-outline:][marketplace]{ .md-button }
+[Start Testing :material-arrow-right:][first-run]{ .md-button .md-button--primary } [![Visual Studio Code](assets/images/vscode.png){ .twemoji } Marketplace Install :material-download-circle-outline:][marketplace]{ .md-button }
 
 ## Documentation
 
