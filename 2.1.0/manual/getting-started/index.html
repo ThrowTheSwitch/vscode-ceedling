@@ -27,7 +27,7 @@
     
     
       
-        <title>Getting Started - Ceedling VS Code extension</title>
+        <title>Getting Started - Ceedling for Visual Studio Code</title>
       
     
     
@@ -98,7 +98,7 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../.." title="Ceedling VS Code extension" class="md-header__button md-logo" aria-label="Ceedling VS Code extension" data-md-component="logo">
+    <a href="../.." title="Ceedling for Visual Studio Code" class="md-header__button md-logo" aria-label="Ceedling for Visual Studio Code" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -112,7 +112,7 @@
       <div class="md-header__ellipsis">
         <div class="md-header__topic">
           <span class="md-ellipsis">
-            Ceedling VS Code extension
+            Ceedling for Visual Studio Code
           </span>
         </div>
         <div class="md-header__topic" data-md-component="header-topic">
@@ -270,6 +270,44 @@
   
   
     <li class="md-tabs__item">
+      <a href="../../reference/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Reference
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../troubleshooting/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Troubleshooting
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
       <a href="../../releases/" class="md-tabs__link">
         
   
@@ -324,13 +362,13 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../.." title="Ceedling VS Code extension" class="md-nav__button md-logo" aria-label="Ceedling VS Code extension" data-md-component="logo">
+    <a href="../.." title="Ceedling for Visual Studio Code" class="md-nav__button md-logo" aria-label="Ceedling for Visual Studio Code" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
 
     </a>
-    Ceedling VS Code extension
+    Ceedling for Visual Studio Code
   </label>
   
     <div class="md-nav__source">
@@ -745,8 +783,6 @@
       
         
       
-        
-      
     
     
     
@@ -908,6 +944,17 @@
     <span class="md-ellipsis">
       
         How the extension reads a project
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-the-extension-runs-ceedling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the extension runs Ceedling
       
     </span>
   </a>
@@ -1085,14 +1132,48 @@
 
               
             
-              
-                
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
   
   
   
   
     <li class="md-nav__item">
-      <a href="../troubleshooting/" class="md-nav__link">
+      <a href="../../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/" class="md-nav__link">
         
   
   
@@ -1108,14 +1189,6 @@
   
 
       </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
     </li>
   
 
@@ -1245,6 +1318,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#how-the-extension-runs-ceedling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the extension runs Ceedling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#keeping-the-test-list-current" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1335,7 +1419,7 @@
 
 
 <h1 id="getting-started">Getting Started</h1>
-<p>The extension brings a Ceedling project’s tests into VS Code’s built-in <em>Testing</em> view, and most projects need no configuration at all. This page covers what the extension requires, how to install it, and what it does when it opens a project. The <a href="../../howto/first-run/">first-run guide</a> walks through the same steps for a typical project.</p>
+<p>The extension brings a Ceedling project’s tests into VS Code’s built-in <em>Testing</em> view, and most projects need no configuration at all. This page covers what the extension requires, how to install it, what it does when it opens a project, and how it runs Ceedling. The <a href="../../howto/first-run/">first-run guide</a> walks through the same steps for a typical project.</p>
 <h2 id="requirements">Requirements</h2>
 <p>The extension needs a recent VS Code and Ceedling 1.0.0 or later.</p>
 <ul>
@@ -1362,6 +1446,14 @@
 <li><code>ceedling files:test</code> lists the project’s test files. The extension then reads each one to find its test functions and parametrized cases.</li>
 </ol>
 <p>The extension applies a mixin of its own to every command that reads or runs the project. It enables the <code>report_tests_log_factory</code> plugin’s <code>cppunit</code> report, which is where the extension reads test results. No plugin setup is needed in <code>project.yml</code>. <a href="../configuration/#mixins">Configuration</a> explains how it combines with your own mixins.</p>
+<h2 id="how-the-extension-runs-ceedling">How the extension runs Ceedling</h2>
+<p>The extension runs every Ceedling command itself, in the project’s directory, through a shell. Three settings shape how it does so.</p>
+<ul>
+<li><strong>The shell.</strong> Commands run in the operating system’s default shell. <a href="../configuration/#ceedlingexplorershellpath"><code>ceedlingExplorer.shellPath</code></a> names another, such as MSYS2’s or Git Bash’s <code>bash.exe</code> on Windows.</li>
+<li><strong>The command.</strong> Each command starts with <code>ceedling</code>. <a href="../configuration/#ceedlingexplorerceedlingcommand"><code>ceedlingExplorer.ceedlingCommand</code></a> replaces it, e.g. with <code>bundle exec ceedling</code> or a path to a Ceedling of your own.</li>
+<li><strong>The output.</strong> The extension removes ANSI escape sequences, such as terminal colors, from Ceedling’s output before it reads or shows it. <a href="../configuration/#ceedlingexploreransiescapesequencesremoved"><code>ceedlingExplorer.ansiEscapeSequencesRemoved</code></a> set to <code>false</code> leaves them in.</li>
+</ul>
+<p><a href="../../howto/ceedling-installations/">Run the Ceedling You Use</a> sets these up for common installations.</p>
 <h2 id="keeping-the-test-list-current">Keeping the test list current</h2>
 <p>The <em>Testing</em> view keeps itself current as the project changes.</p>
 <ul>
@@ -1417,7 +1509,7 @@
       <div class="md-copyright">
   
     <div class="md-copyright__highlight">
-      &copy; 2018&ndash;2026 &mdash; Documentation license: <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.en">CC BY-SA 4.0</a>
+      &copy; 2018&ndash;2026 &mdash; Documentation license: <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.en">CC BY-SA 4.0</a> <br/> Visual Studio Code, VS Code, and the Visual Studio Code icon are trademarks of Microsoft Corporation.
     </div>
   
   

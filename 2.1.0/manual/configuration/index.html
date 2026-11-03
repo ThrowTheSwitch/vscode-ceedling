@@ -16,7 +16,7 @@
         <link rel="prev" href="../problem-matching/">
       
       
-        <link rel="next" href="../troubleshooting/">
+        <link rel="next" href="../../reference/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Configuration - Ceedling VS Code extension</title>
+        <title>Configuration - Ceedling for Visual Studio Code</title>
       
     
     
@@ -98,7 +98,7 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../.." title="Ceedling VS Code extension" class="md-header__button md-logo" aria-label="Ceedling VS Code extension" data-md-component="logo">
+    <a href="../.." title="Ceedling for Visual Studio Code" class="md-header__button md-logo" aria-label="Ceedling for Visual Studio Code" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -112,7 +112,7 @@
       <div class="md-header__ellipsis">
         <div class="md-header__topic">
           <span class="md-ellipsis">
-            Ceedling VS Code extension
+            Ceedling for Visual Studio Code
           </span>
         </div>
         <div class="md-header__topic" data-md-component="header-topic">
@@ -270,6 +270,44 @@
   
   
     <li class="md-tabs__item">
+      <a href="../../reference/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Reference
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../troubleshooting/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Troubleshooting
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
       <a href="../../releases/" class="md-tabs__link">
         
   
@@ -324,13 +362,13 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../.." title="Ceedling VS Code extension" class="md-nav__button md-logo" aria-label="Ceedling VS Code extension" data-md-component="logo">
+    <a href="../.." title="Ceedling for Visual Studio Code" class="md-nav__button md-logo" aria-label="Ceedling for Visual Studio Code" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
 
     </a>
-    Ceedling VS Code extension
+    Ceedling for Visual Studio Code
   </label>
   
     <div class="md-nav__source">
@@ -731,8 +769,6 @@
       
         
           
-        
-      
         
       
         
@@ -1179,14 +1215,48 @@
 
               
             
-              
-                
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
   
   
   
   
     <li class="md-nav__item">
-      <a href="../troubleshooting/" class="md-nav__link">
+      <a href="../../reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/" class="md-nav__link">
         
   
   
@@ -1202,14 +1272,6 @@
   
 
       </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
     </li>
   
 
@@ -1529,7 +1591,7 @@
 <p>Each setting below gives its default. A setting left unset takes its default.</p>
 <h3 id="ceedlingexplorerprojects"><code>ceedlingExplorer.projects</code></h3>
 <p>Default: <code>[]</code></p>
-<p>The Ceedling projects in the workspace folder, one entry each. With none, the folder itself is the project, with its <code>project.yml</code> at the folder’s root. From Ceedling 1.2.0, <code>ceedling.yml</code> works there too.</p>
+<p>The Ceedling projects in the workspace folder, one entry each. With none, the folder itself is the project, with its <code>project.yml</code> at the folder’s root. From Ceedling 1.2.0, <code>ceedling.yml</code> works there too. <a href="../getting-started/#opening-a-project">Getting Started</a> explains when a project needs an entry.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">"ceedlingExplorer.projects"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span><span class="p">{</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">        </span><span class="nt">"path"</span><span class="p">:</span><span class="w"> </span><span class="s2">"firmware"</span><span class="p">,</span>
@@ -1553,23 +1615,23 @@
 </code></pre></div>
 <h3 id="ceedlingexplorershellpath"><code>ceedlingExplorer.shellPath</code></h3>
 <p>Default: <code>null</code></p>
-<p>The path to the shell Ceedling runs in. With <code>null</code>, Ceedling runs in the operating system’s default shell. Set it when Ceedling runs only in a particular shell, as is common on Windows with MSYS2 or Git Bash.</p>
+<p>The path to the shell Ceedling runs in. With <code>null</code>, Ceedling runs in the operating system’s default shell. Set it when Ceedling runs only in a particular shell, as is common on Windows with MSYS2 or Git Bash. <a href="../getting-started/#how-the-extension-runs-ceedling">Getting Started</a> explains how the extension runs Ceedling.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">"ceedlingExplorer.shellPath"</span><span class="p">:</span><span class="w"> </span><span class="s2">"C:/msys64/usr/bin/bash.exe"</span>
 </code></pre></div>
 <h3 id="ceedlingexplorerceedlingcommand"><code>ceedlingExplorer.ceedlingCommand</code></h3>
 <p>Default: <code>"ceedling"</code></p>
-<p>The command that runs Ceedling. Set it to run Ceedling through Bundler, or from a path of its own.</p>
+<p>The command that runs Ceedling. Set it to run Ceedling through Bundler, or from a path of its own. <a href="../getting-started/#how-the-extension-runs-ceedling">Getting Started</a> explains how the extension runs Ceedling.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">"ceedlingExplorer.ceedlingCommand"</span><span class="p">:</span><span class="w"> </span><span class="s2">"bundle exec ceedling"</span>
 </code></pre></div>
 <h3 id="ceedlingexplorertestcommandargs"><code>ceedlingExplorer.testCommandArgs</code></h3>
 <p>Default: <code>["test:${TEST_ID}"]</code></p>
-<p>The arguments that run one test file. Their <code>${TEST_ID}</code> tag becomes the test file, or <code>all</code> when a run covers a whole project. With Ceedling 1.2.0 and later, the test file is its project-relative path, e.g. <code>test/unit/test_foo.c</code>, which tells same-named test files apart. With earlier versions, it is the file’s name alone. Coverage runs use <a href="#ceedlingexplorercoveragecommandargs"><code>ceedlingExplorer.coverageCommandArgs</code></a> instead.</p>
+<p>The arguments that run one test file. Their <code>${TEST_ID}</code> tag becomes the test file, or <code>all</code> when a run covers a whole project. With Ceedling 1.2.0 and later, the test file is its project-relative path, e.g. <code>test/unit/test_foo.c</code>, which tells same-named test files apart. With earlier versions, it is the file’s name alone. Coverage runs use <a href="#ceedlingexplorercoveragecommandargs"><code>ceedlingExplorer.coverageCommandArgs</code></a> instead. <a href="../running-tests/#how-a-run-calls-ceedling">Running Tests</a> explains which task each run calls.</p>
 <h3 id="ceedlingexplorercoveragecommandargs"><code>ceedlingExplorer.coverageCommandArgs</code></h3>
 <p>Default: <code>["gcov:${TEST_ID}"]</code></p>
-<p>The arguments that run one test file with <a href="../code-coverage/">coverage</a>. Their <code>${TEST_ID}</code> tag becomes the test file, or <code>all</code> when a run covers a whole project. With Ceedling 1.2.1 and later, the test file is its project-relative path, as for <code>testCommandArgs</code>. With earlier versions, it is the file’s name alone, as their <code>gcov:</code> tasks require.</p>
+<p>The arguments that run one test file with <a href="../code-coverage/#how-coverage-runs-work">coverage</a>. Their <code>${TEST_ID}</code> tag becomes the test file, or <code>all</code> when a run covers a whole project. With Ceedling 1.2.1 and later, the test file is its project-relative path, as for <code>testCommandArgs</code>. With earlier versions, it is the file’s name alone, as their <code>gcov:</code> tasks require.</p>
 <h3 id="ceedlingexplorercoverageresetscounters"><code>ceedlingExplorer.coverageResetsCounters</code></h3>
 <p>Default: <code>true</code></p>
-<p>Whether each coverage run first clears the coverage counters earlier runs left, so it shows only what it executed. Set it to <code>false</code> to accumulate coverage across runs instead, as Ceedling itself does until a <code>clean</code> or <code>clobber</code>.</p>
+<p>Whether each coverage run first clears the coverage counters earlier runs left, so it shows only what it executed. Set it to <code>false</code> to accumulate coverage across runs instead, as Ceedling itself does until a <code>clean</code> or <code>clobber</code>. <a href="../code-coverage/#how-coverage-runs-work">Code Coverage</a> explains how coverage runs work.</p>
 <h3 id="ceedlingexplorerprettytestlabel"><code>ceedlingExplorer.prettyTestLabel</code></h3>
 <p>Default: <code>true</code></p>
 <p>Shortens each test’s label in the <em>Testing</em> view by dropping its prefix. For example, <code>test_BlinkTaskShouldToggleLed</code> becomes <code>BlinkTaskShouldToggleLed</code>. <a href="../running-tests/#test-labels">Running Tests</a> shows both forms.</p>
@@ -1586,7 +1648,7 @@
 <p><a href="../problem-matching/">Problem Matching</a> explains both fields and every pattern property.</p>
 <h3 id="ceedlingexploreransiescapesequencesremoved"><code>ceedlingExplorer.ansiEscapeSequencesRemoved</code></h3>
 <p>Default: <code>true</code></p>
-<p>Whether ANSI escape sequences, such as terminal colors, are removed from Ceedling’s output before the extension reads it and shows it.</p>
+<p>Whether ANSI escape sequences, such as terminal colors, are removed from Ceedling’s output before the extension reads it and shows it. <a href="../getting-started/#how-the-extension-runs-ceedling">Getting Started</a> explains how the extension runs Ceedling.</p>
 <h2 id="mixins">Mixins</h2>
 <p>A <a href="https://docs.throwtheswitch.org/Ceedling/latest/configuration/mixins/">Ceedling mixin</a> is a YAML fragment merged into a project’s configuration at build time. Mixins suit toolchain targets, CI overrides, and configuration that shouldn’t be copied into every <code>project.yml</code>.</p>
 <p>Two settings configure them. <code>ceedlingExplorer.mixins</code> applies to every project, and <code>ceedlingExplorer.projects[].mixins</code> replaces it for one project. Later entries win on conflicts, matching the precedence of Ceedling’s own <code>--mixin</code> option. The extension passes them to the Ceedling commands it runs for a project, from the <code>ceedling dumpconfig</code> that reads its configuration to each test run.</p>
@@ -1654,7 +1716,7 @@
       <div class="md-copyright">
   
     <div class="md-copyright__highlight">
-      &copy; 2018&ndash;2026 &mdash; Documentation license: <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.en">CC BY-SA 4.0</a>
+      &copy; 2018&ndash;2026 &mdash; Documentation license: <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.en">CC BY-SA 4.0</a> <br/> Visual Studio Code, VS Code, and the Visual Studio Code icon are trademarks of Microsoft Corporation.
     </div>
   
   
