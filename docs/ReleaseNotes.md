@@ -14,6 +14,8 @@ Test discovery now follows Ceedling’s own test runner exactly. Every test name
 
 Project configuration now comes from Ceedling itself. The extension reads it with `ceedling dumpconfig`, so it sees the same merge a real build does, plugin defaults included. A mixin bundled with the extension enables the `report_tests_log_factory` plugin’s `cppunit` report, which the _Testing_ view reads results from. Editing `project.yml` to enable it is no longer necessary. New `ceedlingExplorer.mixins` and `ceedlingExplorer.projects[].mixins` settings apply Ceedling mixins of your own, for toolchain targets, CI overrides, or other configuration. See [Mixins](https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/configuration/#mixins).
 
+Code coverage arrives in VS Code’s own coverage views. _Run with Coverage_ runs tests through Ceedling’s gcov plugin, with gcovr or ReportGenerator, or through its Bullseye plugin, with the commercial [Bullseye Coverage](https://www.bullseye.com/). Each run shows only what it executed, unless you choose to accumulate coverage. A project may enable both plugins, and the _Testing_ view then offers a Coverage profile for each. See [Code Coverage](https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/code-coverage/).
+
 Ceedling 1.2.0 is supported. Projects may use `ceedling.yml`. Same-named test files in different directories each work. Every run reruns its tests, because 1.2.0’s cached results don’t account for running a single test.
 
 The _Testing_ view keeps itself current. It updates as you edit a test file, and rediscovers when test files come and go or a project or mixin file changes.
@@ -22,7 +24,7 @@ Running, cancelling, and debugging tests are more dependable. A test whose resul
 
 ## 🚨 Important Changes
 
-This release requires VS Code 1.74.0 or later.
+This release requires VS Code 1.88.0 or later, up from 1.74.0. VS Code 1.88.0 finalized the test coverage API that _Run with Coverage_ uses. See [BreakingChanges.md](BreakingChanges.md).
 
 The `ceedlingExplorer.testCaseMacroAliases` and `ceedlingExplorer.testRangeMacroAliases` settings are removed. Ceedling recognizes only the literal `TEST_CASE`, `TEST_RANGE`, and `TEST_MATRIX` markers, so these settings never worked. See [BreakingChanges.md](BreakingChanges.md).
 

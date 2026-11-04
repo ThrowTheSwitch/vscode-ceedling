@@ -1,0 +1,10 @@
+# Enables Ceedling's Bullseye plugin with its Cobertura report, for the manual coverage checks in
+# docs/Development.md. It needs a licensed Bullseye on the PATH and Ceedling 1.2.0 or later. Add it
+# with "ceedlingExplorer.mixins": ["mixins/coverage-bullseye.yml"].
+---
+:plugins:
+  :enabled:
+    - bullseye
+:bullseye:
+  :xml_report: :cobertura
+...

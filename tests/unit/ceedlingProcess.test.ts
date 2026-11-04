@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as child_process from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
-import { buildCommandLine, type CeedlingInvocation, CeedlingRunner, ceedlingEnvironment, descendantsOf, killProcessTree, parseProcStatParent, quoteIfNeeded } from '../../src/ceedlingProcess';
+import { buildCommandLine, type CeedlingInvocation, CeedlingRunner, ceedlingEnvironment, descendantsOf, killProcessTree, parseProcStatParent, quoteIfNeeded, withEnvironment } from '../../src/ceedlingProcess';
 import { cancellation } from '../support/fakes';
 
 type ExecCall = { command: string, options: child_process.ExecOptions, finish: (error: Error | null, stdout: string, stderr: string) => void };
@@ -52,6 +52,19 @@ suite('ceedlingEnvironment', () => {
     });
 });
 
+// A tool Ceedling would run sees its :environment. Windows names variables in any case, and a
+// second spelling of one would leave which one wins to the shell.
+suite('withEnvironment', () => {
+    test('adds and replaces variables', () => {
+        assert.deepStrictEqual(withEnvironment({ PATH: '/bin', HOME: '/h' }, { PATH: '/opt/bin', COVLM: '/l' }, 'linux'), { PATH: '/opt/bin', HOME: '/h', COVLM: '/l' });
+    });
+
+    test('names differing only in case are one variable on Windows, and two elsewhere', () => {
+        assert.deepStrictEqual(withEnvironment({ Path: 'C:\\bin', HOME: 'h' }, { PATH: 'C:\\opt' }, 'win32'), { HOME: 'h', PATH: 'C:\\opt' });
+        assert.deepStrictEqual(withEnvironment({ Path: '/bin' }, { PATH: '/opt' }, 'linux'), { Path: '/bin', PATH: '/opt' });
+    });
+});
+
 suite('CeedlingRunner', () => {
     test('runs the built command line in the given directory, shell, and environment', async () => {
         const calls: ExecCall[] = [];
@@ -64,6 +77,26 @@ suite('CeedlingRunner', () => {
         assert.ok((calls[0].options.maxBuffer ?? 0) >= 64 * 1024 * 1024);
         calls[0].finish(null, 'out', 'err');
         assert.deepStrictEqual(await pending, { error: null, stdout: 'out', stderr: 'err', cancelled: false });
+    });
+
+    test("an invocation's own environment applies over Ceedling's", async () => {
+        const calls: ExecCall[] = [];
+        const runner = new CeedlingRunner({ exec: deferredExec(calls), env: { PATH: '/bin' } });
+        const pending = runner.run(invocation({ env: { PATH: '/opt/bullseye/bin' } }));
+        const env = calls[0].options.env as NodeJS.ProcessEnv;
+        assert.deepStrictEqual([env.PATH, env.CEEDLING_DECORATORS], ['/opt/bullseye/bin', 'false']);
+        assert.strictEqual(calls[0].options.timeout, undefined);
+        calls[0].finish(null, '', '');
+        await pending;
+    });
+
+    test('an invocation may time out', async () => {
+        const calls: ExecCall[] = [];
+        const runner = new CeedlingRunner({ exec: deferredExec(calls) });
+        const pending = runner.run(invocation({ timeoutMs: 5000 }));
+        assert.strictEqual(calls[0].options.timeout, 5000);
+        calls[0].finish(null, '', '');
+        await pending;
     });
 
     test('strips ANSI escape sequences only when asked to', async () => {

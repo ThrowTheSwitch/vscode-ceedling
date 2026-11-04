@@ -1,7 +1,8 @@
 // The command lines the engine gives Ceedling for a project: the --project/--mixin flags every
 // command takes, and the tasks that run a test file. Tokens are raw. CeedlingRunner quotes them
 // when it builds the command line. It has no `vscode` dependency.
-import type { CoverageState, LoadedProject } from './ceedlingProjectConfig';
+import type { LoadedProject } from './ceedlingProjectConfig';
+import { COVERAGE_PLUGIN, COVERAGE_PLUGINS, type CoveragePlugin } from './coveragePlugins';
 import { firstRelease } from './ceedlingVersions';
 import type { PlatformPaths } from './platformPaths';
 
@@ -31,26 +32,36 @@ export function buildProjectArgs(projectFileName: string, ymlFileName: string, u
 // becoming the file. That is its project-relative path where Ceedling accepts one, which tells
 // same-named files apart, else its name alone. `testCaseFilter` appends Ceedling's --test-case
 // flag, which enables the runner's command-line arguments itself.
-// A coverage run (`coverage`, the project's gcov plugin) takes `coverageCommandArgs`. Before 1.2.1,
-// Ceedling's gcov: task prepends the test file prefix to a name lacking it, so it takes only the
-// bare file name, which can't tell same-named test files apart. `warning` says so when it matters.
-// Reports deferred to the report:gcov task are generated in the same run.
+// A coverage run through `plugin`, one the project enables, takes `coverageCommandArgs`, with
+// `${PLUGIN}` in each becoming the plugin's task prefix. Before 1.2.1, a coverage task prepends the
+// test file prefix to a name lacking it, so it takes only the bare file name, which can't tell
+// same-named test files apart. `warning` says so when it matters, and when a configured task names
+// another plugin's, whose report the run never reads. Reports deferred to the plugin's report task,
+// e.g. report:gcov, are generated in the same run.
 export function taskArgs(
-    project: LoadedProject, testId: string, coverage: CoverageState | undefined, configured: readonly string[], testCaseFilter: string | undefined, paths: PlatformPaths,
+    project: LoadedProject, testId: string, plugin: CoveragePlugin | undefined, configured: readonly string[], testCaseFilter: string | undefined, paths: PlatformPaths,
 ): { args: string[], warning: string | undefined } {
-    const byPath = coverage ? project.capabilities.pathQualifiedCoverageTasks : project.capabilities.pathQualifiedTestTasks;
+    const byPath = plugin ? project.capabilities.pathQualifiedCoverageTasks : project.capabilities.pathQualifiedTestTasks;
     const bareName = (id: string) => paths.basename(id.replace(/\\/g, '/'));
     const testFile = byPath ? testId : bareName(testId);
-    const namesakes = coverage && !byPath ? project.files.filter((f) => f.id !== testId && bareName(f.id) === testFile) : [];
+    const namesakes = plugin && !byPath ? project.files.filter((f) => f.id !== testId && bareName(f.id) === testFile) : [];
     // A Ceedling that resolves test: tasks by path refuses the bare name as ambiguous.
-    const warning = namesakes.length === 0 ? undefined :
+    const namesakeWarning = namesakes.length === 0 ? undefined :
         `A coverage run of '${testId}' names it '${testFile}', which Ceedling ${project.release} can't tell apart from ` +
         `${namesakes.map((f) => `'${f.id}'`).join(', ')}. ` +
         (project.capabilities.pathQualifiedTestTasks ? 'It stops with an ambiguous file reference error. ' : 'It may run the other file. ') +
         `Ceedling ${firstRelease('pathQualifiedCoverageTasks')} and later take its path.`;
-    const args = configured.map((arg) => arg.replaceAll('${TEST_ID}', testFile));
-    if (coverage?.reportTask && !args.includes('report:gcov')) {
-        args.push('report:gcov');
+    const args = configured.map((arg) => (plugin ? arg.replaceAll('${PLUGIN}', plugin) : arg).replaceAll('${TEST_ID}', testFile));
+    const others = COVERAGE_PLUGINS.filter((other) => plugin !== undefined && other !== plugin);
+    const foreign = others.flatMap((other) => args.filter((arg) => arg.startsWith(`${other}:`)).map((arg) => ({ arg, other })))[0];
+    const foreignWarning = plugin === undefined || foreign === undefined ? undefined :
+        `ceedlingExplorer.coverageCommandArgs runs ${foreign.arg}, a ${COVERAGE_PLUGIN[foreign.other].label} task, in a ${COVERAGE_PLUGIN[plugin].label} coverage run, ` +
+        'whose report the run never reads. Name the run\'s plugin with ${PLUGIN}, as the default does.';
+    const warnings = [namesakeWarning, foreignWarning].filter((w) => w !== undefined);
+    const warning = warnings.length === 0 ? undefined : warnings.join(' ');
+    const deferred = plugin && project.state.coverage[plugin]?.reportTask === true ? `report:${plugin}` : undefined;
+    if (deferred !== undefined && !args.includes(deferred)) {
+        args.push(deferred);
     }
     return { args: testCaseFilter === undefined ? args : [...args, `--test-case=${testCaseFilter}`], warning };
 }

@@ -2,29 +2,27 @@
 // it gives them, as Ceedling itself computes them. It has no `vscode` dependency.
 import type { LoadedProject } from './ceedlingProjectConfig';
 import type { CeedlingCapabilities } from './ceedlingVersions';
+import { contextArtifacts, contextOutput, type CoveragePlugin, TEST_CONTEXTS } from './coveragePlugins';
 import { type PlatformPaths, pathsFor } from './platformPaths';
 import type { CeedlingFileNode } from './testModel';
 
-// Beneath the build root: each test's executable and the rest of its build, gcov's counters by
-// test, and what test and gcov runs leave behind, the CppUnit and Cobertura reports among them.
-export const TEST_OUTPUT = 'test/out';
-export const GCOV_OUTPUT = 'gcov/out';
-export const TEST_ARTIFACTS = 'artifacts/test';
-export const GCOV_ARTIFACTS = 'artifacts/gcov';
+// Beneath the build root, each test's executable and the rest of its build.
+export const TEST_OUTPUT = contextOutput('test');
 
 // A path within the project's build root, `:project` ↳ `:build_root`, relative to its directory.
 export function buildPath(project: Pick<LoadedProject, 'absPath' | 'state'>, paths: PlatformPaths, ...segments: string[]): string {
     return paths.resolve(project.absPath, project.state.buildRoot, ...segments);
 }
 
-// Where a run leaves its CppUnit report: a test run under artifacts/test, a gcov run under artifacts/gcov.
+// Where a run leaves its CppUnit report, under its build context's artifacts: artifacts/test for a
+// test run, and each coverage plugin's own, e.g. artifacts/bullseye, for its coverage run.
 export function cppunitReportPaths(project: Pick<LoadedProject, 'absPath' | 'state'>, paths: PlatformPaths): string[] {
-    return [TEST_ARTIFACTS, GCOV_ARTIFACTS].map((artifacts) => buildPath(project, paths, artifacts, project.state.reportFilename));
+    return TEST_CONTEXTS.map((context) => buildPath(project, paths, contextArtifacts(context), project.state.reportFilename));
 }
 
-// Where the project's Cobertura report may appear, most preferred first.
-export function coberturaReportPaths(project: Pick<LoadedProject, 'absPath' | 'state'>, paths: PlatformPaths): string[] {
-    return (project.state.coverage?.coberturaReports ?? []).map((report) => buildPath(project, paths, report));
+// Where the project's Cobertura report through `plugin` may appear, most preferred first.
+export function coberturaReportPaths(project: Pick<LoadedProject, 'absPath' | 'state'>, plugin: CoveragePlugin, paths: PlatformPaths): string[] {
+    return (project.state.coverage[plugin]?.coberturaReports ?? []).map((report) => buildPath(project, paths, report));
 }
 
 // Where a test's build may sit, its release's own place first.
@@ -72,7 +70,7 @@ export function testBuildLayout(capabilities: CeedlingCapabilities): TestBuildLa
     return capabilities.projectPathTestNames ? 'projectPath' : capabilities.nestedTestBuilds ? 'testRoot' : 'flat';
 }
 
-// The name Ceedling gives a test's build directories, e.g. under test/out and gcov/out.
+// The name Ceedling gives a test's build directories, under each context's output, e.g. test/out.
 // - flat, before 1.2.0: the test file's base name.
 // - testRoot, 1.2.0 and 1.2.1: the file's directory within the longest test path holding it comes first,
 //   as Ceedling's PathMirror.relative_subdir places it. `unit/test_foo` for `test/unit/test_foo.c`

@@ -1,0 +1,4 @@
+:project:
+  :build_root: build2
+:bullseye:
+  :xml_report: :cobertura

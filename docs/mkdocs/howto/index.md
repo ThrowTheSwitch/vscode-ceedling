@@ -20,7 +20,7 @@ These guides walk through common needs step by step. Each one lists requirements
 
     ---
 
-    A coverage mixin with gcovr or ReportGenerator, so _Run with Coverage_ shows each line’s hits.
+    A code coverage plugin mixin with Gcovr, ReportGenerator, or Bullseye, so _Run with Coverage_ shows each line’s hits.
 
 -   :material-alert-circle: **[See Compiler Errors in the Editor][problems]**
 

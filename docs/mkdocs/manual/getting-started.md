@@ -8,7 +8,7 @@ The extension needs a recent VS Code and Ceedling 1.0.0 or later.
 
 - **VS Code** 1.88.0 or later. That release added the test coverage views that _Run with Coverage_ uses.
 - **Ceedling** 1.0.0 or later. Ceedling 1.0.0 through 1.2.2 are supported. The [Ceedling documentation][ceedling-docs] covers installing it.
-- **Code coverage** also needs Ceedling’s gcov plugin and a coverage report tool. See [Code Coverage][coverage].
+- **Code coverage** also needs one of Ceedling’s coverage plugins: gcov, with a report tool, or Bullseye, with a licensed installation. See [Code Coverage][coverage].
 - **Debugging** needs a debugger extension, such as Microsoft’s C/C++ extension, and a `launch.json` configuration. See [Debugging][debugging].
 
 ## Installing
@@ -69,7 +69,7 @@ The [Breaking Changes][breaking] document describes the changes that need action
 
 [first-run]: ../howto/first-run.md
 [ceedling-docs]: https://docs.throwtheswitch.org/Ceedling/latest/
-[coverage]: code-coverage.md
+[coverage]: code-coverage/index.md
 [debugging]: debugging.md
 [marketplace]: https://marketplace.visualstudio.com/items?itemName=throw-the-switch.vscode-ceedling
 [projects]: configuration.md#ceedlingexplorerprojects

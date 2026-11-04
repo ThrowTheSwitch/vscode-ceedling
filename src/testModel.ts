@@ -4,6 +4,7 @@
 // reports.
 
 import { type CoverageReport } from './coberturaReport';
+import { COVERAGE_PLUGIN, type CoveragePlugin } from './coveragePlugins';
 
 export type CeedlingTestCase = { id: string, label: string, line: number };
 
@@ -26,10 +27,12 @@ export type CeedlingFileNode = {
 
 export type CeedlingProjectNode = { projectKey: string, label: string, files: CeedlingFileNode[] };
 
-// What a coverage run found: the report read, or why there is none to show.
+// What a coverage run found: the report read, or why there is none to show. A notice says what
+// limits a report it still shows.
 export type CoverageOutcome =
     | ({ kind: 'report' } & CoverageReport)
-    | { kind: 'missing', message: string };
+    | { kind: 'missing', message: string }
+    | { kind: 'notice', message: string };
 
 // A run's results for one project. The controller maps ids onto TestItems.
 export interface RunReporter {
@@ -42,7 +45,7 @@ export interface RunReporter {
     // may be a header or source file rather than the test file.
     errored(id: string, message: string, location?: { file: string, line: number }): void;
     appendOutput(text: string): void;
-    // Once per completed coverage build.
+    // Once per completed coverage build, and for a notice before one.
     coverage(outcome: CoverageOutcome): void;
 }
 
@@ -64,4 +67,9 @@ export function allIds(file: CeedlingFileNode): string[] {
 // The Testing view names each folder's tests when there is more than one folder.
 export function controllerLabel(folderName: string, folderCount: number): string {
     return folderCount > 1 ? `Ceedling (${folderName})` : 'Ceedling';
+}
+
+// A folder offering one coverage plugin offers plain Coverage. With several, each profile names its own.
+export function coverageProfileLabel(plugin: CoveragePlugin, offered: readonly CoveragePlugin[]): string {
+    return offered.length > 1 ? `Coverage (${COVERAGE_PLUGIN[plugin].label})` : 'Coverage';
 }

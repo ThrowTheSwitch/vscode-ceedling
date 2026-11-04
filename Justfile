@@ -61,6 +61,11 @@ validate VERSION SUITE="all" *ARGS="": image
     just _run "npm run -s build:tests"
     SIDECAR_IMAGE={{image_name}} NODE_MODULES_VOLUME={{node_modules_volume}} tests/validation/run.sh {{VERSION}} {{SUITE}} {{ARGS}}
 
+# Validate Bullseye coverage against a real Ceedling release, 1.2.0 or later, installing Bullseye from INSTALLER into the run's container with BULLSEYE_LICENSE_KEY
+validate-bullseye VERSION INSTALLER: image
+    just _run "npm run -s build:tests"
+    SIDECAR_IMAGE={{image_name}} NODE_MODULES_VOLUME={{node_modules_volume}} BULLSEYE_INSTALLER={{quote(INSTALLER)}} tests/validation/run.sh {{VERSION}} bullseye
+
 # Run every validation suite and probe on each supported Ceedling (MATRIX, CEEDLING_GEM: see tests/validation/matrix.sh)
 validate-matrix *ARGS="": image
     just _run "npm run -s build:tests"

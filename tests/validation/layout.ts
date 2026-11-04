@@ -43,14 +43,14 @@ main('layout', async (checks) => {
         const target = file(second);
         // The reference: one request covering the first file, then the whole second file.
         const reference = recordingReporter();
-        const referenceMode = coverageMode();
+        const referenceMode = coverageMode('gcov');
         // eslint-disable-next-line no-await-in-loop -- each request's runs go in order
         await engine.runFile('project', file(first), reference, token(), referenceMode);
         // eslint-disable-next-line no-await-in-loop -- as above
         await engine.runFile('project', target, reference, token(), referenceMode);
 
         const reporter = recordingReporter();
-        const mode = coverageMode();
+        const mode = coverageMode('gcov');
         // eslint-disable-next-line no-await-in-loop -- as above
         await engine.runFile('project', file(first), reporter, token(), mode);
         const mark = logs.length;

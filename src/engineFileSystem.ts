@@ -18,6 +18,8 @@ export interface EngineFileSystem {
     listFiles(directory: string): Promise<string[]>;
     // undefined when the file doesn't exist.
     mtimeMs(filePath: string): Promise<number | undefined>;
+    // The path with each symlink along it resolved. undefined when the path doesn't exist.
+    realpath(filePath: string): Promise<string | undefined>;
 }
 
 // A missing or unreadable path is undefined rather than an error.
@@ -48,6 +50,7 @@ export const nodeFileSystem: EngineFileSystem = {
         return found.sort();
     },
     mtimeMs: async (filePath) => (await statOrUndefined(filePath))?.mtimeMs,
+    realpath: (filePath) => fs.promises.realpath(filePath).catch(() => undefined),
 };
 
 // What the engine's file work runs with. `reads` limits every read the engine makes, together, so

@@ -4,8 +4,6 @@ import yaml from 'js-yaml';
 import * as path from 'path';
 import {
     CeedlingLoadError,
-    coverageProblem,
-    coverageState,
     loadFailureMessage,
     type ProjectSetting,
     projectsFromSettings,
@@ -198,9 +196,10 @@ suite('projectState', () => {
                 executableExtension: '.out',
                 useParamTests: false,
                 reportPluginEnabled: false,
-                coverage: undefined,
+                coverage: { gcov: undefined, bullseye: undefined },
                 testPaths: [],
                 whichCeedling: 'gem',
+                environment: {},
             });
         }
     });
@@ -214,6 +213,19 @@ suite('projectState', () => {
     test('the Ceedling a project selects is the gem by default, as dumpconfig shows it', () => {
         assert.strictEqual(projectState(dumpconfigFixture('dumpconfig-stdout.yml', 'ceedling-1.2.0'), 'linux').whichCeedling, 'gem');
         assert.strictEqual(projectState({ ':project': { ':which_ceedling': '../tools/ceedling' } }, 'linux').whichCeedling, '../tools/ceedling');
+    });
+
+    // Ceedling sets each :environment entry, its name upper-cased, for every tool it runs, the
+    // Bullseye plugin's own COVFILE and a floating license's COVLM among them. dumpconfig shows a
+    // list value already joined, as a path list.
+    test("the environment is :environment's, as Ceedling sets it", () => {
+        const fixture = (name: string) => projectState(dumpconfigFixture(`dumpconfig-bullseye-${name}.yml`, 'ceedling-1.2.2'), 'linux').environment;
+        assert.deepStrictEqual(fixture('env-path'), { PATH: '/tmp/bullseye/bin:/usr/local/bin:/usr/bin:/bin', COVFILE: 'test.cov' });
+        assert.deepStrictEqual(fixture('license-manager'), { COVFILE: 'test.cov', COVLM: '/tmp/probe.lmgr' });
+        assert.deepStrictEqual(projectState({ ':environment': [{ ':count': 3 }, 'stray', { ':Mixed_Case': 'x' }, { ':empty': null }] }, 'linux').environment, { COUNT: '3', MIXED_CASE: 'x' });
+        // A list Ceedling joins with the platform's path separator.
+        assert.deepStrictEqual(projectState({ ':environment': [{ ':path': ['/a', '/b'] }] }, 'linux').environment, { PATH: '/a:/b' });
+        assert.deepStrictEqual(projectState({ ':environment': [{ ':path': ['C:\\a', 'C:\\b'] }] }, 'win32').environment, { PATH: 'C:\\a;C:\\b' });
     });
 
     test('the default executable extension is .exe on Windows', () => {
@@ -238,9 +250,10 @@ suite('projectState', () => {
             executableExtension: '.bin',
             useParamTests: true,
             reportPluginEnabled: true,
-            coverage: undefined,
+            coverage: { gcov: undefined, bullseye: undefined },
             testPaths: ['spec/**'],
             whichCeedling: 'vendor/ceedling',
+            environment: {},
         });
     });
 
@@ -276,65 +289,6 @@ suite('projectState', () => {
         assert.strictEqual(state.reportFilename, 'cppunit_tests_report.xml');
         assert.strictEqual(state.buildRoot, 'build');
         assert.strictEqual(state.useParamTests, true);
-    });
-});
-
-// Ceedling's gcov plugin writes Cobertura through gcovr, ReportGenerator, or both. The resolved
-// configuration names which, and where. The fixtures are real `dumpconfig` output with the
-// plugin's defaults merged in (see tests/fixtures/capture/capture-gcov.sh).
-suite('coverageState', () => {
-    const gcov = (name: string) => coverageState(dumpconfigFixture(`dumpconfig-gcov-${name}.yml`, 'ceedling-1.2.0'));
-    const GCOVR = 'artifacts/gcov/gcovr/GcovCoverageCobertura.xml';
-    const REPORT_GENERATOR = ['artifacts/gcov/ReportGenerator/Cobertura.xml', 'artifacts/gcov/ReportGenerator/Cobertura/Cobertura.xml'];
-
-    test('a project without the gcov plugin has no coverage', () => {
-        assert.strictEqual(coverageState(dumpconfigFixture('manual-project-with-bundled-mixin.yml')), undefined);
-    });
-
-    test('the gcov plugin with no reports configured writes no Cobertura report', () => {
-        assert.deepStrictEqual(gcov('default'), { reportTask: false, coberturaReports: [] });
-    });
-
-    // ReportGenerator nests its Cobertura report in a subdirectory when it writes several report types.
-    test("with both utilities, gcovr's report comes first, then each place ReportGenerator may write its own", () => {
-        assert.deepStrictEqual(gcov('both-utilities'), { reportTask: false, coberturaReports: [GCOVR, ...REPORT_GENERATOR] });
-    });
-
-    test("gcovr's report may be renamed", () => {
-        assert.deepStrictEqual(gcov('cobertura-filename'), { reportTask: false, coberturaReports: ['artifacts/gcov/gcovr/Custom.xml'] });
-    });
-
-    test('reports may be deferred to the report:gcov task', () => {
-        assert.deepStrictEqual(gcov('report-task'), { reportTask: true, coberturaReports: [GCOVR] });
-    });
-
-    test('utility and report names match whatever their case, as Ceedling matches them', () => {
-        const resolved = { ':plugins': { ':enabled': ['gcov'] }, ':gcov': { ':utilities': ['reportgenerator'], ':reports': ['COBERTURA'] } };
-        assert.deepStrictEqual(coverageState(resolved), { reportTask: false, coberturaReports: REPORT_GENERATOR });
-    });
-
-    test('with no utilities listed, gcovr writes the reports', () => {
-        const resolved = { ':plugins': { ':enabled': ['gcov'] }, ':gcov': { ':reports': ['Cobertura'] } };
-        assert.deepStrictEqual(coverageState(resolved), { reportTask: false, coberturaReports: [GCOVR] });
-    });
-
-    test('the project state carries it', () => {
-        assert.deepStrictEqual(projectState(dumpconfigFixture('dumpconfig-gcov-report-task.yml', 'ceedling-1.2.0'), 'linux').coverage,
-            { reportTask: true, coberturaReports: [GCOVR] });
-    });
-});
-
-suite('coverageProblem', () => {
-    test('a project writing no Cobertura report is told how to add one', () => {
-        const problem = coverageProblem('fw', { reportTask: false, coberturaReports: [] });
-        assert.match(problem ?? '', /'fw'/);
-        assert.match(problem ?? '', /Cobertura/);
-        assert.match(problem ?? '', /:reports:/);
-        assert.match(problem ?? '', /https:\/\/docs\.throwtheswitch\.org\/vscode-ceedling\/latest\/manual\/code-coverage\//);
-    });
-
-    test('a project writing one has no problem', () => {
-        assert.strictEqual(coverageProblem('fw', { reportTask: false, coberturaReports: ['artifacts/gcov/gcovr/GcovCoverageCobertura.xml'] }), undefined);
     });
 });
 

@@ -1,0 +1,276 @@
+---
+:project:
+  :build_root: build
+  :use_test_preprocessor: :none
+  :default_tasks:
+  - test:all
+  :name: ''
+  :use_mocks: true
+  :use_exceptions: false
+  :use_partials: false
+  :compile_threads: 1
+  :test_threads: 1
+  :test_file_prefix: test_
+  :release_build: false
+  :use_backtrace: :simple
+:plugins:
+  :enabled:
+  - bullseye
+  :load_paths:
+  - "/var/lib/gems/3.3.0/gems/ceedling-1.2.2/plugins"
+  :display_raw_test_results: true
+  :bullseye_path: "/var/lib/gems/3.3.0/gems/ceedling-1.2.2/plugins/bullseye"
+  :test_build_contexts:
+  - :bullseye
+:paths:
+  :test:
+  - "+:test/**"
+  :source:
+  - src/**
+  - "../lib/**"
+  :include:
+  - src/**
+  - "../lib/**"
+  :support: []
+  :libraries: []
+  :test_toolchain_include: []
+  :release_toolchain_include: []
+:history:
+  :config:
+  - :type: :file
+    :path: "./project.yml"
+    :mechanism: :project
+  - :type: :file
+    :path: "../mixins/cobertura.yml"
+    :mechanism: :cmdline
+    :source: "--mixin"
+    :value: "../mixins/cobertura.yml"
+:bullseye:
+  :xml_report: :cobertura
+  :summaries: true
+  :report_task: false
+  :untested_sources: :list
+  :branch_detail: :none
+  :fail_under:
+    :functions: 0
+    :branches: 0
+  :license_manager_file:
+:unity:
+  :vendor_path: "/var/lib/gems/3.3.0/gems/ceedling-1.2.2/vendor"
+  :defines: []
+  :use_param_tests: false
+  :shuffle_tests: false
+:cmock:
+  :vendor_path: "/var/lib/gems/3.3.0/gems/ceedling-1.2.2/vendor"
+  :includes: []
+  :defines:
+  - CMOCK_MOCK_PREFIX=Mock
+  :plugins: []
+  :unity_helper_path: []
+  :mock_prefix: Mock
+  :mock_suffix: ''
+  :mock_name_include_folder: true
+  :treat_inlines: :exclude
+  :enforce_strict_ordering: true
+  :mock_path: build/test/mocks
+  :verbosity: 1
+:cexception:
+  :vendor_path: "/var/lib/gems/3.3.0/gems/ceedling-1.2.2/vendor"
+  :defines: []
+:release_build:
+  :use_assembly: false
+  :artifacts: []
+:test_build:
+  :use_assembly: false
+  :preprocess_force_fallback: false
+  :preprocess_directives_only_available: false
+:partials:
+  :max_extraction_length: 5000
+:environment:
+- :covfile: test.cov
+:files:
+  :test: []
+  :source: []
+  :assembly: []
+  :support: []
+  :include: []
+:defines:
+  :use_test_definition: false
+  :test: []
+  :release: []
+:flags: {}
+:libraries:
+  :flag: "-l${1}"
+  :path_flag: -L "${1}"
+  :test: []
+  :release: []
+:extension:
+  :header:
+  - ".h"
+  :source:
+  - ".c"
+  :assembly:
+  - ".s"
+  :object:
+  - ".o"
+  :libraries:
+  - ".a"
+  - ".so"
+  :executable:
+  - ".out"
+  :map:
+  - ".map"
+  :list:
+  - ".lst"
+  :testpass:
+  - ".pass"
+  :testfail:
+  - ".fail"
+  :dependencies:
+  - ".d"
+:test_runner:
+  :cmdline_args: true
+  :includes: []
+  :defines: []
+  :file_suffix: _runner
+  :mock_prefix: Mock
+  :mock_suffix: ''
+  :mock_name_include_folder: true
+  :enforce_strict_ordering: true
+  :use_param_tests: false
+  :shuffle_tests: false
+:tools:
+  :test_compiler:
+    :executable: gcc
+    :name: default_test_compiler
+    :optional: false
+    :arguments:
+    - -I"${5}"
+    - -D"${6}"
+    - "-DGNU_COMPILER"
+    - "-g"
+    - -c "${1}"
+    - -o "${2}"
+    - "-MMD"
+    - -MF "${4}"
+    :stderr_redirect: :none
+  :test_linker:
+    :executable: gcc
+    :name: default_test_linker
+    :optional: false
+    :arguments:
+    - "${1}"
+    - "${5}"
+    - -o "${2}"
+    - ''
+    - "${4}"
+    :stderr_redirect: :none
+  :test_fixture:
+    :executable: '"${1}"'
+    :name: default_test_fixture
+    :optional: false
+    :arguments: []
+    :stderr_redirect: :none
+  :test_fixture_simple_backtrace:
+    :executable: '"${1}"'
+    :name: default_test_fixture_simple_backtrace
+    :optional: false
+    :arguments:
+    - "${2}"
+    :stderr_redirect: :none
+  :bullseye_compiler:
+    :executable: covc -q gcc
+    :name: default_bullseye_compiler
+    :optional: false
+    :arguments:
+    - "-g"
+    - -I"${5}"
+    - -D"${6}"
+    - "-DBULLSEYE_COMPILER"
+    - -c "${1}"
+    - -o "${2}"
+    - "-MMD"
+    - -MF "${4}"
+    :stderr_redirect: :none
+  :bullseye_linker:
+    :executable: covc -q gcc
+    :name: default_bullseye_linker
+    :optional: false
+    :arguments:
+    - "-g"
+    - "${1}"
+    - "${5}"
+    - -o "${2}"
+    - "${4}"
+    :stderr_redirect: :none
+  :bullseye_fixture:
+    :executable: '"${1}"'
+    :name: default_bullseye_fixture
+    :optional: false
+    :arguments: []
+    :stderr_redirect: :none
+  :bullseye_report_covsrc:
+    :executable: covsrc
+    :name: default_bullseye_report_covsrc
+    :optional: true
+    :arguments:
+    - "-q"
+    - "--csv"
+    :stderr_redirect: :none
+  :bullseye_report_covfn:
+    :executable: covfn
+    :name: default_bullseye_report_covfn
+    :optional: true
+    :arguments:
+    - "--width 120"
+    - "--no-source"
+    - '"${1}"'
+    :stderr_redirect: :none
+  :bullseye_report_covbr:
+    :executable: covbr
+    :name: default_bullseye_report_covbr
+    :optional: true
+    :arguments:
+    - "-q"
+    - "--width 120"
+    - "${1}"
+    :stderr_redirect: :none
+  :bullseye_report_covxml:
+    :executable: covxml
+    :name: default_bullseye_report_covxml
+    :optional: true
+    :arguments:
+    - "-q"
+    - "${1}"
+    - -o "${2}"
+    :stderr_redirect: :none
+  :bullseye_report_covhtml:
+    :executable: covhtml
+    :name: default_bullseye_report_covhtml
+    :optional: true
+    :arguments:
+    - "-q"
+    - '"${1}"'
+    :stderr_redirect: :none
+  :bullseye_covselect:
+    :executable: covselect
+    :name: default_bullseye_covselect
+    :optional: true
+    :arguments:
+    - "-q"
+    - "--add"
+    - '"${1}"'
+    :stderr_redirect: :none
+  :bullseye_license_status:
+    :executable: covlmgr
+    :name: default_bullseye_license_status
+    :optional: true
+    :arguments:
+    - "--status"
+    :stderr_redirect: :none
+  :bullseye_browser:
+    :executable: CoverageBrowser
+    :name: default_bullseye_browser
+    :optional: true
+    :arguments: []
+    :stderr_redirect: :none

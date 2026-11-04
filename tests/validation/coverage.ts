@@ -33,30 +33,30 @@ main('coverage', async (checks) => {
     };
     const ADD = 'test/test_calculator.c::test_add', CLAMP = 'test/test_clamp.c::test_clamp_low';
 
-    let outcome = await step('C1 file, gcovr preferred', (r) => engine.runFile('project', calculator, r, token(), coverageMode()), [ADD]);
+    let outcome = await step('C1 file, gcovr preferred', (r) => engine.runFile('project', calculator, r, token(), coverageMode('gcov')), [ADD]);
     checks.expect(outcome?.kind === 'report' && outcome.path.endsWith('gcovr/GcovCoverageCobertura.xml'), 'C1: expected the gcovr report');
     checks.expect(hits(outcome, 'src/Calculator.c', 5) === 1 && hits(outcome, 'src/Calculator.c', 10) === 0, 'C1: Calculator.c hits');
 
-    outcome = await step('C2 the same file again, counters reset', (r) => engine.runFile('project', calculator, r, token(), coverageMode()), [ADD]);
+    outcome = await step('C2 the same file again, counters reset', (r) => engine.runFile('project', calculator, r, token(), coverageMode('gcov')), [ADD]);
     checks.expect(hits(outcome, 'src/Calculator.c', 5) === 1, 'C2: a reset should leave 1 hit');
 
     settings.coverageResetsCounters = false;
-    outcome = await step('C3 the same file again, counters kept', (r) => engine.runFile('project', calculator, r, token(), coverageMode()), [ADD]);
+    outcome = await step('C3 the same file again, counters kept', (r) => engine.runFile('project', calculator, r, token(), coverageMode('gcov')), [ADD]);
     checks.expect(hits(outcome, 'src/Calculator.c', 5) === 2, 'C3: kept counters should add up to 2 hits');
     settings.coverageResetsCounters = true;
 
-    await step('C4 function', (r) => engine.runFunction('project', calculator, calculator.functions[0], r, token(), coverageMode()), [ADD]);
+    await step('C4 function', (r) => engine.runFunction('project', calculator, calculator.functions[0], r, token(), coverageMode('gcov')), [ADD]);
 
-    outcome = await step('C5 file whose source is above the project', (r) => engine.runFile('project', clamp, r, token(), coverageMode()), [CLAMP]);
+    outcome = await step('C5 file whose source is above the project', (r) => engine.runFile('project', clamp, r, token(), coverageMode('gcov')), [CLAMP]);
     checks.expect(outcome?.kind === 'report' && hits(outcome, 'lib/Clamp.c', 5) === undefined, 'C5: gcovr should leave out lib/Clamp.c');
 
-    outcome = await step('C6 project', (r) => engine.runProjectAll('project', project.files, r, token(), coverageMode()), [ADD, CLAMP]);
+    outcome = await step('C6 project', (r) => engine.runProjectAll('project', project.files, r, token(), coverageMode('gcov')), [ADD, CLAMP]);
     checks.expect(hits(outcome, 'src/Calculator.c', 5) === 1, 'C6: Calculator.c hits');
 
     if (reportGenerator) {
         settings.mixins = [`${WS}/mixins/reportgenerator.yml`];
         project = only(await engine.discover());
-        outcome = await step('C7 project, ReportGenerator only', (r) => engine.runProjectAll('project', project.files, r, token(), coverageMode()), [ADD, CLAMP]);
+        outcome = await step('C7 project, ReportGenerator only', (r) => engine.runProjectAll('project', project.files, r, token(), coverageMode('gcov')), [ADD, CLAMP]);
         checks.expect(outcome?.kind === 'report' && outcome.path.endsWith('ReportGenerator/Cobertura.xml'), 'C7: expected the ReportGenerator report');
         checks.expect(hits(outcome, `${WS}/lib/Clamp.c`, 5) === 1 && hits(outcome, `${WS}/project/src/Calculator.c`, 5) === 1, 'C7: hits by absolute path');
         settings.mixins = [both];
@@ -74,9 +74,9 @@ main('coverage', async (checks) => {
         if (random() < 0.15) setTimeout(() => t.fire(), Math.floor(random() * 3000));
         const reporter = recordingReporter();
         try {
-            if (kind === 'coverFile') await engine.runFile('project', target, reporter, t, coverageMode());
-            else if (kind === 'coverFunction') await engine.runFunction('project', target, target.functions[0], reporter, t, coverageMode());
-            else if (kind === 'coverProject') await engine.runProjectAll('project', project.files, reporter, t, coverageMode());
+            if (kind === 'coverFile') await engine.runFile('project', target, reporter, t, coverageMode('gcov'));
+            else if (kind === 'coverFunction') await engine.runFunction('project', target, target.functions[0], reporter, t, coverageMode('gcov'));
+            else if (kind === 'coverProject') await engine.runProjectAll('project', project.files, reporter, t, coverageMode('gcov'));
             else if (kind === 'runFile') await engine.runFile('project', target, reporter, t);
             else if (kind === 'discover') { project = only(await engine.discover()); return; }
             else if (kind === 'reparse') { await engine.rediscoverFile('project', target.id); return; }

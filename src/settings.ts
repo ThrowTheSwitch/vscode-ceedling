@@ -31,7 +31,7 @@ export const SETTING_DEFAULTS: { readonly [K in SettingKey]: Settings[K] } = {
     prettyTestLabel: true,
     prettyTestFileLabel: true,
     testCommandArgs: ['test:${TEST_ID}'],
-    coverageCommandArgs: ['gcov:${TEST_ID}'],
+    coverageCommandArgs: ['${PLUGIN}:${TEST_ID}'],
     coverageResetsCounters: true,
     'problemMatching.mode': 'disabled',
     'problemMatching.patterns': [],

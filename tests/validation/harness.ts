@@ -202,7 +202,7 @@ export function hits(outcome: CoverageOutcome | undefined, file: string, line: n
 }
 
 export function describeOutcome(outcome: CoverageOutcome): string {
-    if (outcome.kind === 'missing') return `missing: ${outcome.message.slice(0, 160)}`;
+    if (outcome.kind !== 'report') return `${outcome.kind}: ${outcome.message.slice(0, 160)}`;
     const files = outcome.files.map((f) => `${path.relative(WS, f.path)}[${f.lines.map((l) => `${l.line}:${l.hits}`).join(' ')}]`);
     return `${path.basename(path.dirname(outcome.path))}/${path.basename(outcome.path)}: ${files.join(' ')}`;
 }
@@ -239,7 +239,7 @@ export async function leftovers(): Promise<string[]> {
     const processes = fs.readdirSync('/proc').filter((entry) => /^\d+$/.test(entry) && Number(entry) !== process.pid).flatMap((entry) => {
         try {
             const command = fs.readFileSync(`/proc/${entry}/cmdline`, 'utf8').replace(/\0/g, ' ');
-            return /ceedling|ruby|\.out\b|gcovr|reportgenerator/.test(command) ? [`process ${entry}: ${command.slice(0, 100)}`] : [];
+            return /ceedling|ruby|\.out\b|gcovr|reportgenerator|\bcov(c|clear|xml|html|select|src|fn|br|lmgr)\b/.test(command) ? [`process ${entry}: ${command.slice(0, 100)}`] : [];
         } catch {
             return []; // exited while being read
         }

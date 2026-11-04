@@ -3,9 +3,9 @@
 // load. It has no `vscode` or filesystem dependency. Callers supply the settings, the platform,
 // and a directory check.
 
-import { GCOV_ARTIFACTS } from './buildLayout';
 import type { ProjectCeedling } from './ceedlingVersions';
-import { field } from './parsedXml';
+import { type CoverageStates, coverageStates } from './coveragePlugins';
+import { field, list, stringList, stringSetting } from './parsedXml';
 import { pathsFor } from './platformPaths';
 import type { CeedlingFileNode } from './testModel';
 
@@ -66,14 +66,16 @@ export type ProjectState = {
     executableExtension: string,
     useParamTests: boolean,
     reportPluginEnabled: boolean,
-    // undefined when the project doesn't enable Ceedling's gcov plugin.
-    coverage: CoverageState | undefined,
+    // Each coverage plugin's reports, undefined for one the project doesn't enable.
+    coverage: CoverageStates,
     // `:paths` ↳ `:test` as configured, e.g. `+:test/**`, which places each test's build files.
     testPaths: string[],
     // `:project` ↳ `:which_ceedling`: `gem` for the installed Ceedling, else a path to another. Unset,
     // it reads `gem`, and WHICH_CEEDLING or a `vendor/ceedling` then chooses, as every command does.
     // Before 1.2.2 `ceedling version` never reads it. See versionSeesSelection().
     whichCeedling: string,
+    // `:environment`, which Ceedling sets for every tool it runs, by upper-cased name.
+    environment: Readonly<Record<string, string>>,
 };
 
 // A project discovery loaded: the Ceedling it runs, its resolved configuration, and its test files.
@@ -83,17 +85,6 @@ export type LoadedProject = CeedlingProject & ProjectCeedling & { state: Project
 export function isLoaded(project: CeedlingProject): project is LoadedProject {
     return 'state' in project;
 }
-
-// What a coverage run leaves to read. Ceedling's gcov plugin writes a Cobertura report through
-// gcovr, ReportGenerator, or both, into fixed directories under the build root.
-export type CoverageState = {
-    // Coverage runs leave reports only through the `report:gcov` task.
-    reportTask: boolean,
-    // Where a Cobertura report may appear, relative to the build root, most preferred first.
-    // gcovr's leads. ReportGenerator nests its own in a subdirectory when it writes several report
-    // types. Empty when neither utility writes one.
-    coberturaReports: string[],
-};
 
 // Ceedling's own default name for report_tests_log_factory's CppUnit report.
 export const DEFAULT_CPPUNIT_REPORT_FILENAME = 'cppunit_tests_report.xml';
@@ -232,45 +223,25 @@ export function projectState(resolved: unknown, platform: NodeJS.Platform): Proj
         executableExtension: stringSetting(resolved, platform === 'win32' ? '.exe' : '.out', ':extension', ':executable'),
         useParamTests: field(resolved, ':unity', ':use_param_tests') === true,
         reportPluginEnabled: Array.isArray(enabledPlugins) && enabledPlugins.includes('report_tests_log_factory'),
-        coverage: coverageState(resolved),
+        coverage: coverageStates(resolved),
         testPaths: stringList(field(resolved, ':paths', ':test')),
         whichCeedling: stringSetting(resolved, 'gem', ':project', ':which_ceedling'),
+        environment: environmentOf(resolved, platform),
     };
 }
 
-// Where a gcov project's Cobertura reports appear, and whether they wait for report:gcov. undefined
-// without the gcov plugin. Ceedling compares utility and report names case-insensitively, and with
-// no :utilities: listed the plugin uses gcovr.
-export function coverageState(resolved: unknown): CoverageState | undefined {
-    const enabledPlugins = field(resolved, ':plugins', ':enabled');
-    if (!Array.isArray(enabledPlugins) || !enabledPlugins.includes('gcov')) {
-        return undefined;
+// Each `:environment` entry is a one-name mapping. Ceedling joins a list value with the platform's
+// path separator, as dumpconfig already shows it, and sets any other value as its text.
+function environmentOf(resolved: unknown, platform: NodeJS.Platform): Record<string, string> {
+    const environment: Record<string, string> = {};
+    const textOf = (value: unknown) => typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : undefined;
+    for (const entry of list(field(resolved, ':environment'))) {
+        for (const [name, value] of typeof entry === 'object' && entry !== null ? Object.entries(entry) : []) {
+            const text = Array.isArray(value) ? value.map(textOf).filter((part) => part !== undefined).join(pathsFor(platform).delimiter) : textOf(value);
+            if (text !== undefined) {
+                environment[name.replace(/^:/, '').toUpperCase()] = text;
+            }
+        }
     }
-    const names = (value: unknown) => stringList(value).map((name) => name.toLowerCase());
-    const listed = names(field(resolved, ':gcov', ':utilities'));
-    const utilities = listed.length > 0 ? listed : ['gcovr'];
-    const cobertura = names(field(resolved, ':gcov', ':reports')).includes('cobertura');
-    const coberturaReports = !cobertura ? [] : [
-        ...utilities.includes('gcovr') ? [`${GCOV_ARTIFACTS}/gcovr/${stringSetting(resolved, 'GcovCoverageCobertura.xml', ':gcov', ':gcovr', ':cobertura_artifact_filename')}`] : [],
-        ...utilities.includes('reportgenerator') ? [`${GCOV_ARTIFACTS}/ReportGenerator/Cobertura.xml`, `${GCOV_ARTIFACTS}/ReportGenerator/Cobertura/Cobertura.xml`] : [],
-    ];
-    return { reportTask: field(resolved, ':gcov', ':report_task') === true, coberturaReports };
-}
-
-// What a project must configure before a coverage run can show anything, or undefined.
-export function coverageProblem(projectKey: string, coverage: CoverageState): string | undefined {
-    return coverage.coberturaReports.length > 0 ? undefined :
-        `Ceedling project '${projectKey}' writes no Cobertura coverage report, so Run with Coverage has nothing to show. ` +
-        `Add Cobertura to :gcov: ↳ :reports:, with gcovr or ReportGenerator among :gcov: ↳ :utilities:. ` +
-        `The Code Coverage page explains each: https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/code-coverage/#what-coverage-needs`;
-}
-
-// The strings of a list setting. Anything else in the list, or a setting that isn't one, is ignored.
-function stringList(value: unknown): string[] {
-    return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
-}
-
-function stringSetting(config: unknown, fallback: string, ...keys: string[]): string {
-    const value = field(config, ...keys);
-    return typeof value === 'string' ? value : fallback;
+    return environment;
 }

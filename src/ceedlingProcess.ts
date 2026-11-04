@@ -30,6 +30,10 @@ export type CeedlingInvocation = {
     shell: string | undefined,
     stripAnsi: boolean,
     cancellation?: Cancellation,
+    // Variables to set over Ceedling's environment, e.g. a project's :environment for a tool Ceedling would run.
+    env?: Readonly<Record<string, string>>,
+    // How long the command may run before it is killed and fails. Unset, it may run indefinitely.
+    timeoutMs?: number,
 };
 
 // Node's 1 MiB default kills a large `test:all` mid-run, debug verbosity especially.
@@ -55,6 +59,14 @@ export function buildCommandLine(command: string, args: readonly string[]): stri
 export function ceedlingEnvironment(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     const rubyopt = base.RUBYOPT ? `${base.RUBYOPT} -EUTF-8` : '-EUTF-8';
     return { ...base, CEEDLING_DECORATORS: 'false', RUBYOPT: rubyopt };
+}
+
+// `base` with each of `extra`'s variables set. Windows names variables in any case, so there an
+// extra variable replaces each spelling of its name, e.g. Path for PATH.
+export function withEnvironment(base: NodeJS.ProcessEnv, extra: Readonly<Record<string, string>>, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
+    const replaced = new Set(Object.keys(extra).map((name) => platform === 'win32' ? name.toUpperCase() : name));
+    const kept = Object.entries(base).filter(([name]) => !replaced.has(platform === 'win32' ? name.toUpperCase() : name));
+    return { ...Object.fromEntries(kept), ...extra };
 }
 
 export class CeedlingRunner {
@@ -84,8 +96,9 @@ export class CeedlingRunner {
                 {
                     cwd: invocation.cwd,
                     shell: invocation.shell,
-                    env: ceedlingEnvironment(this.baseEnv),
+                    env: withEnvironment(ceedlingEnvironment(this.baseEnv), invocation.env ?? {}),
                     maxBuffer: MAX_OUTPUT_BYTES,
+                    timeout: invocation.timeoutMs,
                 },
                 (error, stdout, stderr) => {
                     state.finished = true;

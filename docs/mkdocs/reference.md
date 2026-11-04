@@ -29,7 +29,7 @@ This page lists every setting and command the extension contributes, grouped by 
 ## Code coverage
 
 - [`coverageCommandArgs`][coverage-args] — Ceedling’s arguments for a coverage run
-- [`coverageResetsCounters`][resets] — Clear coverage counters before each coverage run
+- [`coverageResetsCounters`][resets] — Clear earlier runs’ coverage before each coverage run
 
 ## Problem matching
 

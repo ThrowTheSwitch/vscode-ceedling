@@ -1,0 +1,3 @@
+:bullseye:
+  :xml_report: :cobertura
+  :license_manager_file: /tmp/probe.lmgr

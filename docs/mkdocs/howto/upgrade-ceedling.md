@@ -15,14 +15,14 @@ This guide upgrades a project’s Ceedling and brings the extension along. The e
 
 ## Upgrading to Ceedling 1.2.2
 
-Ceedling 1.2.2 builds each test in a new place, under its path from the project’s root. An earlier release’s build output stays where it was until a clobber removes it. Coverage reports still read that output’s counters, so it can skew coverage.
+Ceedling 1.2.2 builds each test in a new place, under its path from the project’s root. An earlier release’s build output stays where it was until a clobber removes it. gcov’s coverage reports still read that output’s counters, so it can skew gcov coverage. Bullseye’s coverage file counts only what runs, so its coverage stays exact.
 
 How the old output goes depends on the release you upgrade from.
 
 - **From 1.2.0 or 1.2.1**, the first build warns about the old layout, and the extension offers to clobber the project. Choose _Clobber_. The clobber waits for the runs under way to finish.
 - **From an earlier release**, no warning comes. Clobber once with the _Testing_ view’s Clobber button.
 
-Until the clobber, with [`ceedlingExplorer.coverageResetsCounters`][resets] on, its default, coverage stays exact, since each coverage run clears the counters first. With it off, coverage counts the old layout’s counters too, until the clobber.
+Until the clobber, with [`ceedlingExplorer.coverageResetsCounters`][resets] on, its default, gcov coverage stays exact, since each coverage run clears the counters first. With it off, gcov coverage counts the old layout’s counters too, until the clobber.
 
 ## Launch configurations
 

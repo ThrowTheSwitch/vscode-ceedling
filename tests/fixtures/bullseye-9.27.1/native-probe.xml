@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- BullseyeCoverage XML 9.27.1 Linux x64 License NNNNNN -->
+<BullseyeCoverage name="test.cov" dir="/tmp/probe/project/" buildId="6b2b5e6b2215a9aa_2026-11-03_20:59:39" version="6" xmlns="https://www.bullseye.com/covxml"
+ fn_cov="2" fn_total="4" cd_cov="5" cd_total="10" d_cov="2" d_total="6">
+<folder name=".." fn_cov="0" fn_total="1" cd_cov="0" cd_total="4" d_cov="0" d_total="4">
+<folder name="lib" fn_cov="0" fn_total="1" cd_cov="0" cd_total="4" d_cov="0" d_total="4">
+<src name="Clamp.c" mtime="1793739573" fn_cov="0" fn_total="1" cd_cov="0" cd_total="4" d_cov="0" d_total="4">
+<fn name="clamp(int,int,int)" fn_cov="0" fn_total="1" cd_cov="0" cd_total="4" d_cov="0" d_total="4">
+<probe line="3" column="3" kind="function" event="none"/>
+<probe line="5" kind="decision" event="none"/>
+<probe line="7" kind="decision" event="none"/>
+<block line="4" entered="0"/>
+<block line="6" entered="0"/>
+<block line="8" entered="0"/>
+</fn>
+</src>
+</folder>
+</folder>
+<folder name="src" fn_cov="2" fn_total="3" cd_cov="5" cd_total="6" d_cov="2" d_total="2">
+<src name="Calculator.c" mtime="1793739573" fn_cov="2" fn_total="3" cd_cov="5" cd_total="6" d_cov="2" d_total="2">
+<fn name="add(int,int)" fn_cov="1" fn_total="1" cd_cov="0" cd_total="0" d_cov="0" d_total="0">
+<probe line="3" column="3" kind="function" event="full"/>
+<block line="4" entered="1"/>
+</fn>
+<fn name="subtract(int,int)" fn_cov="0" fn_total="1" cd_cov="0" cd_total="0" d_cov="0" d_total="0">
+<probe line="8" column="3" kind="function" event="none"/>
+<block line="9" entered="0"/>
+</fn>
+<fn name="both(int,int)" fn_cov="1" fn_total="1" cd_cov="5" cd_total="6" d_cov="2" d_total="2">
+<probe line="13" column="3" kind="function" event="full"/>
+<probe line="15" kind="decision" event="full"/>
+<probe line="15" column="3" kind="condition" event="full"/>
+<probe line="15" column="6" kind="condition" event="true"/>
+<block line="14" entered="1"/>
+<block line="16" entered="1"/>
+</fn>
+</src>
+</folder>
+</BullseyeCoverage>

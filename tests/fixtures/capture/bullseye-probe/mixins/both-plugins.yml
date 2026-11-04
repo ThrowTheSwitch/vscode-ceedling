@@ -1,0 +1,9 @@
+:plugins:
+  :enabled:
+    - gcov
+    - bullseye
+:gcov:
+  :reports:
+    - Cobertura
+:bullseye:
+  :xml_report: :cobertura
