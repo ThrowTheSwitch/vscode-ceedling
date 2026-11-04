@@ -8,7 +8,7 @@ import type { LoadedProject } from './ceedlingProjectConfig';
 import { contextOutput, COVCLEAR, COVERAGE_PLUGIN, type CoveragePlugin, coverageProblem } from './coveragePlugins';
 import { parseCoberturaReport, reportedFiles } from './coberturaReport';
 import { deleteFiles, type EngineIo, firstPresent, listUnder, readText } from './engineFileSystem';
-import { pathKey } from './platformPaths';
+import { pathKey, viaLink } from './platformPaths';
 import type { CoverageOutcome } from './testModel';
 
 // One coverage request, which may run Ceedling several times. Each place its counters sit is cleared
@@ -106,9 +106,16 @@ export async function readCoverage(io: EngineIo, project: LoadedProject, plugin:
     }
     try {
         const report = await parseCoberturaReport(await readText(io, reportPath));
+        // A tool names sources from its working directory, whose symlinks are resolved, as Ruby's is on
+        // macOS for a project beneath /var or /tmp. Each such path's form by way of the project's own
+        // path comes first, so coverage lands on the files the editor shows.
+        const realDir = await io.fs.realpath(project.absPath);
+        const viaProject = (candidate: string) => (realDir === undefined ? undefined : viaLink(candidate, project.absPath, realDir, io.platform)) ?? candidate;
         // A file keeps its candidate that exists, else its first. A sole candidate needs no check.
-        const files = await Promise.all(reportedFiles(report, project.absPath, io.paths).map(async ({ candidates, lines, functions }) =>
-            ({ path: (candidates.length > 1 ? await firstPresent(io, candidates) : undefined) ?? candidates[0] ?? '', lines, functions })));
+        const files = await Promise.all(reportedFiles(report, project.absPath, io.paths).map(async ({ candidates: reported, lines, functions }) => {
+            const candidates = [...new Set(reported.flatMap((candidate) => [viaProject(candidate), candidate]))];
+            return { path: (candidates.length > 1 ? await firstPresent(io, candidates) : undefined) ?? candidates[0] ?? '', lines, functions };
+        }));
         if (files.length === 0) {
             return {
                 kind: 'missing',

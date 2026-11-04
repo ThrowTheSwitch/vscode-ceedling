@@ -46,6 +46,8 @@ class FakeCeedling {
     readGate: Promise<void> | undefined;
     // Called as each file is deleted, so a test can act at that moment.
     unlinked: ((file: string) => void) | undefined;
+    // Each path with its symlinks resolved, where that differs from the path itself.
+    realpaths = new Map<string, string>();
     private clock = 1;
 
     constructor() {
@@ -80,6 +82,7 @@ class FakeCeedling {
                 this.unlinked?.(p);
             },
             mtimeMs: async (p) => this.mtimes.get(p),
+            realpath: async (p) => this.realpaths.get(p) ?? (this.files.has(p) || this.directories.has(p) ? p : undefined),
         };
     }
 
@@ -1504,11 +1507,20 @@ suite('nodeFileSystem', () => {
         assert.strictEqual(await nodeFileSystem.isDirectory(folder), true);
     });
 
-    test('a missing path does not exist, is no directory, and has no modification time, without an error', async () => {
+    test('a missing path does not exist, is no directory, and has no modification time or real path, without an error', async () => {
         const missing = path.join(folder, 'missing');
         assert.strictEqual(await nodeFileSystem.exists(missing), false);
         assert.strictEqual(await nodeFileSystem.isDirectory(missing), false);
         assert.strictEqual(await nodeFileSystem.mtimeMs(missing), undefined);
+        assert.strictEqual(await nodeFileSystem.realpath(missing), undefined);
+    });
+
+    // A junction needs no privilege on Windows, and is an ordinary symlink elsewhere.
+    test('a real path resolves each link along it', async () => {
+        const target = path.join(folder, 'target');
+        fs.mkdirSync(target);
+        fs.symlinkSync(target, path.join(folder, 'link'), 'junction');
+        assert.strictEqual(await nodeFileSystem.realpath(path.join(folder, 'link')), fs.realpathSync.native(target));
     });
 });
 
@@ -2510,6 +2522,19 @@ suite('CeedlingEngine Bullseye coverage', () => {
             kind: 'report', path: BULLSEYE_REPORT, counters: COVFILE,
             files: [{ path: `${WS}/src/calc.c`, lines: [{ line: 1, hits: 2, branches: [] }, { line: 2, hits: 0, branches: [] }], functions: [] }],
         }]);
+    });
+
+    // Ruby's working directory has its symlinks resolved, and Bullseye names its sources from it, as on
+    // macOS for a project beneath /var or /tmp. Coverage returns to the paths the editor shows.
+    test("a report naming the project's directory with its symlinks resolved covers the files at the project's own paths", async () => {
+        const probe = fs.readFileSync(path.resolve(fixturesRoot, 'bullseye-9.27.1', 'cobertura-probe.xml'), 'utf8').replace('<source>/tmp/probe/project/</source>', '<source>/private/ws/</source>');
+        const world = bullseyeWorld({ [BULLSEYE_REPORT]: probe });
+        world.realpaths.set(WS, '/private/ws');
+        for (const file of [`${WS}/src/Calculator.c`, '/private/ws/src/Calculator.c', '/lib/Clamp.c', '/private/lib/Clamp.c']) world.write(file, '');
+        const { engine, file } = await discovered(world);
+        const reporter = recordingReporter();
+        await engine.runFile('default', file, reporter, token(), coverageMode('bullseye'));
+        assert.deepStrictEqual((coverageCalls(reporter)[0] as { files: Array<{ path: string }> }).files.map((f) => f.path).sort(), ['/lib/Clamp.c', `${WS}/src/Calculator.c`]);
     });
 
     test('from Ceedling 1.2.1, a Bullseye run names its file by path', async () => {
