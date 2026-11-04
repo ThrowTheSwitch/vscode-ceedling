@@ -930,9 +930,39 @@
   
   
   
-    <li class="md-nav__item">
-      <a href="../code-coverage/" class="md-nav__link">
+    
+    
+      
         
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../code-coverage/" class="md-nav__link ">
+              
   
   
   <span class="md-ellipsis">
@@ -946,7 +976,87 @@
   
   
 
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3_5" id="__nav_3_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Code Coverage
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../code-coverage/gcov/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    gcov
+  
+
+    
+  </span>
+  
+  
+
       </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../code-coverage/bullseye/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bullseye
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
     </li>
   
 
@@ -1627,11 +1737,11 @@
 <p>Default: <code>["test:${TEST_ID}"]</code></p>
 <p>The arguments that run one test file. Their <code>${TEST_ID}</code> tag becomes the test file, or <code>all</code> when a run covers a whole project. With Ceedling 1.2.0 and later, the test file is its project-relative path, e.g. <code>test/unit/test_foo.c</code>, which tells same-named test files apart. With earlier versions, it is the file’s name alone. Coverage runs use <a href="#ceedlingexplorercoveragecommandargs"><code>ceedlingExplorer.coverageCommandArgs</code></a> instead. <a href="../running-tests/#how-a-run-calls-ceedling">Running Tests</a> explains which task each run calls.</p>
 <h3 id="ceedlingexplorercoveragecommandargs"><code>ceedlingExplorer.coverageCommandArgs</code></h3>
-<p>Default: <code>["gcov:${TEST_ID}"]</code></p>
-<p>The arguments that run one test file with <a href="../code-coverage/#how-coverage-runs-work">coverage</a>. Their <code>${TEST_ID}</code> tag becomes the test file, or <code>all</code> when a run covers a whole project. With Ceedling 1.2.1 and later, the test file is its project-relative path, as for <code>testCommandArgs</code>. With earlier versions, it is the file’s name alone, as their <code>gcov:</code> tasks require.</p>
+<p>Default: <code>["${PLUGIN}:${TEST_ID}"]</code></p>
+<p>The arguments that run one test file with <a href="../code-coverage/#how-coverage-runs-work">coverage</a>. Their <code>${PLUGIN}</code> tag becomes the run’s coverage plugin, <code>gcov</code> or <code>bullseye</code>, so the default runs that plugin’s tasks. Arguments of your own should keep it. A task naming another plugin’s, e.g. <code>gcov:</code> in a Bullseye run, writes no report the run reads, and the extension’s log warns. Their <code>${TEST_ID}</code> tag becomes the test file, or <code>all</code> when a run covers a whole project. With Ceedling 1.2.1 and later, the test file is its project-relative path, as for <code>testCommandArgs</code>. With earlier versions, it is the file’s name alone, as their coverage tasks require.</p>
 <h3 id="ceedlingexplorercoverageresetscounters"><code>ceedlingExplorer.coverageResetsCounters</code></h3>
 <p>Default: <code>true</code></p>
-<p>Whether each coverage run first clears the coverage counters earlier runs left, so it shows only what it executed. Set it to <code>false</code> to accumulate coverage across runs instead, as Ceedling itself does until a <code>clean</code> or <code>clobber</code>. <a href="../code-coverage/#how-coverage-runs-work">Code Coverage</a> explains how coverage runs work.</p>
+<p>Whether each coverage run first clears the coverage earlier runs measured, so it shows only what it executed. A gcov run deletes its counters, and a Bullseye run resets its coverage file with <code>covclear</code>. Set it to <code>false</code> to accumulate coverage across runs instead, as Ceedling itself does until a <code>clean</code> or <code>clobber</code>. <a href="../code-coverage/#how-coverage-runs-work">Code Coverage</a> explains how coverage runs work.</p>
 <h3 id="ceedlingexplorerprettytestlabel"><code>ceedlingExplorer.prettyTestLabel</code></h3>
 <p>Default: <code>true</code></p>
 <p>Shortens each test’s label in the <em>Testing</em> view by dropping its prefix. For example, <code>test_BlinkTaskShouldToggleLed</code> becomes <code>BlinkTaskShouldToggleLed</code>. <a href="../running-tests/#test-labels">Running Tests</a> shows both forms.</p>

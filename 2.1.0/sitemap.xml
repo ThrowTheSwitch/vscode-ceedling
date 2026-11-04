@@ -2,90 +2,98 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/</loc>
-         <lastmod>2026-11-03</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/help/</loc>
-         <lastmod>2026-11-03</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/reference/</loc>
-         <lastmod>2026-11-03</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/releases/</loc>
-         <lastmod>2026-11-03</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/troubleshooting/</loc>
-         <lastmod>2026-11-03</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/howto/</loc>
-         <lastmod>2026-11-03</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/howto/ceedling-installations/</loc>
-         <lastmod>2026-11-03</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/howto/code-coverage/</loc>
-         <lastmod>2026-11-03</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/howto/compiler-problems/</loc>
-         <lastmod>2026-11-03</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/howto/crashing-tests/</loc>
-         <lastmod>2026-11-03</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/howto/debug-a-test/</loc>
-         <lastmod>2026-11-03</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/howto/first-run/</loc>
-         <lastmod>2026-11-03</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/howto/parametrized-tests/</loc>
-         <lastmod>2026-11-03</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/howto/upgrade-ceedling/</loc>
-         <lastmod>2026-11-03</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/howto/workspace-layouts/</loc>
-         <lastmod>2026-11-03</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/</loc>
-         <lastmod>2026-11-03</lastmod>
-    </url>
-    <url>
-         <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/code-coverage/</loc>
-         <lastmod>2026-11-03</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/configuration/</loc>
-         <lastmod>2026-11-03</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/debugging/</loc>
-         <lastmod>2026-11-03</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/getting-started/</loc>
-         <lastmod>2026-11-03</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/problem-matching/</loc>
-         <lastmod>2026-11-03</lastmod>
+         <lastmod>2026-11-04</lastmod>
     </url>
     <url>
          <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/running-tests/</loc>
-         <lastmod>2026-11-03</lastmod>
+         <lastmod>2026-11-04</lastmod>
+    </url>
+    <url>
+         <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/code-coverage/</loc>
+         <lastmod>2026-11-04</lastmod>
+    </url>
+    <url>
+         <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/code-coverage/bullseye/</loc>
+         <lastmod>2026-11-04</lastmod>
+    </url>
+    <url>
+         <loc>https://docs.throwtheswitch.org/vscode-ceedling/latest/manual/code-coverage/gcov/</loc>
+         <lastmod>2026-11-04</lastmod>
     </url>
 </urlset>

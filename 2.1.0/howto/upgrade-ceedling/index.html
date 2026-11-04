@@ -1032,9 +1032,36 @@
   
   
   
-    <li class="md-nav__item">
-      <a href="../../manual/code-coverage/" class="md-nav__link">
+    
+    
+      
         
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../manual/code-coverage/" class="md-nav__link ">
+              
   
   
   <span class="md-ellipsis">
@@ -1048,7 +1075,87 @@
   
   
 
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3_5" id="__nav_3_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Code Coverage
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../manual/code-coverage/gcov/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    gcov
+  
+
+    
+  </span>
+  
+  
+
       </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../manual/code-coverage/bullseye/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bullseye
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
     </li>
   
 
@@ -1388,13 +1495,13 @@
 <li><strong>Clobber, when upgrading to 1.2.2 or later</strong> from an earlier release. See below.</li>
 </ol>
 <h2 id="upgrading-to-ceedling-122">Upgrading to Ceedling 1.2.2</h2>
-<p>Ceedling 1.2.2 builds each test in a new place, under its path from the project’s root. An earlier release’s build output stays where it was until a clobber removes it. Coverage reports still read that output’s counters, so it can skew coverage.</p>
+<p>Ceedling 1.2.2 builds each test in a new place, under its path from the project’s root. An earlier release’s build output stays where it was until a clobber removes it. gcov’s coverage reports still read that output’s counters, so it can skew gcov coverage. Bullseye’s coverage file counts only what runs, so its coverage stays exact.</p>
 <p>How the old output goes depends on the release you upgrade from.</p>
 <ul>
 <li><strong>From 1.2.0 or 1.2.1</strong>, the first build warns about the old layout, and the extension offers to clobber the project. Choose <em>Clobber</em>. The clobber waits for the runs under way to finish.</li>
 <li><strong>From an earlier release</strong>, no warning comes. Clobber once with the <em>Testing</em> view’s Clobber button.</li>
 </ul>
-<p>Until the clobber, with <a href="../../manual/configuration/#ceedlingexplorercoverageresetscounters"><code>ceedlingExplorer.coverageResetsCounters</code></a> on, its default, coverage stays exact, since each coverage run clears the counters first. With it off, coverage counts the old layout’s counters too, until the clobber.</p>
+<p>Until the clobber, with <a href="../../manual/configuration/#ceedlingexplorercoverageresetscounters"><code>ceedlingExplorer.coverageResetsCounters</code></a> on, its default, gcov coverage stays exact, since each coverage run clears the counters first. With it off, gcov coverage counts the old layout’s counters too, until the clobber.</p>
 <h2 id="launch-configurations">Launch configurations</h2>
 <p>Launch configurations need no change. The debug token’s path follows each Ceedling version’s own build layout, under the same <code>build/test/out/</code> directory. See <a href="../../manual/debugging/#the-launch-configuration">Debugging</a>.</p>
 <h2 id="when-something-breaks">When something breaks</h2>

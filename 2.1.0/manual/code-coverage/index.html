@@ -16,7 +16,7 @@
         <link rel="prev" href="../debugging/">
       
       
-        <link rel="next" href="../problem-matching/">
+        <link rel="next" href="gcov/">
       
       
         
@@ -932,16 +932,39 @@
   
   
   
-    <li class="md-nav__item md-nav__item--active">
+    
+    
       
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
+        
+          
+        
       
         
       
+        
       
-        <label class="md-nav__link md-nav__link--active" for="__toc">
+    
+    
+    
+      
+      
+        
           
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="./" class="md-nav__link md-nav__link--active">
+              
   
   
   <span class="md-ellipsis">
@@ -955,17 +978,43 @@
   
   
 
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+            </a>
+            
+              
+              <label class="md-nav__link md-nav__link--active" for="__nav_3_5" id="__nav_3_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Code Coverage
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="gcov/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Code Coverage
+    gcov
   
 
     
@@ -974,80 +1023,41 @@
   
 
       </a>
-      
-        
+    </li>
+  
 
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+              
+            
+              
+                
   
   
   
+  
+    <li class="md-nav__item">
+      <a href="bullseye/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
     
   
+    Bullseye
   
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#what-a-coverage-run-shows" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What a coverage run shows
-      
-    </span>
-  </a>
+
+    
+  </span>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-coverage-needs" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What coverage needs
-      
-    </span>
-  </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#how-coverage-runs-work" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How coverage runs work
-      
-    </span>
-  </a>
+
+      </a>
+    </li>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-each-tool-reports" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What each tool reports
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#when-no-coverage-appears" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        When no coverage appears
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
+
+              
+            
+          </ul>
+        </nav>
       
     </li>
   
@@ -1263,10 +1273,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-coverage-needs" class="md-nav__link">
+  <a href="#choosing-a-plugin" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What coverage needs
+        Choosing a plugin
       
     </span>
   </a>
@@ -1278,17 +1288,6 @@
     <span class="md-ellipsis">
       
         How coverage runs work
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-each-tool-reports" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What each tool reports
       
     </span>
   </a>
@@ -1361,6 +1360,24 @@
   
 
       
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="./" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Code Coverage
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
     </ol>
   </nav>
 
@@ -1375,54 +1392,83 @@
 
 
 <h1 id="code-coverage">Code Coverage</h1>
-<p><em>Run with Coverage</em> runs tests through Ceedling’s gcov plugin and shows what they executed in VS Code’s coverage views. This page covers how coverage runs work, what each report tool includes, and why a run might show none. The <a href="../../howto/code-coverage/">coverage guide</a> sets it up step by step, with gcovr or ReportGenerator.</p>
+<p><em>Run with Coverage</em> runs tests through a Ceedling coverage plugin and shows what they executed in VS Code’s coverage views. The extension supports two plugins, <a href="gcov/">Gcov</a> and <a href="bullseye/">Bullseye</a>.</p>
+<p>This page covers what coverage runs share: what a run shows, how runs work, and why a run might show none. Each plugin’s page says what it needs and what its reports include. The <a href="../../howto/code-coverage/">coverage guide</a> sets up either one step by step.</p>
+<div class="grid cards">
+<ul>
+<li>
+<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M22 21H2V3h2v16h2v-9h4v9h2V6h4v13h2v-5h4z"/></svg></span> <strong><a href="gcov/">Gcov</a></strong></p>
+<hr />
+<p>Free, with GCC. Line, branch, and function coverage, with hit counts, through Gcovr or ReportGenerator to generate reports.</p>
+</li>
+<li>
+<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2A10 10 0 0 0 2 12a10 10 0 0 0 10 10 10 10 0 0 0 10-10c0-1.16-.21-2.31-.61-3.39l-1.6 1.6c.14.59.21 1.19.21 1.79a8 8 0 0 1-8 8 8 8 0 0 1-8-8 8 8 0 0 1 8-8c.6 0 1.2.07 1.79.21L15.4 2.6C14.31 2.21 13.16 2 12 2m7 0-4 4v1.5l-2.55 2.55C12.3 10 12.15 10 12 10a2 2 0 0 0-2 2 2 2 0 0 0 2 2 2 2 0 0 0 2-2c0-.15 0-.3-.05-.45L16.5 9H18l4-4h-3zm-7 4a6 6 0 0 0-6 6 6 6 0 0 0 6 6 6 6 0 0 0 6-6h-2a4 4 0 0 1-4 4 4 4 0 0 1-4-4 4 4 0 0 1 4-4z"/></svg></span> <strong><a href="bullseye/">Bullseye</a></strong></p>
+<hr />
+<p>Commercial, and licensed. Function and condition/decision coverage with reports generated through Bullseye’s own tools.</p>
+</li>
+</ul>
+</div>
 <h2 id="what-a-coverage-run-shows">What a coverage run shows</h2>
-<p>A coverage run shows each source file’s line, branch, and function coverage. The <em>Test Coverage</em> panel lists every file the report covers. In the editor, inline coverage marks each line’s hit count and each branch’s outcome. Test results appear in the <em>Testing</em> view exactly as for a plain run.</p>
-<p>The <em>Testing</em> view offers <em>Run with Coverage</em>, beside <em>Run</em> and <em>Debug</em>, while a project enables the gcov plugin. A coverage run rebuilds the tests with coverage instrumentation, which is slower. Plain runs don’t pay that cost, since only coverage runs use the plugin.</p>
-<h2 id="what-coverage-needs">What coverage needs</h2>
-<p>Coverage needs three pieces where Ceedling runs.</p>
-<ul>
-<li>Ceedling’s <a href="https://docs.throwtheswitch.org/Ceedling/latest/plugins/gcov/">gcov plugin</a>, enabled in <code>project.yml</code> or a mixin.</li>
-<li><code>gcov</code>, from the GCC toolchain.</li>
-<li>A report tool, either <a href="https://gcovr.com/">gcovr</a> or <a href="https://reportgenerator.io/">ReportGenerator</a>. Install gcovr with <code>pip install gcovr</code>. Install ReportGenerator, a .NET tool common on Windows, with <code>dotnet tool install -g dotnet-reportgenerator-globaltool</code>.</li>
-</ul>
-<p>The extension reads the Cobertura XML report either tool writes, so the project must list <code>Cobertura</code> among <code>:gcov:</code> ↳ <code>:reports:</code>.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">:plugins</span><span class="p">:</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">:enabled</span><span class="p">:</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gcov</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="nt">:gcov</span><span class="p">:</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">:utilities</span><span class="p">:</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">gcovr</span><span class="w">           </span><span class="c1"># or ReportGenerator, or both</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">:reports</span><span class="p">:</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Cobertura</span><span class="w">       </span><span class="c1"># the report the extension reads; add any others you want</span>
-</code></pre></div>
-<p>A mixin keeps these settings out of <code>project.yml</code>. Save the YAML above as, e.g., <code>coverage.yml</code>, and add it to <a href="../configuration/#ceedlingexplorermixins"><code>ceedlingExplorer.mixins</code></a>. Every run then has the plugin available, and only coverage runs use it.</p>
+<p>A coverage run shows each source file’s line, branch, and function coverage. The <em>Test Coverage</em> panel lists every file the report covers. In the editor, inline coverage marks each line’s hits and each branch’s outcome. Test results appear in the <em>Testing</em> view exactly as for a plain run.</p>
+<p>The <em>Testing</em> view offers <em>Run with Coverage</em>, beside <em>Run</em> and <em>Debug</em>, while a project enables a coverage plugin. A folder whose projects enable both plugins offers a profile for each, <em>Coverage (gcov)</em> and <em>Coverage (Bullseye)</em>. A coverage run rebuilds the tests with coverage instrumentation, which is slower. Plain runs don’t pay that cost, since only coverage runs use the plugins.</p>
+<h2 id="choosing-a-plugin">Choosing a plugin</h2>
+<p>The plugins differ in cost and in what they measure. Both report through the same views.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>gcov</th>
+<th>Bullseye</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cost</td>
+<td>Free, with GCC</td>
+<td>Commercial, with node-locked or floating licenses</td>
+</tr>
+<tr>
+<td>Measures</td>
+<td>Lines, branches, and functions</td>
+<td>Functions, and each decision and condition</td>
+</tr>
+<tr>
+<td>Hit counts</td>
+<td>How often each line ran</td>
+<td>Whether each line ran</td>
+</tr>
+<tr>
+<td>Report tools</td>
+<td>gcovr or ReportGenerator, installed apart</td>
+<td>Bullseye’s own</td>
+</tr>
+<tr>
+<td>Ceedling</td>
+<td>1.0.0 and later</td>
+<td>1.2.0 and later</td>
+</tr>
+</tbody>
+</table>
 <h2 id="how-coverage-runs-work">How coverage runs work</h2>
-<p>A coverage run uses Ceedling’s <code>gcov:</code> tasks in place of <code>test:</code> tasks. The <a href="../configuration/#ceedlingexplorercoveragecommandargs"><code>ceedlingExplorer.coverageCommandArgs</code></a> setting holds the task, as <code>ceedlingExplorer.testCommandArgs</code> holds a plain run’s.</p>
+<p>A coverage run uses its plugin’s tasks, <code>gcov:</code> or <code>bullseye:</code>, in place of <code>test:</code> tasks. The <a href="../configuration/#ceedlingexplorercoveragecommandargs"><code>ceedlingExplorer.coverageCommandArgs</code></a> setting holds the task, as <code>ceedlingExplorer.testCommandArgs</code> holds a plain run’s. Its <code>${PLUGIN}</code> tag names the run’s plugin.</p>
 <ul>
-<li><strong>One run, one measurement.</strong> Each coverage run shows only what it executed. The tools report every coverage counter in the build directory, so the extension clears the counters earlier runs left before each coverage run. To accumulate coverage across runs instead, as Ceedling itself does until <code>ceedling clean</code> or <code>clobber</code>, set <a href="../configuration/#ceedlingexplorercoverageresetscounters"><code>ceedlingExplorer.coverageResetsCounters</code></a> to <code>false</code>.</li>
-<li><strong>Overlapping runs.</strong> Two coverage runs at once in the same build directory share its counters, so each may show some of the other’s coverage.</li>
-<li><strong>Which report.</strong> With both tools enabled, the extension reads gcovr’s report.</li>
-<li><strong>Deferred reports.</strong> With <code>:gcov:</code> ↳ <code>:report_task: TRUE</code>, reports come only from Ceedling’s <code>report:gcov</code> task. A coverage run then adds that task to its own command line.</li>
-<li><strong>Several projects.</strong> A run spanning several projects shows their coverage together. A source file that several projects test shows their combined hits.</li>
+<li><strong>One run, one measurement.</strong> Each coverage run shows only what it executed. The plugins’ reports count everything earlier runs measured, so the extension first clears it: gcov’s counters, or Bullseye’s coverage file. To accumulate coverage across runs instead, as Ceedling itself does until <code>ceedling clean</code> or <code>clobber</code>, set <a href="../configuration/#ceedlingexplorercoverageresetscounters"><code>ceedlingExplorer.coverageResetsCounters</code></a> to <code>false</code>.</li>
+<li><strong>Overlapping runs.</strong> Two coverage runs at once over the same counters may each show some of the other’s coverage. gcov keeps them in the build directory, and Bullseye in the project directory.</li>
+<li><strong>Deferred reports.</strong> With <code>:report_task: TRUE</code> in the plugin’s settings, reports come only from its <code>report:gcov</code> or <code>report:bullseye</code> task. A coverage run then adds that task to its own command line.</li>
+<li><strong>Several projects.</strong> A run spanning several projects shows their coverage together. A source file that several projects test shows their combined hits. Projects sharing one Bullseye coverage file are the exception, since each one’s report counts the whole file.</li>
 <li><strong>Projects without the plugin.</strong> A coverage run still runs their tests, and a notification says why they have no coverage.</li>
-<li><strong>Same-named test files.</strong> Before Ceedling 1.2.1, <code>gcov:</code> tasks take a test file’s name without its directory, so they can’t tell apart same-named test files in different directories. Ceedling 1.2.0 then stops with an ambiguous file reference error, and earlier versions may run the other file. The extension warns in its log when that applies. Ceedling 1.2.1 and later take the file’s path, as <code>test:</code> tasks do.</li>
-</ul>
-<h2 id="what-each-tool-reports">What each tool reports</h2>
-<p>gcovr and ReportGenerator write the same report format, but they differ in what they include.</p>
-<ul>
-<li><strong>Sources outside the project.</strong> gcovr reports only files beneath its <code>:gcov:</code> ↳ <code>:gcovr:</code> ↳ <code>:report_root:</code>, which defaults to the project directory. To include sources above the project, set it to a directory that holds them all, e.g. <code>".."</code>. ReportGenerator includes every source directory in <code>:paths:</code>.</li>
-<li><strong>Functions.</strong> The <em>Test Coverage</em> panel lists functions when the report names them. ReportGenerator’s reports do. gcovr’s do in some versions, e.g. 8.6, and not in others, e.g. 5.0 and 7.2. Line and branch coverage appear either way.</li>
-<li><strong>Sources earlier runs built.</strong> ReportGenerator lists every source an earlier coverage build compiled, at 0% when this run didn’t execute it. gcovr leaves those out.</li>
+<li><strong>Both plugins in one project.</strong> Each profile measures through its own plugin. Each plugin builds apart, in its own build directory.</li>
+<li><strong>Same-named test files.</strong> Before Ceedling 1.2.1, coverage tasks take a test file’s name without its directory, so they can’t tell apart same-named test files in different directories. Ceedling 1.2.0 then stops with an ambiguous file reference error, and earlier versions may run the other file. The extension warns in its log when that applies. Ceedling 1.2.1 and later take the file’s path, as <code>test:</code> tasks do.</li>
 </ul>
 <h2 id="when-no-coverage-appears">When no coverage appears</h2>
 <p>A run can show no coverage for a handful of reasons, and a notification names most of them. Each reason is notified once a session. Every run also logs it, and notes it in the <em>Test Results</em> panel beside Ceedling’s full output.</p>
 <ul>
-<li><strong>No Cobertura report configured.</strong> A notification says to add <code>Cobertura</code> to <code>:gcov:</code> ↳ <code>:reports:</code>.</li>
-<li><strong>No report tool.</strong> The report tool isn’t installed where Ceedling runs, or isn’t on that shell’s <code>PATH</code>. A notification names the report it expected.</li>
-<li><strong>No sources in the report.</strong> A notification says so. gcovr reports only sources beneath its <code>:report_root:</code>, as above.</li>
+<li><strong>No Cobertura report configured.</strong> The extension reads the Cobertura report each plugin can write. A notification says which setting chooses it.</li>
+<li><strong>No report written.</strong> The plugin’s tools aren’t installed where Ceedling runs, aren’t on that shell’s <code>PATH</code>, or, for Bullseye, aren’t licensed. A notification names the report it expected.</li>
+<li><strong>No sources in the report.</strong> A notification says so, and what the plugin leaves out.</li>
 <li><strong>A failed build.</strong> No report is written, and the <em>Testing</em> view shows the build’s errors.</li>
 </ul>
+<p>Each plugin’s page lists its own causes, for <a href="gcov/#when-no-coverage-appears">gcov</a> and for <a href="bullseye/#when-no-coverage-appears">Bullseye</a>.</p>
 <p><br/><br/></p>
 
 

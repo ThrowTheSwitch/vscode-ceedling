@@ -1065,9 +1065,39 @@
   
   
   
-    <li class="md-nav__item">
-      <a href="../code-coverage/" class="md-nav__link">
+    
+    
+      
         
+          
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+          
+          
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../code-coverage/" class="md-nav__link ">
+              
   
   
   <span class="md-ellipsis">
@@ -1081,7 +1111,87 @@
   
   
 
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3_5" id="__nav_3_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Code Coverage
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../code-coverage/gcov/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    gcov
+  
+
+    
+  </span>
+  
+  
+
       </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../code-coverage/bullseye/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bullseye
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
     </li>
   
 
@@ -1447,7 +1557,7 @@
 <p><img alt="Running tests from the gutter" src="../../assets/images/run.png" width="276" /></p>
 <p>The view groups tests by where they come from. A workspace folder holding several Ceedling projects lists each project, by its <a href="../configuration/#ceedlingexplorerprojects"><code>name</code></a>, with its test files beneath it. A folder holding one project lists its test files directly. A workspace with several folders adds an entry per folder, labeled <em>Ceedling (folder)</em>.</p>
 <h2 id="how-a-run-calls-ceedling">How a run calls Ceedling</h2>
-<p>Each run calls one of Ceedling’s <code>test:</code> tasks, with the arguments <a href="../configuration/#ceedlingexplorertestcommandargs"><code>ceedlingExplorer.testCommandArgs</code></a> gives. A run of a test file runs that file’s task, and a run of a whole project runs <code>test:all</code>. Coverage runs use <code>gcov:</code> tasks instead, as <a href="../code-coverage/#how-coverage-runs-work">Code Coverage</a> explains.</p>
+<p>Each run calls one of Ceedling’s <code>test:</code> tasks, with the arguments <a href="../configuration/#ceedlingexplorertestcommandargs"><code>ceedlingExplorer.testCommandArgs</code></a> gives. A run of a test file runs that file’s task, and a run of a whole project runs <code>test:all</code>. Coverage runs use their plugin’s tasks instead, <code>gcov:</code> or <code>bullseye:</code>, as <a href="../code-coverage/#how-coverage-runs-work">Code Coverage</a> explains.</p>
 <p>A run covering several projects runs them one after another. Separate runs of projects in different directories may overlap. Commands within one project directory, or in projects sharing a build directory, never overlap, since Ceedling’s builds there would collide.</p>
 <h2 id="a-single-test">A single test</h2>
 <p>Running a single test function runs only that function, through Ceedling’s <code>--test-case</code> filter. Ceedling still compiles the function’s whole test file.</p>
