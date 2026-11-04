@@ -66,7 +66,7 @@ Open problems are listed by Ceedling version in the [Known Issues][known-issues]
 [projects]: manual/configuration.md#ceedlingexplorerprojects
 [problem-matching]: manual/problem-matching.md
 [debugging]: manual/debugging.md
-[no-coverage]: manual/code-coverage.md#when-no-coverage-appears
+[no-coverage]: manual/code-coverage/index.md#when-no-coverage-appears
 [ceedling-1365]: https://github.com/ThrowTheSwitch/Ceedling/issues/1365
 
 <br/><br/>

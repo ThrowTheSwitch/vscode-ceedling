@@ -12,3 +12,5 @@ Each test file plays one part:
 A build that finds `build/cache/.test.dep_cache.json` at schema version 1, as Ceedling 1.2.0 and 1.2.1 leave it, logs Ceedling 1.2.2's captured layout upgrade warning from [`ceedling-1.2.2/test-upgrade-stdout.txt`](../ceedling-1.2.2/test-upgrade-stdout.txt). It then moves the cache to version 2, as Ceedling does, so only the first build warns.
 
 The scenario's `gcov` section enables Ceedling's gcov plugin with a Cobertura report. A coverage run of `test_calc.c` covers `src/calc.c`: three lines, one of them a half-taken branch, and the function `add`.
+
+An integration test adds a `bullseye` section to the scenario, enabling Ceedling's Bullseye plugin beside gcov. Its `bullseye:` tasks add the same coverage to the project's coverage file, `test.cov`, here JSON, and write Bullseye's cumulative Cobertura report. The fake's dumpconfig puts [`fake-ceedling/bin/`](../fake-ceedling/bin) on `:environment` ↳ `:path`, and its `covclear` there zeroes the coverage file, so a run finds it only through the project's environment.

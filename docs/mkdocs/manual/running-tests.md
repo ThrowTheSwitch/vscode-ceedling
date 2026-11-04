@@ -12,7 +12,7 @@ The view groups tests by where they come from. A workspace folder holding severa
 
 ## How a run calls Ceedling
 
-Each run calls one of Ceedling’s `test:` tasks, with the arguments [`ceedlingExplorer.testCommandArgs`][test-args] gives. A run of a test file runs that file’s task, and a run of a whole project runs `test:all`. Coverage runs use `gcov:` tasks instead, as [Code Coverage][coverage-runs] explains.
+Each run calls one of Ceedling’s `test:` tasks, with the arguments [`ceedlingExplorer.testCommandArgs`][test-args] gives. A run of a test file runs that file’s task, and a run of a whole project runs `test:all`. Coverage runs use their plugin’s tasks instead, `gcov:` or `bullseye:`, as [Code Coverage][coverage-runs] explains.
 
 A run covering several projects runs them one after another. Separate runs of projects in different directories may overlap. Commands within one project directory, or in projects sharing a build directory, never overlap, since Ceedling’s builds there would collide.
 
@@ -74,7 +74,7 @@ Ceedling 1.2.2 builds each test in a new place, and an earlier release’s build
 [debugging]: debugging.md
 [projects]: configuration.md#ceedlingexplorerprojects
 [test-args]: configuration.md#ceedlingexplorertestcommandargs
-[coverage-runs]: code-coverage.md#how-coverage-runs-work
+[coverage-runs]: code-coverage/index.md#how-coverage-runs-work
 [problem-matching]: problem-matching.md
 [crashes]: debugging.md#crashing-tests
 [pretty-test]: configuration.md#ceedlingexplorerprettytestlabel

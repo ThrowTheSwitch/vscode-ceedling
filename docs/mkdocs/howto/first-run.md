@@ -47,7 +47,7 @@ The test list keeps itself current from then on. Editing a test file updates its
 ## Next steps
 
 - [Debug a Test][debug] adds a launch configuration, so any test runs under the debugger.
-- [Measure Code Coverage][coverage] adds Ceedling’s gcov plugin, for _Run with Coverage_.
+- [Measure Code Coverage][coverage] adds Ceedling’s Gcov or Bullseye plugin, for _Run with Coverage_.
 - [See Compiler Errors in the Editor][problems] puts compiler and linker errors in the _Problems_ panel.
 
 [installations]: ceedling-installations.md

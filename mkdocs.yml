@@ -112,7 +112,10 @@ nav:
     - Getting Started: manual/getting-started.md
     - Running Tests: manual/running-tests.md
     - Debugging: manual/debugging.md
-    - Code Coverage: manual/code-coverage.md
+    - Code Coverage:
+      - manual/code-coverage/index.md
+      - gcov: manual/code-coverage/gcov.md
+      - Bullseye: manual/code-coverage/bullseye.md
     - Problem Matching: manual/problem-matching.md
     - Configuration: manual/configuration.md
   - Reference: reference.md

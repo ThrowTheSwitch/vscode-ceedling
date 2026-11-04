@@ -154,7 +154,7 @@ See [tests/manual/README.md](../tests/manual/README.md) for the `project.yml` se
 
 ## 5. Validation Against Real Ceedling
 
-The unit and integration tests run against a simulated Ceedling. The validation suites run the engine against real Ceedling releases instead, to catch what a simulation can’t: races at real build speeds, each version’s own behavior, and real gcovr and ReportGenerator output. They aren’t part of `just test` or CI. Before a release, run `just validate-matrix`. Also run them on each new Ceedling release, and after changing the engine’s locking, its Ceedling command lines, or its coverage handling.
+The unit and integration tests run against a simulated Ceedling. The validation suites run the engine against real Ceedling releases instead, to catch what a simulation can’t: races at real build speeds, each version’s own behavior, and real gcovr, ReportGenerator, and Bullseye output. They aren’t part of `just test` or CI. Before a release, run `just validate-matrix`. Also run them on each new Ceedling release, and after changing the engine’s locking, its Ceedling command lines, or its coverage handling.
 
 ```sh
 just validate 1.2.1                   # every suite, on Ceedling 1.2.1
@@ -163,11 +163,12 @@ just validate 1.1.10 stress 120 6 7   # 120 seconds, 6 operations at once, seed 
 just validate 1.2.1 probe:syscalls    # one probe
 just validate /abs/ceedling-1.2.2.gem # every suite, on a local Ceedling gem
 just validate-matrix 45               # every suite and probe, on each version in MATRIX
+just validate-bullseye 1.2.2 ~/Downloads/BullseyeCoverage-9.27.1   # the bullseye suite, with BULLSEYE_LICENSE_KEY set
 ```
 
 A suite prints what it ran and every violation it found. It exits 0 only when every check held.
 
-`all`, the default, runs every suite in a fixed order. `stress` runs first, then again with one build root. `coverage`, `gated`, and `layout` follow. `latency` runs next, then again with a vendored Ceedling. `mixed` and `upgrade` run last. Trailing numbers go to `stress` and `coverage` only. `just validate 1.2.1 all 45` gives each of their overlap phases 45 seconds, and takes about six minutes. The default of 60 seconds takes about a minute more.
+`all`, the default, runs every suite in a fixed order. `stress` runs first, then again with one build root. `coverage`, `gated`, and `layout` follow. `latency` runs next, then again with a vendored Ceedling. `mixed` and `upgrade` run last. `bullseye` is never in `all`, since it needs a Bullseye license. Trailing numbers go to `stress` and `coverage` only. `just validate 1.2.1 all 45` gives each of their overlap phases 45 seconds, and takes about six minutes. The default of 60 seconds takes about a minute more.
 
 ### How they run
 
@@ -183,6 +184,14 @@ A suite prints what it ran and every violation it found. It exits 0 only when ev
 - Each suite runs in a fresh container, with the repo and the `node_modules` volume mounted read-only. It copies its projects from fixtures into the container’s own `/ws` and builds them there, so nothing is left on the host.
 - A suite drives the compiled `CeedlingEngine` directly, with VS Code’s side stubbed: settings, the log, and the diagnostics sink. Every Ceedling command it issues is real.
 
+### Bullseye
+
+The `bullseye` suite needs Bullseye Coverage, which is commercial and can’t live in an image. Each run therefore installs it into its own container from your installer, and nothing of it outlives the container.
+- `just validate-bullseye <version> <installer>` compiles the tests, then runs `run.sh <version> bullseye`. `<installer>` is an unpacked Bullseye Coverage installer for Linux x64, the directory holding its `install` script.
+- `BULLSEYE_LICENSE_KEY` must hold the license key, in the shell running `just`. `run.sh` passes it to the container, which installs Bullseye under `/tmp/bullseye` with `install --key`, then unsets it before the suite starts. The installer’s output, which names the license, stays in the container.
+- The suite skips Ceedling before 1.2.0, whose plugin is disabled, and stops when `covclear` isn’t on the `PATH`.
+- [`tests/fixtures/capture/capture-bullseye.sh`](../tests/fixtures/capture/capture-bullseye.sh) installs Bullseye the same way, to capture fixtures. See [the fixtures README](../tests/fixtures/README.md#bullseye-reports).
+
 ### The suites
 
 | Suite | Checks | Versions |
@@ -191,6 +200,7 @@ A suite prints what it ran and every violation it found. It exits 0 only when ev
 | `coverage` | Exact outcomes one run at a time: gcovr preferred over ReportGenerator, counters reset or kept, a function run, a source above the project, ReportGenerator alone. Then coverage runs overlapping plain runs, discovery, reparses, and clean. Takes seconds (60), operations at once (5), and a seed (1). | All. 1.0.0’s image has no ReportGenerator, so its checks skip. |
 | `gated` | The engine’s per-version command lines, on same-named test files: coverage tasks named by path from 1.2.1, or by bare name with a warning on 1.2.0. Also `:report_task:`, a changed `--test-case` filter, plain runs, and a debug build’s executable, checked against what Ceedling built. | 1.2.0 and later |
 | `layout` | Exact test build directories in a project with two test roots. Each debug build must return the one executable Ceedling just built, every older copy deleted first. A coverage request whose filter falls back to a whole-file rerun must give the hits of a request that ran the whole file at once. | 1.2.0 and later. Coverage from 1.2.1, since 1.2.0’s `gcov:` tasks can’t name either file. |
+| `bullseye` | Exact outcomes one run at a time, against a licensed Bullseye: a first build with nothing to reset, `covclear` resets before each later request, measurements kept when resets are off, a source above the project, a function run’s whole-file fallback, a project run, `:report_task:`, a `:native` report’s configuration problem, and two projects in one directory sharing one reset. Run through `just validate-bullseye`, never `all`. | 1.2.0 and later |
 | `latency` | Runs a rediscovery during a full build that a slow test keeps running about 4 seconds. From 1.2.1, the rediscovery’s `dumpconfig` must start before the build ends. Before 1.2.1, its `dumpconfig` must not start before the build ends, since it waits for the build’s locks, as [Architecture.md](Architecture.md#discovery-without-the-locks-from-121) explains. The build’s results must be unchanged. `--vendored` first copies the image’s own Ceedling into the project’s `vendor/ceedling`, without `:which_ceedling`. `ceedling version` must then report a launcher and an application, and the copy must gate as the installed Ceedling does. | All |
 | `mixed` | Each installation under `/opt/ceedling`, selected each way Ceedling allows: `:which_ceedling` in the project file or in a mixin, `WHICH_CEEDLING`, and a copy in `vendor/ceedling`. Ceedling alone first shows whether the image’s launcher can run it, and must name the installation it launches. Where it can’t, Ceedling’s own exception must reach the user. Where it can, a run’s results must match the image’s own Ceedling’s, and a rediscovery during it must list every test file. A debug build of a nested test must return the executable Ceedling just built. Before 1.2.1 the rediscovery must take the locks. From 1.2.1 the suite only prints whether it skipped them. | All |
 | `upgrade` | A project built by each older installation, through `WHICH_CEEDLING`, then by the image’s own Ceedling, as after an upgrade, with coverage counters reset and kept. A debug build of a nested test must return the executable just built, never one an older layout left. Where Ceedling warns of a moved layout, the engine must offer one clobber, and elsewhere none, so a reworded warning fails here. With counters reset, coverage must equal a clobbered build’s. With them kept, where the layout moved, it must differ, since reports count the old layout’s counters too. Installations the launcher can’t run are skipped. | All. On 1.0.0 nothing is older. It matters most on 1.2.2, which moves each test’s build output. |
@@ -210,6 +220,7 @@ The probes run Ceedling alone, without the engine, to show the Ceedling behavior
 Each new Ceedling release needs these checks before the extension supports it, since discovery skips the engine’s locks on every release from 1.2.1.
 1. Run `just validate <version>`, then `just validate <version> probe:syscalls` and `just validate <version> probe:overlap`. Before the release is published, run `CEEDLING_GEM=<path> just validate-matrix` instead. It runs every check on the gem, and every older launcher against it.
 2. `probe:syscalls` must show no writes under `build/`, nor any outside `/dev`, `/proc`, and `/tmp`. `probe:overlap` must show `clobber` leaving no files outside `build/vendor/`, and the next build recompiling every file.
+   With a Bullseye installer and license at hand, also run `just validate-bullseye <version> <installer>`. A release changing the Bullseye plugin needs its fixtures recaptured too, with `capture-bullseye.sh`.
 3. To confirm the validation still catches a broken gate, temporarily make `discovering()` in `ceedlingEngine.ts` always skip the locks. Then `just validate 1.2.0 latency` must fail, as must `just validate <newest> mixed`. `stress --shared-build-root` may still pass, since the overlap rarely corrupts a build.
 4. Record the release’s new features. Add each to `APPLICATION_FEATURES` or `LAUNCHER_FEATURES` in `ceedlingVersions.ts`, and to the table in [Architecture.md](Architecture.md#ceedling-versions), which `tests/unit/docs.test.ts` checks against them. Update the supported range in the README and in the site’s [Getting Started](mkdocs/manual/getting-started.md) page, and capture `tests/fixtures/ceedling-<version>/` transcripts.
 5. Once its image is published, add it to `sidecar/validate.Dockerfile`. That takes a `FROM` stage for its image and a `COPY` from that image’s Ruby gem directory. Add its version to `MATRIX`’s default in `matrix.sh` and to the versions this section names. Consider making it the `CEEDLING_BASE` default in `run.sh`.
@@ -266,6 +277,7 @@ Every step runs against [`tests/manual/`](../tests/manual/), opened as its own f
 - [ ] **Coverage of one run.** Run with coverage a single test of `test_calculator.c`, then the whole file. Each run’s hit counts reflect only that run. Set `"ceedlingExplorer.coverageResetsCounters": false`, and repeat the file run twice. The hit counts grow. Revert the setting after.
 - [ ] **Coverage with ReportGenerator.** With ReportGenerator installed, use `mixins/coverage-reportgenerator.yml` in place of the gcovr mixin. Coverage shows as with gcovr, including function rows in the Test Coverage panel.
 - [ ] **Coverage of same-named test files.** Add `test/alpha/test_dup.c` and `test/beta/test_dup.c`, each with one test calling a different function of `src/Calculator.c`. On 1.2.1, Run with Coverage each file. Each passes and shows only its own function as executed. On 1.2.0, the same run errors with Ceedling’s ambiguous file reference error, and the Ceedling Explorer log warns about the ambiguous name. Revert after.
+- [ ] **Coverage with Bullseye.** With a licensed Bullseye on the `PATH` and Ceedling 1.2.0 or later, use `mixins/coverage-bullseye.yml` in place of the gcovr mixin. Coverage shows as with gcovr, each executed line with one hit, and functions named with their signatures. Run the file twice. The Ceedling Explorer log (Trace level) shows `covclear` before the second run’s build, and its coverage matches the first. Add the gcovr mixin beside it, and the Testing view offers _Coverage (gcov)_ and _Coverage (Bullseye)_, each running its own plugin’s tasks. Revert after.
 - [ ] **No Cobertura report.** Use `mixins/coverage-no-cobertura.yml` in place of the gcovr mixin. Run with Coverage still runs the tests. A notification says to add `Cobertura` to `:gcov:` ↳ `:reports:`. Remove the mixin setting after, and Run with Coverage disappears.
 
 ## 7. The Sidecar
@@ -312,6 +324,7 @@ There are two modes.
 | `just coverage` | Runs the unit suite with coverage, writing `coverage/index.html` |
 | `just validate <version> [suite]` | Runs the validation suites against a real Ceedling release, from the host. See [Section 5](#5-validation-against-real-ceedling) |
 | `just validate-matrix [seconds]` | Runs every validation suite and probe on each version in `MATRIX`, from the host. See [Section 5](#5-validation-against-real-ceedling) |
+| `just validate-bullseye <version> <installer>` | Runs the `bullseye` suite against a real Ceedling release, installing Bullseye for the run. Requires `BULLSEYE_LICENSE_KEY`. See [Bullseye](#bullseye) |
 | `just package` | Produces a `.vsix` |
 | `just publish` | Publishes to the Marketplace. Requires `VSCE_PAT` |
 | `just shell` | Opens an interactive container session |

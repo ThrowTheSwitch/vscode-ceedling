@@ -57,7 +57,8 @@ No core module imports `vscode`, even for types, nor any adapter module. The cor
 | `src/problemMatcher.ts` | VS Code | Publishes diagnostics to the Problems panel’s `DiagnosticCollection` |
 | `src/logger.ts` | VS Code | The “Ceedling Explorer” log output channel |
 | `src/ceedlingEngine.ts` | Pure | Orchestration and per-folder state: discover, run, debug build, coverage, clean, clobber, and the locks |
-| `src/ceedlingProjectConfig.ts` | Pure | Settings → projects, with load errors; resolved configuration → `ProjectState` and `CoverageState`; the `LoadedProject` type |
+| `src/ceedlingProjectConfig.ts` | Pure | Settings → projects, with load errors; resolved configuration → `ProjectState`; the `LoadedProject` type |
+| `src/coveragePlugins.ts` | Pure | The coverage plugins, gcov and Bullseye, and all that differs between them: each one’s `CoverageState`, build context, counter reset, and advice |
 | `src/ceedlingVersions.ts` | Pure | The feature tables, what a version report says, the version check, and `releaseKnown()` |
 | `src/buildLayout.ts` | Pure | Where each release builds a test: build names, executables, build-root paths, and candidate places |
 | `src/ceedlingCommandLine.ts` | Pure | The `--project`/`--mixin` flags, and the tasks that run a test file |
@@ -68,7 +69,7 @@ No core module imports `vscode`, even for types, nor any adapter module. The cor
 | `src/ceedlingProcess.ts` | Pure | Running Ceedling, with per-run cancellation |
 | `src/unityTestDiscovery.ts` | Pure | Test functions and cases in source, named as Unity names them |
 | `src/testResults.ts` | Pure | The CppUnit report, mapped onto discovered ids |
-| `src/coberturaReport.ts` | Pure | Cobertura coverage reports, each file’s candidate paths, and merging a run’s reports |
+| `src/coberturaReport.ts` | Pure | Cobertura coverage reports, each file’s candidate paths, and merging a request’s reports by the counters they count |
 | `src/parsedXml.ts` | Pure | Field access into untyped parsed data, XML as `xml2js` parses it and YAML as `js-yaml` loads it |
 | `src/runPlan.ts` | Pure | A run request → the fewest Ceedling invocations |
 | `src/testModel.ts` | Pure | The test tree types, the `RunReporter` interface, and the controller’s label |
@@ -90,7 +91,7 @@ Two Ceedling constraints shape everything else. Ceedling always compiles a whole
 
 ## 2. The VS Code APIs it builds on
 
-The extension is a native Testing API client, plus a handful of workspace, debug, diagnostics, and window APIs. Every `vscode` call lives in the four adapter modules. Its minimum, VS Code 1.88, is the release that finalized the test coverage API.
+The extension is a native Testing API client, plus a handful of workspace, debug, diagnostics, and window APIs. Every `vscode` call lives in the four adapter modules. Its minimum, VS Code 1.88.0, is the release that finalized the test coverage API.
 
 ### Activation and lifetime
 
@@ -102,13 +103,13 @@ A `CeedlingTestController` owns at most one `vscode.TestController`, created by 
 
 - **The tree.** `createTestItem()` builds a project item (with several projects), file items, function items, and case items. Function and case items carry a `range`, which places their gutter icons. `items.replace()` and `children.replace()` swap whole levels. A `WeakMap<TestItem, PlanTarget>` maps each item back to what it runs.
 - **Handlers.** `resolveHandler` for the root, and `refreshHandler` for the refresh button, both start discovery.
-- **Run profiles.** `createRunProfile()` makes three. _Run_ (`TestRunProfileKind.Run`) and _Debug_ (`TestRunProfileKind.Debug`) are defaults. _Coverage_ (`TestRunProfileKind.Coverage`) exists only while some project enables Ceedling’s gcov plugin. `syncCoverageProfile()` creates or disposes it after each discovery.
+- **Run profiles.** `createRunProfile()` makes _Run_ (`TestRunProfileKind.Run`) and _Debug_ (`TestRunProfileKind.Debug`), both defaults. It also makes a _Coverage_ profile (`TestRunProfileKind.Coverage`) for each coverage plugin some project enables. `syncCoverageProfiles()` creates, relabels, or disposes them after each discovery. `coverageProfileLabel()` names a lone profile _Coverage_, and each of two by its plugin, e.g. _Coverage (Bullseye)_.
 - **Runs.** `createTestRun()` starts a `TestRun`. `handleRun()` marks every planned item `enqueued()`. The controller’s reporter, which the engine reports through, calls `started()`, `passed()`, `failed()`, `skipped()`, and `errored()`. `handleRun()` calls `end()` once every entry has run. `appendOutput()` takes Ceedling’s transcript, with `\r\n` line ends, as the Test Results terminal needs.
 - **Messages.** A `TestMessage` carries a failure’s `location`. A crash’s gdb log becomes a link in a `MarkdownString` message.
 
 ### The test coverage API
 
-A coverage run hands VS Code one `FileCoverage` per source file, through `TestRun.addCoverage()`. `FileCoverage.fromDetails()` builds each from its details: a `StatementCoverage` per line, with a `BranchCoverage` per branch outcome, and a `DeclarationCoverage` per function. The Coverage profile’s `loadDetailedCoverage` returns those details when the editor shows inline coverage. VS Code asks with the same `FileCoverage` object it was given, so a `WeakMap` keyed by that object keeps each run’s details its own. Cobertura numbers lines from 1, and VS Code’s `Position` from 0.
+A coverage run hands VS Code one `FileCoverage` per source file, through `TestRun.addCoverage()`. `FileCoverage.fromDetails()` builds each from its details: a `StatementCoverage` per line, with a `BranchCoverage` per branch outcome, and a `DeclarationCoverage` per function. Each Coverage profile’s `loadDetailedCoverage` returns those details when the editor shows inline coverage. VS Code asks with the same `FileCoverage` object it was given, so a `WeakMap` keyed by that object keeps each run’s details its own. Cobertura numbers lines from 1, and VS Code’s `Position` from 0.
 
 ### The debug API
 
@@ -152,12 +153,12 @@ sequenceDiagram
     end
     EN->>EN: read sources (16 at a time), discoverTests()
     EN-->>TC: CeedlingProjectNode[]
-    TC->>TC: rebuildTree(), syncCoverageProfile(), updateWatchers()
+    TC->>TC: rebuildTree(), syncCoverageProfiles(), updateWatchers()
 ```
 
 1. `projectsFromSettings()` turns `ceedlingExplorer.projects` and `ceedlingExplorer.mixins` into `CeedlingProject`s: key, absolute path, project file, launch configuration name, and mixins. A malformed setting, e.g. a `path` that isn't a string, is a load error naming it. A path ending in `.yml` or `.yaml`, in either letter case, names a project file, as `isYamlFile()` decides for mixins too. Projects whose project file exists become the engine’s `candidates`.
 2. For each candidate, `checkVersion()` in `ceedlingVersions.ts` runs `ceedling version` in the project directory and requires 1.0.0 or later. `capabilitiesOf()` turns the version into the features this extension may use. See [Ceedling versions](#ceedling-versions). `ceedling version` honors a Ceedling vendored in the directory’s `vendor/ceedling`, or named by `WHICH_CEEDLING`. It then reports the launcher and the application separately. Before 1.2.2 it never loads the project file, so it can’t check a Ceedling that `:project` ↳ `:which_ceedling` selects. `ProjectState.whichCeedling` records that choice for `releaseKnown()`. From 1.2.2 it reads the default project file and takes `--project` and `--mixin`. Every project then checks again with its own arguments, as its other commands run. Older launchers reject both options. The check returns a `VersionCheck`. One that Ceedling stops with an exception, e.g. for a missing mixin, is a `configuration` problem. That becomes the project’s load error, quoting the exception. An `unusable` Ceedling stops discovery.
-3. `resolveConfig()` runs `ceedling dumpconfig` with the project’s flags and parses the YAML. Ceedling 1.2.0 writes it to stdout (`--stdout`). Earlier versions write it to a uniquely named temporary file, which is then removed. `projectState()` reads the `ProjectState` from it: `buildRoot`, `reportFilename`, `testPrefix`, `testFilePrefix`, `executableExtension`, `useParamTests`, `reportPluginEnabled`, `coverage`, `testPaths`, and `whichCeedling`. `configurationFingerprint()` digests the files and settings the state came from, kept as `LoadedProject.configuration`. The next discovery trusts the state only while that digest is unchanged.
+3. `resolveConfig()` runs `ceedling dumpconfig` with the project’s flags and parses the YAML. Ceedling 1.2.0 writes it to stdout (`--stdout`). Earlier versions write it to a uniquely named temporary file, which is then removed. `projectState()` reads the `ProjectState` from it: `buildRoot`, `reportFilename`, `testPrefix`, `testFilePrefix`, `executableExtension`, `useParamTests`, `reportPluginEnabled`, `coverage`, `testPaths`, `whichCeedling`, and `environment`, the `:environment` Ceedling sets for its tools. `configurationFingerprint()` digests the files and settings the state came from, kept as `LoadedProject.configuration`. The next discovery trusts the state only while that digest is unchanged.
 4. Once every project has loaded, `listTestFiles()` runs `ceedling files:test` and parses its bullets with `parseFileListBullets()`. A failed listing fails discovery, naming each project whose listing failed, and quoting Ceedling’s exception when it gave one.
 5. `testFileNodes()` in `testFileNodes.ts` reads each file and calls `discoverTests(source, { testPrefix, useParamTests })`. It finds tests in source exactly as Ceedling’s test runner generator does, so every reported result lands on a discovered item. A function’s id is `file::name`, and a case’s is `file::name(args)`, exactly the names in Ceedling’s report.
 
@@ -197,7 +198,7 @@ sequenceDiagram
 ```
 
 - **Planning.** `buildRunPlan(projects, include, exclude)` returns `RunPlanEntry`s of three kinds. A `project` entry runs `test:all`. A `file` entry runs `test:<file>`. A `function` entry adds `--test-case=<name>`. Excluded items narrow the plan to function granularity at most. The reporter drops their results.
-- **Running.** `runTests()` marks every id started, then takes its project’s locks. `buildAndRun()` deletes stale reports in `artifacts/test` and `artifacts/gcov`, runs Ceedling, appends the transcript to the run’s output, notes a layout upgrade (see [Test build directories](#test-build-directories)), updates diagnostics through `matchProblems()`, and reads the newest report.
+- **Running.** `runTests()` marks every id started, then takes its project’s locks. `buildAndRun()` deletes stale reports in each build context’s artifacts, `artifacts/test`, `artifacts/gcov`, and `artifacts/bullseye`, runs Ceedling, appends the transcript to the run’s output, notes a layout upgrade (see [Test build directories](#test-build-directories)), updates diagnostics through `matchProblems()`, and reads the newest report.
 - **Reporting.** `testResults(report, leafIds)` yields `passed`, `skipped`, `failed`, and `unreported` results. An `unreported` id gets an error naming the likely cause: discovery and Ceedling disagree about its name. `reportResults()` and `reportOf()` in `buildReporting.ts` serve runs and debug builds alike. A cancelled build’s tests are skipped. With no report at all, every id errors. The Testing view shows a message’s first line, so the most severe compiler diagnostic leads the message, then Ceedling’s `EXCEPTION` block from `extractCeedlingException()`, then the transcript. The controller’s reporter, from `createRunReporter()`, maps each id to its TestItem. It drops results for excluded items and, with a warning, for unknown ids, and turns a crash’s gdb log path into a link.
 - **Edge cases.** A `--test-case` run whose report also names another function, from Ceedling’s substring filter, reruns the whole file. A cancelled run kills only its own process tree, through `CeedlingRunner`, and marks its tests skipped.
 
@@ -205,7 +206,7 @@ Diagnostics are keyed by run scope: the project key for a project run, and `file
 
 ### Test build directories
 
-Ceedling builds each test file in directories named for it, under `test/out`, `gcov/out`, and the rest of the build root. Debugging needs the executable there, and a coverage collision needs the counters. Each release lays them out in one of three ways, which `testBuildLayout(capabilities)` names. `testBuildName(testId, layout, project)` in `buildLayout.ts` then computes the name exactly as Ceedling does.
+Ceedling builds each test file in directories named for it, under `test/out`, each coverage plugin’s `gcov/out` or `bullseye/out`, and the rest of the build root. Debugging needs the executable there, and a gcov coverage collision needs the counters. Each release lays them out in one of three ways, which `testBuildLayout(capabilities)` names. `testBuildName(testId, layout, project)` in `buildLayout.ts` then computes the name exactly as Ceedling does.
 
 - **`flat`, before 1.2.0.** The name is the test file’s base name, e.g. `test_foo` for `test/unit/test_foo.c`.
 - **`testRoot`, 1.2.0 and 1.2.1.** The file’s directory within its test path comes first, e.g. `unit/test_foo`. Ceedling’s `TestBuildSetup` derives it through `PathMirror.relative_subdir` over `:paths` ↳ `:test`, which `ProjectState.testPaths` holds as configured.
@@ -222,7 +223,7 @@ Ceedling 1.2.0 and 1.2.1 can’t build some same-named layouts ([Ceedling#1364](
 A release that moves the layout leaves the earlier layout’s output in place until `clobber`. Ceedling 1.2.2’s first build after 1.2.0 or 1.2.1 sets their dependency cache aside, and warns on stdout once for each cache. Earlier releases keep no cache, so an upgrade from them goes unannounced.
 - **Recognizing it.** `buildAndRun()` checks each build’s output with `detectLayoutUpgrade()`, which wants the warning’s key words on one line, in any case. A cancelled build counts, since Ceedling warns as the build starts and rewrites its cache even when stopped. A reworded or decorated warning still counts. The `upgrade` validation suite fails if live Ceedling’s warning stops being recognized.
 - **Offering a clobber.** The engine calls `EngineDeps.onLayoutUpgrade` once per project a session, with a notice. The controller’s `offerClobber()` shows it with a Clobber action. The notice shows mid-run, so the action waits for every run and debug session under way, as `ActivityTracker` records them, then runs `clobberProject()` for that project alone. A clobber between a run’s builds would rebuild the rest from scratch. One for a project a rediscovery dropped fails, running nothing.
-- **Coverage.** Reports read every counter on disk. `prepareCoverage()`’s reset clears the old layout’s with the rest, so they count only with `coverageResetsCounters` off. The notice says which applies.
+- **Coverage.** gcov’s reports read every counter on disk. `prepareCoverage()`’s reset clears the old layout’s with the rest, so they count only with `coverageResetsCounters` off. The notice says which applies, for a project with a plugin whose reset deletes counters. Bullseye’s coverage file counts only what runs, and the old layout’s executables never run again.
 
 ### Debugging
 
@@ -237,13 +238,26 @@ A release known exactly says where its executable goes. Otherwise the project ma
 
 ### Coverage
 
-A coverage run is an ordinary run with a `RunMode` of `coverage`. The controller creates a fresh one per request with `coverageMode()`. Its `CoverageRun` remembers which counter directories the request has already reset.
+A coverage run is an ordinary run with a `RunMode` of `coverage`, through one of Ceedling’s coverage plugins, gcov or Bullseye. The controller creates a fresh mode per request with `coverageMode(plugin)`, for the profile that started it. Its `CoverageRun` remembers which counter stores the request has already reset.
 
-- **Configuration.** `coverageState()` reads the resolved configuration. It says whether reports wait for `report:gcov`. It also lists where each enabled utility writes its Cobertura report, relative to the build root, gcovr’s first. ReportGenerator writes `ReportGenerator/Cobertura.xml`, or `ReportGenerator/Cobertura/Cobertura.xml` with several report types. `coverageProblem()` explains a project that writes no Cobertura report.
-- **Building.** `taskArgs()` in `ceedlingCommandLine.ts` uses `coverageCommandArgs`. Before Ceedling 1.2.1 it passes the bare file name, since the `gcov:` task prepends the test file prefix to a name lacking it. From 1.2.1 it passes the path. It appends `report:gcov` when reports wait for that task. Under the project’s locks, `prepareCoverage()` deletes stale Cobertura reports. Once per counter directory per request, it also deletes the `.gcda` counters, and the `.gcov` files gcov writes from them, under `<build>/gcov/out`, unless `coverageResetsCounters` is off.
-- **Collisions.** A `--test-case` collision clears only its test’s own counters before the whole-file fallback. The fallback’s own build clears them, under the same locks, so no other build of the file can add counts between the clear and the build. With `coverageResetsCounters` off they stay. The engine picks the places through `ownOrUnclaimed()` and `projectBuildName()`: the test’s build directory in `gcov/out`, so same-named test files elsewhere keep theirs, and for a release not known exactly each layout’s place, as debugging looks in each, except one that is another test file’s own. `clearTestCounters()` in `coverageRun.ts` deletes the counters beneath them.
-- **Paths.** Cobertura names files relative to one of its `<source>` roots, or absolutely. `reportedFiles()` gives each file a candidate per source, resolved against the project directory, where Ceedling runs the tools. The engine keeps the first candidate that exists.
-- **Showing.** Each build that produced test results reports a `CoverageOutcome` through `RunReporter.coverage()`. A failed build reports one only for a configuration that can’t give coverage. `mergeCoverage()` keeps the last report per report path, and adds up reports from separate build directories. A `missing` outcome becomes a notification and a line in the run’s output.
+Everything that differs between the plugins lives in one table, `COVERAGE_PLUGIN` in `coveragePlugins.ts`. A plugin’s name, the `CoveragePlugin` type, is also its `:plugins` entry, its task prefix, and its build context, which builds under `<build>/<plugin>/out` and reports under `<build>/artifacts/<plugin>`. Each entry holds the plugin’s label, its `state()` reader, its `reset`, its advice for each missing-coverage message, and its documentation page.
+
+| | gcov | Bullseye |
+|---|---|---|
+| Cobertura report | gcovr’s, else ReportGenerator’s, from `:gcov:` ↳ `:utilities:` and `:reports:` | `coverage.xml`, with `:bullseye:` ↳ `:xml_report: :cobertura` |
+| Counter store | `.gcda` and `.gcov` files under `<build>/gcov/out`, by test | `test.cov`, in the project directory |
+| `reset.kind` | `delete` | `covclear` |
+| Hits | Counted | Run or not, at most 1 |
+
+- **Configuration.** `coverageStates()` reads the resolved configuration into one `CoverageState` per plugin, undefined for a plugin the project doesn’t enable. `ProjectState.coverage` keys every plugin, so a new plugin breaks each exhaustive construction at compile time. A state says whether reports wait for the plugin’s `report:` task, and where its Cobertura reports may appear, relative to the build root. gcov’s lists gcovr’s report first. ReportGenerator writes `ReportGenerator/Cobertura.xml`, or `ReportGenerator/Cobertura/Cobertura.xml` with several report types. Bullseye’s `:native` report is its own XML, so it lists none. `coverageProblem()` explains a project that writes no Cobertura report.
+- **Building.** `commandArgs()` uses `coverageCommandArgs` only for a project enabling the run’s plugin. Another project runs `testCommandArgs`, and `coverageConfigurationProblem()` says why it has no coverage. `taskArgs()` in `ceedlingCommandLine.ts` puts the plugin in place of `${PLUGIN}`. Before Ceedling 1.2.1 it passes the bare file name, since a coverage task prepends the test file prefix to a name lacking it. From 1.2.1 it passes the path. It appends `report:<plugin>` when reports wait for that task. Its warning, which the engine logs, also names a configured task of another plugin’s, whose report the run never reads.
+- **Resetting.** Under the project’s locks, `prepareCoverage()` deletes stale Cobertura reports before every build. Once per counter store per request, unless `coverageResetsCounters` is off, it then resets the store as the plugin’s `reset` says.
+  - **delete**, gcov: it deletes the counter files beneath the plugin’s build output.
+  - **covclear**, Bullseye: `test.cov` holds the instrumentation a build compiled in, as well as the measurements, and a delta build that compiles nothing would measure into nothing once the file is gone. `prepareCoverage()` instead runs `COVCLEAR`, `covclear -q --file test.cov`, which zeroes the measurements in place. It skips a coverage file no build has made yet.
+- **Running covclear.** The engine’s `coverageTool()` runs it through `execute()`, in the project directory and the configured shell, with `ProjectState.environment` over Ceedling’s own environment, as Ceedling runs Bullseye’s tools. That environment holds the plugin’s `COVLM` for a floating license, and any `:environment` ↳ `:path`. `withEnvironment()` in `ceedlingProcess.ts` merges it, folding names’ case on Windows. It takes no cancellation, since a killed Bullseye tool holds a floating license for 10 minutes. It never starts for a request already cancelled, and the build that follows stops for one cancelled meanwhile. `COVCLEAR.timeoutMs`, two minutes, bounds one waiting on an unreachable license manager. It passes `test.cov` by name, run in the project directory, so no project path reaches the shell. A failure logs `covclear`’s output, and becomes a `notice` outcome. The run goes on, accumulating.
+- **Collisions.** A `--test-case` collision clears only its test’s own gcov counters before the whole-file fallback. The fallback’s own build clears them, under the same locks, so no other build of the file can add counts between the clear and the build. With `coverageResetsCounters` off they stay. The engine picks the places through `ownOrUnclaimed()` and `projectBuildName()`: the test’s build directory in `gcov/out`, so same-named test files elsewhere keep theirs, and for a release not known exactly each layout’s place, as debugging looks in each, except one that is another test file’s own. `clearTestCounters()` in `coverageRun.ts` deletes the counters beneath them. Bullseye records whether each probe ran, not how often, so its fallback clears nothing.
+- **Paths.** Cobertura names files relative to one of its `<source>` roots, or absolutely. `reportedFiles()` gives each file a candidate per source, resolved against the project directory, where Ceedling runs the tools. The engine keeps the first candidate that exists. Bullseye’s one source is the project directory, absolute.
+- **Showing.** Each build that produced test results reports a `CoverageOutcome` through `RunReporter.coverage()`. A failed build reports one only for a configuration that can’t give coverage. A failed `covclear` reports its `notice` before the build, whatever the build’s outcome. A report carries `counters`, the path of the store it counts. `mergeCoverage()` keeps the last report per store, since each counts what earlier builds of the request left there, and adds up reports over separate stores. Bullseye’s reports count the whole coverage file, so two projects in one directory, with build roots apart, supersede each other’s. A `missing` or `notice` outcome becomes a notification and a line in the run’s output.
 
 ## 5. Concurrency
 
@@ -286,7 +300,7 @@ Runs, debug builds, clean, and clobber run inside `CeedlingEngine.exclusively(pr
 - `directory:<pathKey(project directory)>` serializes work in one directory, where several projects may share files.
 - `build:<pathKey(resolved build root)>` serializes work in one build root, which projects in different directories share when a common mixin sets `:project` ↳ `:build_root`. It is known once `dumpconfig` has resolved the project. A rediscovery’s `dumpconfig` that takes the locks takes the build root the last discovery found, which any build still running uses. Its `files:test` takes the one just resolved.
 
-The build root is where Ceedling’s shared state lives. Before Ceedling 1.2.1, every command that loads a project rewrites the vendored Unity and CMock sources under `build/vendor/` in place, so a second command can leave a build compiling a half-written header. In every version, builds in one build root share its CppUnit report, its Cobertura reports, and its coverage counters. `ceedling version` takes no lock. From 1.2.1, discovery’s commands take no lock either where the gate holds, since they write nothing. See [Discovery without the locks from 1.2.1](#discovery-without-the-locks-from-121).
+The build root is where Ceedling’s shared state lives. Before Ceedling 1.2.1, every command that loads a project rewrites the vendored Unity and CMock sources under `build/vendor/` in place, so a second command can leave a build compiling a half-written header. In every version, builds in one build root share its CppUnit report, its Cobertura reports, and gcov’s coverage counters. Bullseye’s coverage file sits in the project directory, which the directory key covers. `ceedling version` takes no lock. From 1.2.1, discovery’s commands take no lock either where the gate holds, since they write nothing. See [Discovery without the locks from 1.2.1](#discovery-without-the-locks-from-121).
 
 A project no discovery has loaded yet holds only its directory key, since its build root is what its `dumpconfig` is about to resolve. Before Ceedling 1.2.1, that first `dumpconfig` can rewrite a shared build root’s vendored sources under another project’s build. This happens only for a project added while a sibling sharing its build root runs. Taking every known build root instead would make every discovery wait behind every run.
 
@@ -299,7 +313,7 @@ The concurrency design rests on these invariants. A change that breaks one needs
 3. **A build reads its own reports before it releases its locks.** `buildAndRun()` deletes stale CppUnit and Cobertura reports first, and reads the new ones under the same locks, so no other build’s report can pass as this one’s.
 4. **Each plan entry uses the project as it was when that entry began.** `discover()` replaces the engine’s `projects` map only after every project loads. An entry already holding its `LoadedProject` keeps its arguments, directory, and build root through a concurrent discovery, failed or not. So does a function run’s whole-file fallback. A later entry of the same request looks its project up afresh.
 5. **Cancellation stops only its own work.** `CeedlingRunner` kills only the cancelled command’s process tree. Its tests end skipped, and the locks it held release in `finally`.
-6. **Coverage counters reset once per counter directory per request.** `CoverageRun.resetDirectories` records each reset. Two coverage requests at once in one build root share its counters, so each may show some of the other’s coverage. The site’s [Code Coverage](mkdocs/manual/code-coverage.md#how-coverage-runs-work) page documents this.
+6. **Coverage counters reset once per counter store per request.** A store is gcov’s counter directory or Bullseye’s coverage file. `CoverageRun.resets` records each reset, keyed by the store’s path. Two coverage requests at once over one store share its counters, so each may show some of the other’s coverage. The site’s [Code Coverage](mkdocs/manual/code-coverage/index.md#how-coverage-runs-work) page documents this.
 
 ### Ceedling versions
 
@@ -317,7 +331,7 @@ Every version gate reads one of two tables in `ceedlingVersions.ts`. Each names 
 | `dumpconfigStdout` | 1.2.0 | Application | `dumpconfig --stdout`, with no temporary file |
 | `forceTestRerun` | 1.2.0 | Application | Every build adds `--force-test-rerun` |
 | `pathQualifiedTestTasks` | 1.2.0 | Application | `test:` tasks take the file’s project-relative path |
-| `pathQualifiedCoverageTasks` | 1.2.1 | Application | `gcov:` tasks take the path too |
+| `pathQualifiedCoverageTasks` | 1.2.1 | Application | `gcov:` and `bullseye:` tasks take the path too |
 | `ceedlingYml` | 1.2.0 | Application | `ceedling.yml` is a default project file |
 | `nestedTestBuilds` | 1.2.0 | Application | Same-named test files build apart. See `testBuildLayout()` |
 | `projectPathTestNames` | 1.2.2 | Application | A test’s build directories sit under its path from the project root |
@@ -328,7 +342,7 @@ Every version gate reads one of two tables in `ceedlingVersions.ts`. Each names 
 Ceedling 1.2.1 resolves three problems this extension works around ([#1360](https://github.com/ThrowTheSwitch/Ceedling/issues/1360), [#1361](https://github.com/ThrowTheSwitch/Ceedling/issues/1361), [#1362](https://github.com/ThrowTheSwitch/Ceedling/issues/1362)). Not every workaround can go.
 
 - **`--force-test-rerun` stays.** Before 1.2.1, delta builds ignore a changed `--test-case` filter and report another run’s cached results. 1.2.1 resolves that, but in every version a delta build also ignores deleted coverage counters. A coverage run after a reset would then write a valid report with every hit at 0. Plain runs on 1.2.1 could drop the flag, at the cost of _Run_ reporting cached results for an unchanged test. The flag stays for both.
-- **Path-qualified `gcov:` tasks are gated.** Before 1.2.1, `gcov:` tasks take a bare name. Ceedling 1.2.0 stops with an ambiguous file reference error on a same-named test file, and earlier versions may run the other one. `taskArgs()` returns a warning for that case, which the engine logs.
+- **Path-qualified coverage tasks are gated.** Before 1.2.1, `gcov:` and `bullseye:` tasks take a bare name. Ceedling 1.2.0 stops with an ambiguous file reference error on a same-named test file, and earlier versions may run the other one. `taskArgs()` returns a warning for that case, which the engine logs.
 - **Discovery drops the locks, and builds keep them.** See the next section.
 
 ### Discovery without the locks from 1.2.1
@@ -373,8 +387,9 @@ The integration tests run the built extension in a real VS Code, on two workspac
 - compiler errors in the Problems panel;
 - cancellation;
 - watchers and unsaved edits;
-- the Coverage profile, and file coverage and its details reaching VS Code.
+- the Coverage profiles, one per plugin, and file coverage and its details reaching VS Code;
+- `covclear`, found through a project’s `:environment` ↳ `:path`, as [`fake-ceedling/bin/`](../tests/fixtures/fake-ceedling/bin) supplies it.
 
 On Windows they also run the engine with Windows paths. VS Code’s API can’t read another extension’s TestItems or run results, so `activate()` returns a small handle for the tests, `CeedlingExplorerApi`. See [`tests/integration/main.ts`](../tests/integration/main.ts).
 
-The validation suites in [`tests/validation/`](../tests/validation/) run the compiled engine against real Ceedling releases in Docker, with only the settings, the diagnostics sink, and the log stubbed. The real `runner` and `fileSystem` run real Ceedling. They check what a simulation can’t: the locks under real build times and random cancellation, each version’s command lines, and real coverage reports. They run by hand, not in CI. See [Development.md](Development.md#5-validation-against-real-ceedling).
+The validation suites in [`tests/validation/`](../tests/validation/) run the compiled engine against real Ceedling releases in Docker, with only the settings, the diagnostics sink, and the log stubbed. The real `runner` and `fileSystem` run real Ceedling. They check what a simulation can’t: the locks under real build times and random cancellation, each version’s command lines, and real coverage reports. The `bullseye` suite installs a licensed Bullseye into its container for each run. They run by hand, not in CI. See [Development.md](Development.md#5-validation-against-real-ceedling).

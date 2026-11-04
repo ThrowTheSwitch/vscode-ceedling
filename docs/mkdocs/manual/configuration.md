@@ -71,15 +71,15 @@ The arguments that run one test file. Their `${TEST_ID}` tag becomes the test fi
 
 ### `ceedlingExplorer.coverageCommandArgs`
 
-Default: `["gcov:${TEST_ID}"]`
+Default: `["${PLUGIN}:${TEST_ID}"]`
 
-The arguments that run one test file with [coverage][coverage]. Their `${TEST_ID}` tag becomes the test file, or `all` when a run covers a whole project. With Ceedling 1.2.1 and later, the test file is its project-relative path, as for `testCommandArgs`. With earlier versions, it is the file’s name alone, as their `gcov:` tasks require.
+The arguments that run one test file with [coverage][coverage]. Their `${PLUGIN}` tag becomes the run’s coverage plugin, `gcov` or `bullseye`, so the default runs that plugin’s tasks. Arguments of your own should keep it. A task naming another plugin’s, e.g. `gcov:` in a Bullseye run, writes no report the run reads, and the extension’s log warns. Their `${TEST_ID}` tag becomes the test file, or `all` when a run covers a whole project. With Ceedling 1.2.1 and later, the test file is its project-relative path, as for `testCommandArgs`. With earlier versions, it is the file’s name alone, as their coverage tasks require.
 
 ### `ceedlingExplorer.coverageResetsCounters`
 
 Default: `true`
 
-Whether each coverage run first clears the coverage counters earlier runs left, so it shows only what it executed. Set it to `false` to accumulate coverage across runs instead, as Ceedling itself does until a `clean` or `clobber`. [Code Coverage][coverage] explains how coverage runs work.
+Whether each coverage run first clears the coverage earlier runs measured, so it shows only what it executed. A gcov run deletes its counters, and a Bullseye run resets its coverage file with `covclear`. Set it to `false` to accumulate coverage across runs instead, as Ceedling itself does until a `clean` or `clobber`. [Code Coverage][coverage] explains how coverage runs work.
 
 ### `ceedlingExplorer.prettyTestLabel`
 
@@ -136,7 +136,7 @@ Bind a keyboard shortcut to either by its ID. Running, debugging, and refreshing
 
 [howto]: ../howto/index.md
 [debugging]: debugging.md
-[coverage]: code-coverage.md#how-coverage-runs-work
+[coverage]: code-coverage/index.md#how-coverage-runs-work
 [opening]: getting-started.md#opening-a-project
 [runs-ceedling]: getting-started.md#how-the-extension-runs-ceedling
 [run-tasks]: running-tests.md#how-a-run-calls-ceedling

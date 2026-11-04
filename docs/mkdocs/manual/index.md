@@ -26,7 +26,7 @@ The User Manual explains how each of the extension’s features works, and lists
 
     ---
 
-    How coverage runs work with Ceedling’s gcov plugin. What gcovr and ReportGenerator each report, and why a run might show none.
+    How coverage runs work with Ceedling’s Gcov and Bullseye plugins. What each plugin needs and reports, and why a run might show none.
 
 -   :material-alert-circle: **[Problem Matching][problem-matching]**
 
@@ -48,7 +48,7 @@ The User Manual explains how each of the extension’s features works, and lists
 [getting-started]: getting-started.md
 [running-tests]: running-tests.md
 [debugging]: debugging.md
-[code-coverage]: code-coverage.md
+[code-coverage]: code-coverage/index.md
 [problem-matching]: problem-matching.md
 [configuration]: configuration.md
 

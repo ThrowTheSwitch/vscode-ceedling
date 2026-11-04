@@ -37,9 +37,10 @@ The extension brings your Ceedling tests into VS Code’s own testing tools.
 * Keeps the test list current as you edit, add, or remove tests.
 * Reports compiler and linker problems in the editor and the _Problems_ panel, when configured.
 * Supports several Ceedling projects per workspace and Ceedling mixins.
-* Reports code coverage through VS Code’s built-in coverage UI, from Ceedling’s [GCov plugin][gcov-plugin].
+* Reports code coverage through VS Code’s built-in coverage UI via Ceedling’s [Gcov][gcov-plugin] or [Bullseye][bullseye-plugin] plugin.
 
 [gcov-plugin]: https://docs.throwtheswitch.org/Ceedling/latest/plugins/gcov/
+[bullseye-plugin]: https://docs.throwtheswitch.org/Ceedling/latest/plugins/bullseye/
 
 # Requirements
 
