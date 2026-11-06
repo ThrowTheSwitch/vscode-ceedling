@@ -144,6 +144,12 @@
           "default": true,
           "scope": "resource"
         },
+        "ceedlingExplorer.testFileHierarchy": {
+          "markdownDescription": "Test files are nested in the test explorer under one node per folder of their path. E.g. `test/LEDs/test_BlinkTask.c` shows as `test` › `LEDs` › `test_BlinkTask.c`, or as `test` › `LEDs` › `BlinkTask` with `#ceedlingExplorer.prettyTestFileLabel#` active",
+          "type": "boolean",
+          "default": false,
+          "scope": "resource"
+        },
         "ceedlingExplorer.testCommandArgs": {
           "markdownDescription": "The command line arguments used to run the Ceedling tests",
           "type": "array",

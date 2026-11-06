@@ -12,9 +12,11 @@ import {
 } from './ceedlingEngine';
 import { extractGdbLogReference } from './ceedlingOutputParsing';
 import { Logger } from './logger';
+import { filesInFolder, groupByFolder, TestFolder } from './testFileHierarchy';
 
 type ItemMeta =
     | { kind: 'project', projectKey: string }
+    | { kind: 'folder', projectKey: string, files: CeedlingFileNode[] }
     | { kind: 'file' | 'function' | 'case', projectKey: string, file: CeedlingFileNode };
 
 type RunPlanEntry =
@@ -80,9 +82,10 @@ export class CeedlingTestController {
             const pathChanged = event.affectsConfiguration("ceedlingExplorer.projects", this.workspaceFolder.uri);
             const affectedPrettyTestLabel = event.affectsConfiguration("ceedlingExplorer.prettyTestLabel", this.workspaceFolder.uri);
             const affectedPrettyTestFileLabel = event.affectsConfiguration("ceedlingExplorer.prettyTestFileLabel", this.workspaceFolder.uri);
-            if (affectedPrettyTestLabel || affectedPrettyTestFileLabel || pathChanged) {
+            const affectedTestFileHierarchy = event.affectsConfiguration("ceedlingExplorer.testFileHierarchy", this.workspaceFolder.uri);
+            if (affectedPrettyTestLabel || affectedPrettyTestFileLabel || affectedTestFileHierarchy || pathChanged) {
                 this.logger.debug(`onDidChangeConfiguration: projects=${pathChanged}, prettyTestLabel=${affectedPrettyTestLabel}, ` +
-                    `prettyTestFileLabel=${affectedPrettyTestFileLabel}, refreshing`);
+                    `prettyTestFileLabel=${affectedPrettyTestFileLabel}, testFileHierarchy=${affectedTestFileHierarchy}, refreshing`);
                 this.refresh();
             }
         }));
@@ -160,20 +163,39 @@ export class CeedlingTestController {
     private rebuildTree(): void {
         this.idToItem.clear();
         const multiProject = this.projects.length > 1;
+        const hierarchy = this.engine.getConfiguration().get<boolean>('testFileHierarchy', false);
         const rootItems: vscode.TestItem[] = [];
         for (const project of this.projects) {
-            const fileItems = project.files.map((file) => this.buildFileItem(project.projectKey, file));
+            const childItems = hierarchy
+                ? this.buildFolderChildren(project, groupByFolder(project.files, (file) => path.relative(project.absPath, file.absPath)))
+                : project.files.map((file) => this.buildFileItem(project.projectKey, file));
             if (multiProject) {
                 const projectItem = this.controller.createTestItem(project.projectKey, project.label);
-                projectItem.children.replace(fileItems);
+                projectItem.children.replace(childItems);
                 this.itemMeta.set(projectItem, { kind: 'project', projectKey: project.projectKey });
                 rootItems.push(projectItem);
             } else {
-                rootItems.push(...fileItems);
+                rootItems.push(...childItems);
             }
         }
         this.controller.items.replace(rootItems);
         this.logger.debug(`rebuildTree: ${this.projects.length} project(s), ${this.idToItem.size} file/function/case item(s)`);
+    }
+
+    private buildFolderChildren(project: CeedlingProjectNode, folder: TestFolder<CeedlingFileNode>): vscode.TestItem[] {
+        return [
+            ...folder.folders.map((child) => this.buildFolderItem(project, child)),
+            ...folder.files.map((file) => this.buildFileItem(project.projectKey, file)),
+        ];
+    }
+
+    // A directory uri makes the Testing view's "Go to Test" reveal the folder in the Explorer.
+    private buildFolderItem(project: CeedlingProjectNode, folder: TestFolder<CeedlingFileNode>): vscode.TestItem {
+        const uri = vscode.Uri.file(path.resolve(project.absPath, folder.id));
+        const item = this.controller.createTestItem(folder.id, folder.label, uri);
+        this.itemMeta.set(item, { kind: 'folder', projectKey: project.projectKey, files: filesInFolder(folder) });
+        item.children.replace(this.buildFolderChildren(project, folder));
+        return item;
     }
 
     private buildFileItem(projectKey: string, file: CeedlingFileNode): vscode.TestItem {
@@ -272,6 +294,9 @@ export class CeedlingTestController {
             if (meta.kind === 'project') {
                 const project = this.projects.find((p) => p.projectKey === meta.projectKey);
                 if (project) addProject(meta.projectKey, project.files);
+            } else if (meta.kind === 'folder') {
+                // File by file, like "run everything": ${TEST_ID} in testCommandArgs names a single file or "all".
+                for (const file of meta.files) addFile(meta.projectKey, file);
             } else if (meta.kind === 'file') {
                 addFile(meta.projectKey, meta.file);
             } else if (meta.kind === 'function') {

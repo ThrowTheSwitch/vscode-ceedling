@@ -71,6 +71,7 @@ export type CeedlingFileNode = {
 export type CeedlingProjectNode = {
     projectKey: string,
     label: string,
+    absPath: string,
     files: CeedlingFileNode[],
 }
 
@@ -118,6 +119,7 @@ export class CeedlingEngine {
 
     private isPrettyTestLabelEnable: boolean = false;
     private isPrettyTestFileLabelEnable: boolean = false;
+    private isTestFileHierarchyEnable: boolean = false;
 
     private projectData: Record<string, ProjectData> = {};
 
@@ -184,6 +186,7 @@ export class CeedlingEngine {
 
         this.isPrettyTestFileLabelEnable = this.getConfiguration().get<boolean>('prettyTestFileLabel', false);
         this.isPrettyTestLabelEnable = this.getConfiguration().get<boolean>('prettyTestLabel', false);
+        this.isTestFileHierarchyEnable = this.getConfiguration().get<boolean>('testFileHierarchy', false);
 
         const projects: CeedlingProjectNode[] = [];
         for (const projectKey of projectKeys) {
@@ -192,6 +195,7 @@ export class CeedlingEngine {
             projects.push({
                 projectKey,
                 label: projectKey,
+                absPath: this.projectData[projectKey].absPath,
                 files: Array.from(this.getTestFileNodes(projectKey, testFiles)),
             });
         }
@@ -734,7 +738,8 @@ export class CeedlingEngine {
     }
 
     private setFileLabel(projectKey: string, fileName: string): string {
-        let fileLabel = fileName;
+        // In the hierarchy, the folder nodes above the file already show its path.
+        let fileLabel = this.isTestFileHierarchyEnable ? path.basename(fileName) : fileName;
         if (this.isPrettyTestFileLabelEnable) {
             const labelFileRegex = this.getFileLabelRegex(projectKey);
             let labelMatches = labelFileRegex.exec(fileName);
