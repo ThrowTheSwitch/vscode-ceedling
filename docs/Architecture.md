@@ -65,6 +65,7 @@ No core module imports `vscode`, even for types, nor any adapter module. The cor
 | `src/coverageRun.ts` | Pure | Run modes, and a coverage request's file work: resetting and clearing counters, and reading its Cobertura report |
 | `src/buildReporting.ts` | Pure | A build's results, or why it gave none, reported to the Testing view |
 | `src/testFileNodes.ts` | Pure | A project's test files as tree nodes, with their ids and pretty labels |
+| `src/testFileHierarchy.ts` | Pure | Test files grouped by folder, for `ceedlingExplorer.testFileHierarchy` |
 | `src/engineFileSystem.ts` | Pure | The filesystem the engine works through, and the read, list, and delete helpers that share the engine's one read limit |
 | `src/ceedlingProcess.ts` | Pure | Running Ceedling, with per-run cancellation |
 | `src/unityTestDiscovery.ts` | Pure | Test functions and cases in source, named as Unity names them |

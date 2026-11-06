@@ -1,6 +1,6 @@
 # Running Tests
 
-Tests run from VS Code’s _Testing_ view or from the editor, and their results appear in both. This page covers what each kind of run does in Ceedling, how results are shown, how tests are labeled, and the cleanup commands. Debugging has a page of its own, [Debugging][debugging].
+Tests run from VS Code’s _Testing_ view or from the editor, and their results appear in both. This page covers what each kind of run does in Ceedling, how results are shown, how tests are labeled and grouped into folders, and the cleanup commands. Debugging has a page of its own, [Debugging][debugging].
 
 ## Where to run tests
 
@@ -63,6 +63,12 @@ A test file’s label drops its path, prefix, and extension. For example, `test/
 
 The prefixes come from the project’s own configuration, `:test_runner` ↳ `:test_prefix` and `:project` ↳ `:test_file_prefix`.
 
+## Test folders
+
+The _Testing_ view lists a project’s test files side by side by default. With [`ceedlingExplorer.testFileHierarchy`][hierarchy] on, it nests each test file under one node per folder of its path instead, which keeps a project with many test folders readable. For example, `test/LEDs/test_BlinkTask.c` shows as `test` › `LEDs` › `test_BlinkTask.c`. A nested file’s label drops its path, since its folders show it.
+
+Running a folder runs each test file beneath it, one file at a time.
+
 ## Clean and Clobber
 
 The _Testing_ view’s toolbar has Clean and Clobber buttons. They run `ceedling clean` and `ceedling clobber` in every Ceedling project in the workspace. Each project’s command waits for any Ceedling build under way in that project to finish. [Configuration][commands] lists their command IDs, for keyboard shortcuts.
@@ -79,6 +85,7 @@ Ceedling 1.2.2 builds each test in a new place, and an earlier release’s build
 [crashes]: debugging.md#crashing-tests
 [pretty-test]: configuration.md#ceedlingexplorerprettytestlabel
 [pretty-file]: configuration.md#ceedlingexplorerprettytestfilelabel
+[hierarchy]: configuration.md#ceedlingexplorertestfilehierarchy
 [commands]: configuration.md#commands
 [known-issues]: https://github.com/ThrowTheSwitch/vscode-ceedling/blob/master/docs/KnownIssues.md
 
