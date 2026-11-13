@@ -50,6 +50,8 @@
       
     
     
+      <link rel="stylesheet" href="../../assets/stylesheets/admonitions.css">
+    
     <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -1520,6 +1522,7 @@
 </ol>
 <h2 id="a-configuration-for-each-platform">A configuration for each platform</h2>
 <p>Each configuration names the test executable with the token <code>${command:ceedlingExplorer.debugTestExecutable}</code>. The extension replaces it with the executable’s path, relative to the <code>test/out/</code> directory under the project’s build root. The examples assume the build root is <code>build</code>, as <code>ceedling new</code> sets it.</p>
+<p>Test files in subdirectories, e.g. <code>test/drivers/test_uart.c</code>, need nothing more. The token includes the test file’s own directories, as its Ceedling version lays out the build, so one configuration debugs every test file in the project. <a href="../../manual/debugging/#the-launch-configuration">Debugging</a> shows each version’s layout.</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Linux</label><label for="__tabbed_1_2">macOS</label><label for="__tabbed_1_3">Windows</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
