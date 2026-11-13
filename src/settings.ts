@@ -12,6 +12,7 @@ export type Settings = {
     ceedlingCommand: string,
     prettyTestLabel: boolean,
     prettyTestFileLabel: boolean,
+    testFileHierarchy: boolean,
     testCommandArgs: readonly string[],
     coverageCommandArgs: readonly string[],
     coverageResetsCounters: boolean,
@@ -30,6 +31,7 @@ export const SETTING_DEFAULTS: { readonly [K in SettingKey]: Settings[K] } = {
     ceedlingCommand: 'ceedling',
     prettyTestLabel: true,
     prettyTestFileLabel: true,
+    testFileHierarchy: false,
     testCommandArgs: ['test:${TEST_ID}'],
     coverageCommandArgs: ['${PLUGIN}:${TEST_ID}'],
     coverageResetsCounters: true,
@@ -41,7 +43,7 @@ export const SETTING_DEFAULTS: { readonly [K in SettingKey]: Settings[K] } = {
 // Settings whose change changes what discovery finds, including how it reads Ceedling's output.
 // The rest apply on the next run.
 export const DISCOVERY_SETTINGS: readonly SettingKey[] = [
-    'projects', 'mixins', 'shellPath', 'ceedlingCommand', 'prettyTestLabel', 'prettyTestFileLabel', 'ansiEscapeSequencesRemoved',
+    'projects', 'mixins', 'shellPath', 'ceedlingCommand', 'prettyTestLabel', 'prettyTestFileLabel', 'testFileHierarchy', 'ansiEscapeSequencesRemoved',
 ];
 
 // What settings are read from: a vscode.WorkspaceConfiguration, or a test's stand-in.

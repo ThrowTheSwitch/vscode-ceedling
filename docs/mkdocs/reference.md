@@ -25,6 +25,7 @@ This page lists every setting and command the extension contributes, grouped by 
 
 - [`prettyTestFileLabel`][pretty-file] — Shorten each test file’s label
 - [`prettyTestLabel`][pretty-test] — Shorten each test’s label
+- [`testFileHierarchy`][hierarchy] — Nest each test file under its folders
 
 ## Code coverage
 
@@ -66,6 +67,7 @@ Each custom pattern in `problemMatching.patterns` is an object with these proper
 [test-args]: manual/configuration.md#ceedlingexplorertestcommandargs
 [pretty-file]: manual/configuration.md#ceedlingexplorerprettytestfilelabel
 [pretty-test]: manual/configuration.md#ceedlingexplorerprettytestlabel
+[hierarchy]: manual/configuration.md#ceedlingexplorertestfilehierarchy
 [coverage-args]: manual/configuration.md#ceedlingexplorercoveragecommandargs
 [resets]: manual/configuration.md#ceedlingexplorercoverageresetscounters
 [problem-matching]: manual/configuration.md#ceedlingexplorerproblemmatching

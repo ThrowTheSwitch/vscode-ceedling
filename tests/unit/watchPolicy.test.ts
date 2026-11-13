@@ -6,7 +6,7 @@ suite('settingsChangeEffects', () => {
 
     // Discovery parses Ceedling's output too, so whether escape sequences are stripped from it counts.
     test('a setting that changes what discovery finds rediscovers, naming it', () => {
-        for (const setting of ['projects', 'mixins', 'shellPath', 'ceedlingCommand', 'prettyTestLabel', 'prettyTestFileLabel', 'ansiEscapeSequencesRemoved']) {
+        for (const setting of ['projects', 'mixins', 'shellPath', 'ceedlingCommand', 'prettyTestLabel', 'prettyTestFileLabel', 'testFileHierarchy', 'ansiEscapeSequencesRemoved']) {
             assert.deepStrictEqual(settingsChangeEffects(affecting(setting), () => 'gcc'), { clearDiagnostics: false, rediscoverFor: [setting] });
         }
     });

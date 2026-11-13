@@ -311,6 +311,32 @@ suite('Extension against a fake Ceedling', function () {
         assert.deepStrictEqual([...controller.coverageRunProfiles.keys()], ['gcov']);
     });
 
+    test('with testFileHierarchy, test files nest under their folders, and a folder runs each of its files', async () => {
+        const settings = vscode.workspace.getConfiguration('ceedlingExplorer', project().uri);
+        await settings.update('testFileHierarchy', true, vscode.ConfigurationTarget.WorkspaceFolder);
+        try {
+            await controller.whenDiscovered();
+            const roots: string[] = [];
+            items().forEach((root) => roots.push(root.id));
+            assert.deepStrictEqual(roots, ['test/']);
+            const folder = item('test/');
+            assert.strictEqual(folder.label, 'test');
+            assert.strictEqual(folder.uri?.toString(), fileUri('test').toString());
+            assert.strictEqual(item('test/test_calc.c').parent, folder);
+            const before = invocations().length;
+            // test_slow.c hangs.
+            const source = new vscode.CancellationTokenSource();
+            await controller.run(new vscode.TestRunRequest([folder], [item('test/test_slow.c')]), source.token);
+            source.dispose();
+            assert.deepStrictEqual(invocations().slice(before).filter((args) => args[0]?.startsWith('test:')).map((args) => args[0]),
+                ['test:test/test_broken.c', 'test:test/test_calc.c', 'test:test/test_unreported.c']);
+        } finally {
+            await settings.update('testFileHierarchy', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
+            await controller.whenDiscovered();
+        }
+        assert.ok(item('test/test_calc.c').parent === undefined, 'the files are back at the root');
+    });
+
     test('a new test file on disk is discovered, and a deleted one goes', async () => {
         const created = fileUri('test', 'test_new.c');
         await vscode.workspace.fs.writeFile(created, Buffer.from('void test_fresh(void)\n{\n}\n'));

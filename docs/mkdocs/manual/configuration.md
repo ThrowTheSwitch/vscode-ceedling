@@ -93,6 +93,12 @@ Default: `true`
 
 Shortens each test file’s label by dropping its path, prefix, and extension. For example, `test/LEDs/test_BlinkTask.c` becomes `BlinkTask`. [Running Tests][labels] shows both forms.
 
+### `ceedlingExplorer.testFileHierarchy`
+
+Default: `false`
+
+Nests each test file in the _Testing_ view under one node per folder of its path. For example, `test/LEDs/test_BlinkTask.c` shows as `test` › `LEDs` › `test_BlinkTask.c`, or as `test` › `LEDs` › `BlinkTask` with `ceedlingExplorer.prettyTestFileLabel` on. [Running Tests][folders] explains running a folder.
+
 ### `ceedlingExplorer.problemMatching`
 
 Default: none. Its `mode` field defaults to `"disabled"`, and its `patterns` field to `[]`.
@@ -141,6 +147,7 @@ Bind a keyboard shortcut to either by its ID. Running, debugging, and refreshing
 [runs-ceedling]: getting-started.md#how-the-extension-runs-ceedling
 [run-tasks]: running-tests.md#how-a-run-calls-ceedling
 [labels]: running-tests.md#test-labels
+[folders]: running-tests.md#test-folders
 [mixins]: #mixins
 [coverage-args]: #ceedlingexplorercoveragecommandargs
 [problem-matching]: problem-matching.md

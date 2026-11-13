@@ -1,6 +1,7 @@
 // A project's test files as the Testing view's nodes: each file's test functions and parametrized
-// cases, found in its source, with pretty labels when they're on. Ids name tests as Ceedling's
-// report does, `file::function` and `file::function(args)`. It has no `vscode` dependency.
+// cases, found in its source, with pretty labels when they're on. A file nested under its folders
+// drops its path from its label. Ids name tests as Ceedling's report does, `file::function` and
+// `file::function(args)`. It has no `vscode` dependency.
 import util from 'util';
 import { buildFileLabelRegex, buildTestLabelRegex } from './ceedlingOutputParsing';
 import type { LoadedProject } from './ceedlingProjectConfig';
@@ -8,15 +9,18 @@ import { type EngineIo, readText } from './engineFileSystem';
 import type { CeedlingFileNode } from './testModel';
 import { discoverTests } from './unityTestDiscovery';
 
+// `nested` when the Testing view nests each file under its folders, which already show its path.
+export type FileLabels = { prettyTests: boolean, prettyFiles: boolean, nested: boolean };
+
 // `source`, when given, stands in for the contents of a single file. Sources are read concurrently,
 // within the engine's shared read limit, then parsed in listed order. A file that can't be read or
 // parsed is left out, with a warning.
 export async function testFileNodes(
-    io: EngineIo, project: LoadedProject, files: readonly string[], pretty: { tests: boolean, files: boolean }, source?: string,
+    io: EngineIo, project: LoadedProject, files: readonly string[], labels: FileLabels, source?: string,
 ): Promise<CeedlingFileNode[]> {
     const options = { testPrefix: project.state.testPrefix, useParamTests: project.state.useParamTests };
-    const testLabel = pretty.tests ? labelRegex(io, () => buildTestLabelRegex(project.state.testPrefix)) : undefined;
-    const fileLabel = pretty.files ? labelRegex(io, () => buildFileLabelRegex(project.state.testFilePrefix)) : undefined;
+    const testLabel = labels.prettyTests ? labelRegex(io, () => buildTestLabelRegex(project.state.testPrefix)) : undefined;
+    const fileLabel = labels.prettyFiles ? labelRegex(io, () => buildFileLabelRegex(project.state.testFilePrefix)) : undefined;
     // `||`, not `??`: an empty capture, such as a file named only by its prefix, keeps the full text.
     // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- see above
     const label = (regex: RegExp | undefined, text: string) => regex?.exec(text)?.[1] || text;
@@ -46,7 +50,7 @@ export async function testFileNodes(
         }
         nodes.push({
             id: file,
-            label: label(fileLabel, file),
+            label: label(fileLabel, labels.nested ? io.paths.basename(file) : file),
             absPath,
             projectKey: project.key,
             functions: discovered.tests.map((test) => ({

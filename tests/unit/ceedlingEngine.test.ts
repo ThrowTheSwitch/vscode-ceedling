@@ -338,6 +338,13 @@ suite('CeedlingEngine.discover', () => {
         assert.strictEqual(plain.functions[0].label, 'test_add');
     });
 
+    test('a test file nested under its folders drops its path from its label', async () => {
+        const nested = (await discovered(new FakeCeedling(), { settings: { prettyTestFileLabel: false, testFileHierarchy: true } })).file;
+        assert.strictEqual(nested.label, 'test_calc.c');
+        const pretty = (await discovered(new FakeCeedling(), { settings: { testFileHierarchy: true } })).file;
+        assert.strictEqual(pretty.label, 'calc');
+    });
+
     test("each project's configured mixins are passed lowest to highest, before the bundled mixin", async () => {
         const world = new FakeCeedling();
         await discovered(world, { settings: { projects: [{ path: '.', debugLaunchConfig: 'dbg', mixins: ['gcc', 'cov.yml'] }] } });

@@ -13,6 +13,7 @@ import { ProblemMatcher } from './problemMatcher';
 import { buildRunPlan, type PlanTarget, type RunPlanEntry } from './runPlan';
 import { ActivityTracker } from './concurrency';
 import { SingleFlight } from './singleFlight';
+import { filesInFolder, groupByFolder, type TestFolder } from './testFileHierarchy';
 import { type CeedlingFileNode, type CeedlingProjectNode, type CeedlingTestFunction, type CoverageOutcome, coverageProfileLabel, type RunReporter } from './testModel';
 import { createRunReporter, type ReportMessage } from './testReporting';
 import { Debouncer, settingsChangeEffects, type SourceEvent, sourceEventEffect, watcherChanges } from './watchPolicy';
@@ -48,7 +49,8 @@ export class CeedlingTestController {
     private readonly sourceWatchers = new Map<string, vscode.Disposable>();
     private readonly editReparses = new Debouncer(EDIT_REPARSE_DELAY_MS);
 
-    private readonly targets = new WeakMap<vscode.TestItem, PlanTarget>();
+    // A folder stands for each of its test files.
+    private readonly targets = new WeakMap<vscode.TestItem, PlanTarget | PlanTarget[]>();
     // Item ids are unique only within a project, so lookups are scoped by project key.
     private readonly items = new Map<string, Map<string, vscode.TestItem>>();
     private projects: CeedlingProjectNode[] = [];
@@ -383,22 +385,41 @@ export class CeedlingTestController {
             return;
         }
         const multiProject = this.projects.length > 1;
+        const hierarchy = this.engine.setting('testFileHierarchy');
         const rootItems: vscode.TestItem[] = [];
         for (const project of this.projects) {
             const projectItems = new Map<string, vscode.TestItem>();
             this.items.set(project.projectKey, projectItems);
-            const fileItems = project.files.map((file) => this.buildFileItem(controller, project.projectKey, file, projectItems));
+            const absPath = this.engine.getProjectAbsPath(project.projectKey);
+            const childItems = hierarchy
+                ? this.buildFolderChildren(controller, project.projectKey, absPath, groupByFolder(project.files, (file) => path.relative(absPath, file.absPath)), projectItems)
+                : project.files.map((file) => this.buildFileItem(controller, project.projectKey, file, projectItems));
             if (multiProject) {
                 const projectItem = controller.createTestItem(project.projectKey, project.label);
-                projectItem.children.replace(fileItems);
+                projectItem.children.replace(childItems);
                 this.targets.set(projectItem, { kind: 'project', projectKey: project.projectKey });
                 rootItems.push(projectItem);
             } else {
-                rootItems.push(...fileItems);
+                rootItems.push(...childItems);
             }
         }
         controller.items.replace(rootItems);
         this.logger.debug(`rebuildTree: ${this.projects.length} project(s)`);
+    }
+
+    // A folder's subfolders, then its files. A folder's directory uri makes the Testing view's
+    // "Go to Test" reveal it in the Explorer.
+    private buildFolderChildren(
+        controller: vscode.TestController, projectKey: string, projectAbsPath: string, folder: TestFolder<CeedlingFileNode>,
+        projectItems: Map<string, vscode.TestItem>,
+    ): vscode.TestItem[] {
+        const folderItems = folder.folders.map((child) => {
+            const item = controller.createTestItem(child.id, child.label, vscode.Uri.file(path.resolve(projectAbsPath, child.id)));
+            this.targets.set(item, filesInFolder(child).map((file): PlanTarget => ({ kind: 'file', projectKey, fileId: file.id })));
+            item.children.replace(this.buildFolderChildren(controller, projectKey, projectAbsPath, child, projectItems));
+            return item;
+        });
+        return [...folderItems, ...folder.files.map((file) => this.buildFileItem(controller, projectKey, file, projectItems))];
     }
 
     private buildFileItem(
@@ -436,7 +457,7 @@ export class CeedlingTestController {
             if (!target) {
                 this.logger.warn(`planFor: no target for TestItem '${item.id}', skipping`);
             }
-            return target ? [target] : [];
+            return target ?? [];
         });
         return buildRunPlan(this.projects, request.include && toTargets(request.include), toTargets(request.exclude ?? []));
     }

@@ -56,7 +56,7 @@ import { type MatchedProblem, matchProblems } from './problemMatching';
 import { setting, SETTING_DEFAULTS, type SettingKey, type Settings, type SettingsSource } from './settings';
 import { allIds, type CeedlingFileNode, type CeedlingProjectNode, type CeedlingTestFunction, functionIds, leafIds, type RunReporter } from './testModel';
 import { type CppUnitReport, parseCppUnitReport, reportedNames } from './testResults';
-import { testFileNodes } from './testFileNodes';
+import { type FileLabels, testFileNodes } from './testFileNodes';
 
 // A vendored Ceedling's own version, relative to the project directory.
 const VENDORED_VERSION = `${VENDORED_CEEDLING}/lib/version.rb`;
@@ -233,7 +233,7 @@ export class CeedlingEngine {
         if (!project || index < 0) {
             return undefined;
         }
-        const [node] = await testFileNodes(this.io, project, [fileId], this.prettyLabels(), source);
+        const [node] = await testFileNodes(this.io, project, [fileId], this.fileLabels(), source);
         if (node) {
             project.files[index] = node;
         }
@@ -294,7 +294,7 @@ export class CeedlingEngine {
                 `Check that Ceedling runs in the configured shell (ceedlingExplorer.shellPath), and that the project's ` +
                 `:paths: ↳ :test: entries are valid. The Ceedling Explorer log has Ceedling's output.`, exception)).join('\n'));
         }
-        const labels = this.prettyLabels();
+        const labels = this.fileLabels();
         await Promise.all(projects.map(async (project, i) => {
             const listing = listings[i];
             project.files = await testFileNodes(this.io, project, listing !== undefined && 'found' in listing ? listing.found : [], labels);
@@ -407,8 +407,8 @@ export class CeedlingEngine {
         );
     }
 
-    private prettyLabels(): { tests: boolean, files: boolean } {
-        return { tests: this.setting('prettyTestLabel'), files: this.setting('prettyTestFileLabel') };
+    private fileLabels(): FileLabels {
+        return { prettyTests: this.setting('prettyTestLabel'), prettyFiles: this.setting('prettyTestFileLabel'), nested: this.setting('testFileHierarchy') };
     }
 
     private project(projectKey: string): LoadedProject {
