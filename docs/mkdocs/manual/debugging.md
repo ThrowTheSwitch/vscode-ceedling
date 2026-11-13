@@ -34,7 +34,23 @@ This example uses Microsoft’s C/C++ extension, `ms-vscode.cpptools`, with gdb.
 
 On Windows, add `"miDebuggerPath"` with the path to MinGW’s or MSYS2’s `gdb.exe`, e.g. `"C:/msys64/ucrt64/bin/gdb.exe"`.
 
-A project in a subdirectory of the workspace folder includes that directory, e.g. `${workspaceFolder}/firmware/build/test/out/`. The token’s part of the path follows the Ceedling version’s own build layout, so the same configuration works across Ceedling upgrades.
+A project in a subdirectory of the workspace folder includes that directory, e.g. `${workspaceFolder}/firmware/build/test/out/`.
+
+Test files in subdirectories need nothing more. The token includes each test file’s own directories, wherever its Ceedling version builds it. One configuration therefore debugs every test file in the project, at any depth, and keeps working across Ceedling upgrades.
+
+!!! note "Ceedling’s build layout changes between versions"
+
+    Where Ceedling builds a test’s executable beneath `test/out/` depends on its version. This is how each version places `test/drivers/test_uart.c`, in a project whose test path is `+:test/**`.
+
+    | Ceedling | Executable beneath `test/out/` |
+    |---|---|
+    | Before 1.2.0 | `test_uart/test_uart.out` |
+    | 1.2.0 and 1.2.1 | `drivers/test_uart/test_uart.out` |
+    | 1.2.2 and later | `test/drivers/test_uart/test_uart.out` |
+
+    Before 1.2.0, every test built in one directory named for its file, so two test files with the same name in different directories collided. Since 1.2.0, a test’s build mirrors its directories, from its test path in 1.2.0 and 1.2.1 and from the project root since 1.2.2.
+
+    The extension knows each layout, and the token gives the path in the layout of the Ceedling that runs the project. A configuration therefore never spells out a test’s directories, so a `program` path written by hand for one test file breaks for others, and breaks again after an upgrade. Upgrading to 1.2.2 leaves the old layout’s build behind until a clobber. [Upgrade Ceedling][upgrade] covers that.
 
 ## Starting a debug session
 
@@ -71,6 +87,7 @@ The setting offers three choices.
 
 [howto]: ../howto/debug-a-test.md
 [projects]: configuration.md#ceedlingexplorerprojects
+[upgrade]: ../howto/upgrade-ceedling.md
 [use-backtrace-docs]: https://docs.throwtheswitch.org/Ceedling/latest/configuration/reference/project/#use_backtrace
 
 <br/><br/>

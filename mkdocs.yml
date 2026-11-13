@@ -63,6 +63,9 @@ extra:
       link: https://github.com/sponsors/ThrowTheSwitch
       name: Sponsor ThrowTheSwitch on GitHub
 
+extra_css:
+  - assets/stylesheets/admonitions.css  # Custom admonition types, e.g. !!! sponsorship
+
 # Plugins
 plugins:
   - search  # Full-text search index

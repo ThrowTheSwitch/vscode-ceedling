@@ -19,6 +19,8 @@ This guide sets up debugging, so any test runs under the debugger from its debug
 
 Each configuration names the test executable with the token `${command:ceedlingExplorer.debugTestExecutable}`. The extension replaces it with the executable’s path, relative to the `test/out/` directory under the project’s build root. The examples assume the build root is `build`, as `ceedling new` sets it.
 
+Test files in subdirectories, e.g. `test/drivers/test_uart.c`, need nothing more. The token includes the test file’s own directories, as its Ceedling version lays out the build, so one configuration debugs every test file in the project. [Debugging][layout] shows each version’s layout.
+
 === "Linux"
 
     The C/C++ extension with gdb.
@@ -181,5 +183,6 @@ Start a session only from a test’s debug button. Starting the configuration wi
 [cpptools]: https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools
 [codelldb]: https://marketplace.visualstudio.com/items?itemName=vadimcn.vscode-lldb
 [debugging]: ../manual/debugging.md
+[layout]: ../manual/debugging.md#the-launch-configuration
 
 <br/><br/>

@@ -30,7 +30,7 @@ Help with the extension comes from its repository and from the Ceedling communit
 
 </div>
 
-!!! info "Supporting this work"
+!!! sponsorship "Supporting this work"
 
     Ceedling and its complementary [ThrowTheSwitch] pieces and parts are and always will be freely available and open source. **_[Ceedling Suite][ceedling-suite]_** is a growing collection of paid products and services built around Ceedling to help you do even more. **[Please consider supporting Ceedling and this extension as a GitHub Sponsor][sponsor].**
 
